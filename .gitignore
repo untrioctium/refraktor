@@ -30,3 +30,17 @@
 *.exe
 *.out
 *.app
+
+build/
+kernel.sqlite
+*.bmp
+*.png
+*.jpg
+*.flam3
+assets/custom_flames
+assets/extern
+assets/flames
+assets/flames_all
+assets/flames_test
+assets/fonts
+assets/templates

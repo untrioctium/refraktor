@@ -1,0 +1,1228 @@
+# Variation definitions
+# Code in this file is adapted from flam3 by Scott Draves and others
+# https://github.com/scottdraves/flam3/blob/master/variations.c
+
+xcommon:
+    sumsq: p.x * p.x + p.y * p.y
+    sqrt: hypot(p.x, p.y)
+    atan: atan2(p.x, p.y)
+    phi: atan2(p.y, p.x)
+    sina: p.x / xcommon(sqrt)
+    cosa: p.y / xcommon(sqrt)
+    sinr: sin(xcommon(sqrt))
+    cosr: cos(xcommon(sqrt))
+    
+variations:
+    linear: |-
+        result.x += weight * p.x;
+        result.y += weight * p.y;
+            
+    sinusoidal: |-
+        result.x += weight * sin(p.x);
+        result.y += weight * sin(p.y);
+        
+    spherical: |-
+        Real r2 = weight / ( xcommon(sumsq) + M_EPS);
+        result.x += r2 * p.x;
+        result.y += r2 * p.y;
+        
+    swirl: |-
+        Real c1 = sin(xcommon(sumsq));
+        Real c2 = cos(xcommon(sumsq));
+        result.x += weight * (c1 * p.x - c2 * p.y);
+        result.y += weight * (c2 * p.x + c1 * p.y);
+        
+    horseshoe: |-
+        weight /= (xcommon(sqrt) + M_EPS);
+        result.x += weight * (p.x + p.y) * (p.x - p.y);
+        result.y += weight * Real(2.0) * p.x * p.y;
+        
+    polar: |-
+        result.x += weight * xcommon(atan) / M_PI;
+        result.y += weight * (xcommon(sqrt) - Real(1.0));
+        
+    handkerchief: |-
+        weight *= xcommon(sqrt);
+        result.x += weight * sin(xcommon(atan) + xcommon(sqrt));
+        result.y += weight * cos(xcommon(atan) - xcommon(sqrt));
+        
+    heart: |-
+        Real a = xcommon(sqrt) * xcommon(atan);
+        Real ca,sa;
+        Real r = weight * xcommon(sqrt);
+
+        sincos(a,&sa,&ca);
+
+        result.x += r * sa;
+        result.y += (-r) * ca;
+
+    disc: |-
+        Real a = xcommon(atan) * M_1_PI;
+        Real r = M_PI * xcommon(sqrt);
+        Real sr,cr;
+        sincos(r,&sr,&cr);
+
+        result.x += weight * sr * a;
+        result.y += weight * cr * a;
+        
+    spiral: |-
+        Real r = xcommon(sqrt) + M_EPS;
+        Real coef = weight / r;
+        Real sr, cr;
+        sincos(r, &sr, &cr);
+        result.x += coef * (xcommon(cosa) + sr);
+        result.y += coef * (xcommon(sina) - cr);
+        
+    hyperbolic: |-
+        Real coeff = xcommon(sqrt) + M_EPS;
+        result.x += weight * xcommon(sina) / coeff;
+        result.y += weight * xcommon(cosa) * coeff;
+        
+    diamond: |-
+        Real sr,cr;
+        sincos( xcommon(sqrt), &sr, &cr);
+        result.x += weight * xcommon(sina) * cr;
+        result.y += weight * xcommon(cosa) * sr;
+        
+    ex: |-
+        Real n0 = sin(xcommon(atan) + xcommon(sqrt));
+        Real n1 = cos(xcommon(atan) - xcommon(sqrt));
+        Real m0 = n0 * n0 * n0 * xcommon(sqrt);
+        Real m1 = n1 * n1 * n1 * xcommon(sqrt);
+        result.x += weight * (m0 + m1);
+        result.y += weight * (m0 - m1);
+
+    julia: |-
+        Real r;
+        Real a = 0.5 * xcommon(atan);
+        Real sa,ca;
+
+        a += M_PI * (rs->rand() & 1);
+
+        r = weight * sqrt(xcommon(sqrt));
+
+        sincos(a,&sa,&ca);
+
+        result.x += r * ca;
+        result.y += r * sa;
+        
+    bent: |-
+        Real nx = p.x;
+        Real ny = p.y;
+        if(nx < Real(0.0)) nx *= Real(2.0);
+        if(ny < Real(0.0)) ny /= Real(2.0);
+        result.x += weight * nx;
+        result.y += weight * ny;
+        
+    waves: |-
+        result.x += weight * (p.x + xaffine_b * sin( p.y / (xaffine_c * xaffine_c + M_EPS)));
+        result.y += weight * (p.y + xaffine_e * sin( p.x / (xaffine_f * xaffine_f + M_EPS)));
+        
+    fisheye: |-
+        weight *= 2 / (xcommon(sqrt) + 1);
+        result.x += weight * p.y;
+        result.y += weight * p.x;
+    
+    popcorn: |-
+        result.x += weight * (p.x + xaffine_c * sin(tan(3 * p.y)));
+        result.y += weight * (p.y + xaffine_f * sin(tan(3 * p.x)));
+        
+    exponential: |-
+        Real dx = weight * exp(p.x - 1.0);
+        Real sdy, cdy;
+        sincos( M_PI * p.y, &sdy, &cdy );
+        result.x += dx * cdy;
+        result.y += dx * sdy;
+        
+    power: |-
+        Real coef = weight * pow(xcommon(sqrt), xcommon(sina));
+        result.x += coef * xcommon(cosa);
+        result.y += coef * xcommon(sina);
+        
+    cosine: |-
+        Real sa, ca;
+        sincos( p.x * M_PI, &sa, &ca );
+        result.x += weight * (ca * cosh(p.y));
+        result.y += weight * (-sa * sinh(p.y));
+        
+    rings: |-
+        Real dx = xaffine_c * xaffine_c + M_EPS;
+        weight *= (fmod(xcommon(sqrt) + dx, 2 * dx) - dx + xcommon(sqrt) * (1 - dx));
+        result.x += weight * xcommon(cosa);
+        result.y += weight * xcommon(sina);
+        
+    fan: |-
+        Real dx = M_PI * (xaffine_c * xaffine_c + M_EPS);
+        Real dx2 = 0.5f * dx;
+        Real a = xcommon(atan);
+        weight *= xcommon(sqrt);
+        Real sa, ca;
+        a += (fmod(a + xaffine_f, dx) > dx2) ? -dx2: dx2;
+        __sincos(a, &sa, &ca);
+        result.x += weight * ca;
+        result.y += weight * sa;
+
+    blob:
+        param:
+            blob_low: {}
+            blob_high: 
+                default: 1.0
+            blob_waves: 
+                default: 1.0
+        src: |-
+            Real bdiff = blob_high - blob_low;
+            weight *= xcommon(sqrt) * (blob_low + bdiff * (0.5f + 0.5f * sin(blob_waves * xcommon(atan))));
+            result.x += weight * xcommon(sina);
+            result.y += weight * xcommon(cosa);
+
+    pdj:
+        param:
+            pdj_a: {}
+            pdj_b: {}
+            pdj_c: {}
+            pdj_d: {}
+        src: |-
+            result.x += weight * (sin(pdj_a * p.y) - cos(pdj_b * p.x));
+            result.y += weight * (sin(pdj_c * p.x) - cos(pdj_d * p.y));
+            
+    fan2:
+        param:
+            fan2_x: {}
+            fan2_y: {}
+        src: |-
+            Real dy = fan2_y;
+            Real dx = M_PI * (fan2_x * fan2_x + M_EPS);
+            Real dx2 = 0.5 * dx;
+            Real a = xcommon(atan);
+            Real sa,ca;
+            Real r = weight * xcommon(sqrt);
+            Real t = a + dy - dx * (int)((a + dy)/dx);
+            if (t>dx2)
+               a = a-dx2;
+            else
+               a = a+dx2;
+            sincos(a,&sa,&ca);
+            result.x += r * sa;
+            result.y += r * ca;
+            
+    rings2: 
+        param:
+            rings2_val: {}
+        src: |-
+            Real r = xcommon(sqrt);
+            Real dx = rings2_val * rings2_val + M_EPS;
+            r += -2.0f * dx * (int)((r+dx)/(2.0f * dx)) + r * (1.0f-dx);
+            result.x += weight * xcommon(sina) * r;
+            result.y += weight * xcommon(cosa) * r;
+            
+    eyefish: |-
+        Real coef = 2 * weight / (xcommon(sqrt) + 1);
+        result.x += coef * p.x;
+        result.y += coef * p.y;
+
+    bubble: |-
+        Real coef = weight / (Real(0.25) * xcommon(sumsq) + 1);
+        result.x += coef * p.x;
+        result.y += coef * p.y;
+
+    cylinder: |-
+        result.x += weight * sin(p.x);
+        result.y += weight * p.y;      
+
+    perspective:
+        param:
+            perspective_angle: {}
+            perspective_dist: {}
+        src: |-
+            Real vsin, vfcos;
+            sincos(perspective_angle * M_PI/ 2.0, &vsin, &vfcos);
+            vfcos *= perspective_dist;
+            Real t= 1.0 / (perspective_dist - p.y * vsin);
+            result.x += weight * perspective_dist * p.x * t;
+            result.y += weight * vfcos * p.y * t;
+
+    noise: |-
+        Real sr, cr, r;
+        sincos(rs->rand_uniform() * 2.0f * M_PI, &sr, &cr);
+        r = weight * rs->rand_uniform();
+        result.x += p.x * r * sr;
+        result.y += p.y * r * cr;
+
+    julian:
+        param:
+            julian_dist: 
+                default: 1.0
+            julian_power: 
+                default: 1.0
+        src: |-
+            Real julian_rn = abs(julian_power);
+            Real julian_cn = julian_dist/julian_power/2.0;
+            int t_rnd = trunc(julian_rn * rs->rand_uniform());
+            Real tmpr = (xcommon(phi) + 2 * M_PI * t_rnd) / julian_power;
+            Real r = weight * __pow(xcommon(sumsq), julian_cn);
+            Real sa, ca;
+            __sincos(tmpr, &sa, &ca);
+            result.x += r * ca;
+            result.y += r * sa; 
+
+    juliascope:
+        param:
+            juliascope_dist: 
+                default: 1.0
+            juliascope_power: 
+                default: 1.0
+        src: |-
+            Real juliascope_rn = abs(juliascope_power);
+            Real juliascope_cn = juliascope_dist / juliascope_power;
+            int t_rnd = trunc(juliascope_rn * rs->rand_uniform());
+            Real tmpr, r;
+            Real sa,ca;
+            if((t_rnd & 1) == 0)
+                tmpr = (2 * M_PI * t_rnd + xcommon(phi)) / juliascope_power;
+            else
+                tmpr = (2 * M_PI * t_rnd - xcommon(phi)) / juliascope_power;
+            sincos(tmpr, &sa, &ca);
+            r = weight * pow(xcommon(sqrt), juliascope_cn);
+            result.x += r * ca;
+            result.y += r * sa;
+
+    blur: |-
+        Real r, sinang,cosang;
+        sincos( rs->rand_uniform() * 2 * M_PI, &sinang, &cosang );
+        r = weight * rs->rand_uniform(); 
+        result.x += r * cosang;
+        result.y += r * sinang;  
+
+    gaussian_blur: |-
+        Real r, sinang,cosang;
+        sincos( rs->rand_uniform() * 2 * M_PI, &sinang, &cosang );
+        r = weight * (rs->rand_uniform() + rs->rand_uniform() + rs->rand_uniform() + rs->rand_uniform() - 2.0);
+        result.x += r * cosang;
+        result.y += r * sinang;     
+
+    radial_blur:
+        param:
+            radial_blur_angle: {}
+        src: |-
+            Real spinvar,zoomvar, rnd_g, rz, tmpa, sa, ca;
+            sincos(radial_blur_angle * M_PI / Real(2.0), &spinvar, &zoomvar);
+            rnd_g = weight *(rs->rand_uniform() + rs->rand_uniform() +rs->rand_uniform() +rs->rand_uniform() - 2.0);
+            tmpa = xcommon(phi) + spinvar * rnd_g;
+            sincos(tmpa, &sa, &ca);
+            rz = zoomvar * rnd_g - 1;
+            result.x += xcommon(sqrt) * ca + rz * p.x;
+            result.y += xcommon(sqrt) * sa + rz * p.y;     
+
+    pie:
+        param:
+            pie_thickness: {}
+            pie_rotation: {}
+            pie_slices: 
+                default: 6.0
+        src: |-
+            Real a, r, sa, ca;
+            int sl;
+            sl = (int) (rs->rand_uniform() * pie_slices + 0.5f);
+            a = pie_rotation + 2.0f * M_PI * (sl + rs->rand_uniform() * pie_thickness)/pie_slices;
+            r = weight * rs->rand_uniform();
+            sincos(a, &sa, &ca);
+            result.x += r * ca;
+            result.y += r * sa;
+
+    ngon:
+        param:
+            ngon_power: {}
+            ngon_sides: {}
+            ngon_circle: {}
+            ngon_corners: {}
+        src: |-
+            Real r_factor,theta,phi,b, amp;
+            r_factor = pow(xcommon(sumsq), Real(ngon_power/2.0));
+            theta = xcommon(phi);
+            b = 2*M_PI/ngon_sides;
+            phi = theta - (b*floor(theta/b));
+            if (phi > b/2)
+                phi -= b;
+            amp = ngon_corners * (1.0 / (cos(phi) + M_EPS) - 1.0) + ngon_circle;
+            amp /= (r_factor + M_EPS);
+            result.x += weight * p.x * amp;
+            result.y += weight * p.y * amp;
+     
+    curl:
+        param:
+            curl_c1: 
+                default: 1.0
+            curl_c2: {}
+        src: |-
+            Real re = 1.0 + curl_c1 * p.x + curl_c2 * (p.x * p.x - p.y * p.y);
+            Real im = curl_c1 * p.y + 2.0 * curl_c2 * p.x * p.y;
+            Real r = weight / (re * re + im * im);
+            result.x += (p.x * re + p.y * im) * r;
+            result.y += (p.y * re - p.x * im) * r;
+
+    rectangles:
+        param:
+            rectangles_x: 
+                default: 1.0
+            rectangles_y: 
+                default: 1.0
+        src: |-
+            if(rectangles_x == Real(0.0))
+                result.x += weight * p.x;
+            else
+                result.x += weight * ((2 * floor(p.x / rectangles_x) + 1) * rectangles_x - p.x);
+            if(rectangles_y == Real(0.0))
+                result.y += weight * p.y;
+            else
+                result.y += weight * ((2 * floor(p.y / rectangles_y) + 1) * rectangles_y - p.y);
+
+    arch: |-
+        Real ang = rs->rand_uniform() * weight * M_PI;
+        Real sinr,cosr;
+        sincos(ang,&sinr,&cosr);
+
+        result.x += weight * sinr;
+        result.y += weight * (sinr*sinr)/cosr;
+        
+    tangent: |-
+        result.x += weight * sin(p.x)/cos(p.y);
+        result.y += weight * tan(p.y);
+        
+    square: |-
+        result.x += weight * (rs->rand_uniform() - 0.5);
+        result.y += weight * (rs->rand_uniform() - 0.5);
+        
+    rays: |-
+        Real ang = weight * rs->rand_uniform() * M_PI;
+        Real r = weight / (xcommon(sumsq) + M_EPS);
+        Real tanr = weight * tan(ang) * r;
+        result.x += tanr * cos(p.x);
+        result.y += tanr * sin(p.y);
+        
+    blade: |-
+        Real r = rs->rand_uniform() * weight * xcommon(sqrt);
+        Real sinr,cosr;
+        sincos(r,&sinr,&cosr);
+        result.x += weight * p.x * (cosr + sinr);
+        result.y += weight * p.x * (cosr - sinr);
+        
+    secant2: |-
+        Real r = weight * xcommon(sqrt);
+        Real cr = cos(r);
+        Real icr = 1.0/cr;
+        result.x += weight * p.x;
+        if (cr<0)
+          result.y += weight*(icr + 1);
+        else
+          result.y += weight*(icr - 1);
+          
+    twintrian:
+        Real r = rs->rand_uniform() * weight * xcommon(sqrt);
+        Real sinr,cosr,diff;
+        sincos(r,&sinr,&cosr);
+        diff = log10(sinr*sinr)+cosr;
+        if (badvalue(diff))
+            diff = -30.0;
+        result.x += weight * p.x * diff;
+        result.y += weight * p.x * (diff - sinr*M_PI);
+        
+    cross: |-
+        Real s = p.x * p.x - p.y * p.y;
+        weight *= sqrt(1.0f/(s * s + M_EPS));
+        result.x += p.x * weight;
+        result.y += p.y * weight;
+
+    disc2:
+        param:
+            disc2_rot: {}
+            disc2_twist: {}
+        src: |-
+            Real add = disc2_twist;
+            Real k, disc2_timespi, disc2_sinadd, disc2_cosadd;
+
+            disc2_timespi = disc2_rot * M_PI;
+
+            sincos(add,&disc2_sinadd,&disc2_cosadd);
+            disc2_cosadd -= 1;
+
+            if (add > 2 * M_PI) {
+              k = (1 + add - 2*M_PI);
+              disc2_cosadd *= k;
+              disc2_sinadd *= k;
+            }
+
+            if (add < -2 * M_PI) {
+              k = (1 + add + 2*M_PI);
+              disc2_cosadd *= k;
+              disc2_sinadd *= k;
+            }
+            
+            Real r,t,sinr, cosr;
+
+            t = disc2_timespi * (p.x + p.y);
+            sincos(t,&sinr,&cosr);
+            r = weight * xcommon(atan) / M_PI;
+
+            result.x += (sinr + disc2_cosadd) * r;
+            result.y += (cosr + disc2_sinadd) * r;
+            
+            
+    super_shape:
+        param:
+            super_shape_rnd: {}
+            super_shape_m: {}
+            super_shape_n1: 
+                default: 1.0
+            super_shape_n2: 
+                default: 1.0
+            super_shape_n3: 
+                default: 1.0
+            super_shape_holes: {}
+        src: |-
+            Real pm4 = super_shape_m / 4.0f;
+            Real pneg1 = -1.0f / super_shape_n1;
+            Real st, ct;
+            sincos(pm4 * xcommon(phi) + M_PI/4.0f, &st, &ct);
+            Real r = weight * (
+                   (
+                    super_shape_rnd * rs->rand_uniform() 
+                    + (1.0f - super_shape_rnd) * xcommon(sqrt)
+                    ) - super_shape_holes
+                   ) * pow(
+                    pow(abs(ct), super_shape_n2) +
+                    pow(abs(st), super_shape_n3),
+                    -1.0f / super_shape_n1
+                   ) / xcommon(sqrt);
+            result.x += r * p.x;
+            result.y += r * p.y;
+            
+    flower:
+        param:
+            flower_holes: {}
+            flower_petals: {}
+        src: |-
+            Real coef = weight * (rs->rand_uniform() - flower_holes) * cos(flower_petals * xcommon(atan)) / xcommon(sqrt);
+            result.x += coef * p.x;
+            result.y += coef * p.y;
+    
+    conic:
+        param:
+            conic_holes: {}
+            conic_eccentricity: 
+                default: 1.0
+        src: |-
+            Real ct = p.x / xcommon(sqrt);
+            Real r = weight * (rs->rand_uniform() - conic_holes) *
+                            conic_eccentricity / (1 + conic_eccentricity*ct) / xcommon(sqrt);
+            result.x += r * p.x;
+            result.y += r * p.y;
+
+    parabola:
+        param:
+            parabola_width: {}
+            parabola_height: {}
+        src: |-
+            Real sr, cr;
+            sincos(xcommon(sqrt), &sr, &cr);
+            result.x += parabola_height * weight * sr * sr * rs->rand_uniform();
+            result.y += parabola_width * weight * cr * rs->rand_uniform();
+
+    bent2:
+        param:
+            bent2_x:
+                default: 1.0
+            bent2_y:
+                default: 1.0
+        src: |-
+           Real nx = p.x;
+           Real ny = p.y;
+           if (nx < 0.0)
+              nx = nx * bent2_x;
+           if (ny < 0.0)
+              ny = ny * bent2_y;
+           result.x += weight * nx;
+           result.y += weight * ny;
+           
+    bipolar:
+        param:
+            bipolar_shift: {}
+        src: |-
+            Real x2y2 = xcommon(sumsq);
+            Real t = x2y2+1;
+            Real x2 = 2*p.x;
+            Real ps = -M_PI_2 * bipolar_shift;
+            Real y = 0.5 * atan2(2.0 * p.y, x2y2 - 1.0) + ps;
+            if (y > M_PI_2)
+               y = -M_PI_2 + fmod(y + M_PI_2, M_PI);
+            else if (y < -M_PI_2)
+               y = M_PI_2 - fmod(M_PI_2 - y, M_PI);
+            result.x += weight * 0.25 * M_2_PI * log ( (t+x2) / (t-x2) );
+            result.y += weight * M_2_PI * y;
+            
+    boarders: |-
+        Real roundX = rint(p.x);
+        Real roundY = rint(p.y);
+        Real offsetX = p.x - roundX;
+        Real offsetY = p.y - roundY;
+        
+        if(rs->rand_uniform() >= 0.75f) {
+            result.x += weight * (offsetX * 0.5f + roundX);
+            result.y += weight * (offsetY * 0.5f + roundY);
+        } else {
+            if(fabs(offsetX) >= fabs(offsetY)) {
+                if(offsetX >= 0.0) {
+                    result.x += weight * (offsetX * 0.5f + roundX + 0.25f);
+                    result.y += weight * (offsetY * 0.5f + roundY + 0.25f * offsetY/offsetX);
+                } else {
+                    result.x += weight * (offsetX * 0.5f + roundX - 0.25f);
+                    result.y += weight * (offsetY * 0.5f + roundY - 0.25f * offsetY/offsetX);                
+                }
+            } else {
+                if(offsetY >= 0.0) {
+                    result.y += weight * (offsetY * 0.5f + roundY + 0.25f);
+                    result.x += weight * (offsetX * 0.5f + roundX + 0.25f * offsetX/offsetY);
+                } else {
+                    result.y += weight * (offsetY * 0.5f + roundY - 0.25f);
+                    result.x += weight * (offsetX * 0.5f + roundX - 0.25f * offsetX/offsetY);                
+                }                  
+            }
+        }
+
+    butterfly: |-
+        Real wx = weight*1.3029400317411197908970256609023;
+        Real y2 = p.y*2.0;
+        Real r = wx*sqrt(fabs(p.y * p.x)/(M_EPS + p.x*p.x + y2*y2));
+        result.x += r * p.x;
+        result.y += r * y2;
+        
+    cell:
+        param:
+            cell_size:
+                default: 1.0
+        src: |-
+            Real inv_cell_size = 1.0/cell_size;
+            /* calculate input cell */
+            int x = floor(p.x*inv_cell_size);
+            int y = floor(p.y*inv_cell_size);
+            /* Offset from cell origin */
+            Real dx = p.x - x*cell_size;
+            Real dy = p.y - y*cell_size;
+            /* interleave cells */
+            if (y >= 0) {
+              if (x >= 0) {
+                 y *= 2;
+                 x *= 2;
+              } else {
+                 y *= 2;
+                 x = -(2*x+1);
+              }
+            } else {
+              if (x >= 0) {
+                 y = -(2*y+1);
+                 x *= 2;
+              } else {
+                 y = -(2*y+1);
+                 x = -(2*x+1);
+              }
+            }
+            result.x += weight * (dx + x*cell_size);
+            result.y -= weight * (dy + y*cell_size);
+            
+    cpow:
+        param:
+            cpow_power: 
+                default: 1.0
+            cpow_r:
+                default: 1.0
+            cpow_i: {}
+        src: |-
+            Real a = xcommon(phi);
+            Real lnr = 0.5 * log(xcommon(sumsq));
+            Real va = 2.0 * M_PI / cpow_power;
+            Real vc = cpow_r / cpow_power;
+            Real vd = cpow_i / cpow_power;
+            Real ang = vc*a + vd*lnr + va*floor(cpow_power*rs->rand_uniform());
+            Real sa,ca;
+            Real m = weight * exp(vc * lnr - vd * a);
+            sincos(ang,&sa,&ca);
+            result.x += m * ca;
+            result.y += m * sa;     
+
+    curve:
+        param:
+            curve_xlength: 
+                default: 1.0
+            curve_ylength: 
+                default: 1.0
+            curve_xamp: {}
+            curve_yamp: {}
+        src: |-
+            Real pc_xlen = curve_xlength*curve_xlength;
+            Real pc_ylen = curve_ylength*curve_ylength;
+
+            if (pc_xlen<1E-20) pc_xlen = 1E-20;
+
+            if (pc_ylen<1E-20) pc_ylen = 1E-20;
+
+            result.x += weight * (p.x + curve_xamp * exp(-p.y*p.y/pc_xlen));
+            result.y += weight * (p.y + curve_yamp * exp(-p.x*p.x/pc_ylen));
+            
+    edisc: |-
+        Real tmp = xcommon(sumsq) + 1.0;
+        Real tmp2 = 2.0 * p.x;
+        Real r1 = sqrt(tmp+tmp2);
+        Real r2 = sqrt(tmp-tmp2);
+        Real xmax = (r1+r2) * 0.5;
+        Real a1 = log(xmax + sqrt(xmax - 1.0));
+        Real a2 = -acos(p.x/xmax);
+        Real w = weight / 11.57034632;
+        Real snv,csv,snhu,cshu;
+
+        sincos(a1,&snv,&csv);
+
+        snhu = sinh(a2);
+        cshu = cosh(a2);
+
+        if (p.y > 0.0) snv = -snv;
+
+        result.x += w * cshu * csv;
+        result.y += w * snhu * snv;
+        
+    elliptic: |-
+        Real tmp = xcommon(sumsq) + 1.0;
+        Real x2 = 2.0 * p.x;
+        Real xmax = 0.5 * (sqrt(tmp+x2) + sqrt(tmp-x2));
+        Real a = p.x / xmax;
+        Real b = 1.0 - a*a;
+        Real ssx = xmax - 1.0;
+        Real w = weight / M_PI_2;
+
+        if (b<0)
+          b = 0;
+        else
+          b = sqrt(b);
+
+        if (ssx<0)
+          ssx = 0;
+        else
+          ssx = sqrt(ssx);
+
+        result.x += w * atan2(a,b);
+
+        if (p.y > 0)
+          result.y += w * log(xmax + ssx);
+        else
+          result.y -= w * log(xmax + ssx);    
+          
+    escher:
+        param:
+            escher_beta: {}
+        src: |-
+            Real seb,ceb;
+            Real vc,vd;
+            Real m,n;
+            Real sn,cn;
+
+            Real a = xcommon(phi);
+            Real lnr = 0.5 * log(xcommon(sumsq));
+
+            sincos(escher_beta,&seb,&ceb);
+
+            vc = 0.5 * (1.0 + ceb);
+            vd = 0.5 * seb;
+
+            m = weight * exp(vc*lnr - vd*a);
+            n = vc*a + vd*lnr;
+
+            sincos(n,&sn,&cn);
+
+            result.x += m * cn;
+            result.y += m * sn;        
+            
+    foci: |-
+        Real expx = exp(p.x) * 0.5;
+        Real expnx = 0.25 / expx;
+        Real sn,cn,tmp;
+
+        sincos(p.y,&sn,&cn);
+        tmp = weight/(expx + expnx - cn);
+
+        result.x += tmp * (expx - expnx);
+        result.y += tmp * sn;    
+        
+    lazysusan:
+        param:
+            lazysusan_x: {}
+            lazysusan_y: {}
+            lazysusan_twist: {}
+            lazysusan_spin: {}
+            lazysusan_space: {}
+        src: |-
+            Real x = p.x - lazysusan_x;
+            Real y = p.y + lazysusan_y;
+            Real r = sqrt(x*x + y*y);
+            Real sina, cosa;
+
+            if (r<weight) {
+              Real a = atan2(y,x) + lazysusan_spin +
+                         lazysusan_twist*(weight-r);
+              sincos(a,&sina,&cosa);
+              r = weight * r;
+
+              result.x += r*cosa + lazysusan_x;
+              result.y += r*sina - lazysusan_y;
+            } else {
+
+              r = weight * (1.0 + lazysusan_space / r);
+
+              result.x += r*x + lazysusan_x;
+              result.y += r*y - lazysusan_y;
+
+            }        
+    
+    loonie: |-
+        Real r2 = xcommon(sumsq);
+        Real w2 = weight*weight;
+
+        if (r2 < w2) {
+          Real r = weight * sqrt(w2/r2 - 1.0);
+          result.x += r * p.x;
+          result.y += r * p.y;
+        } else {
+          result.x += weight * p.x;
+          result.y += weight * p.y;
+        }
+            
+    modulus:
+        param:
+            modulus_x: {}
+            modulus_y: {}
+        src: |-
+            Real xr = 2*modulus_x;
+            Real yr = 2*modulus_y;
+
+            if (p.x > modulus_x)
+              result.x += weight * (-modulus_x + fmod(p.x + modulus_x, xr));
+            else if (p.x < -modulus_x)
+              result.x += weight * ( modulus_x - fmod(modulus_x - p.x, xr));
+            else
+              result.x += weight * p.x;
+
+            if (p.y > modulus_y)
+              result.y += weight * (-modulus_y + fmod(p.y + modulus_y, yr));
+            else if (p.y < -modulus_y)
+              result.y += weight * ( modulus_y - fmod(modulus_y - p.y, yr));
+            else
+              result.y += weight * p.y;
+              
+    oscilloscope:
+        param:
+            oscilloscope_frequency:
+                default: 3.141592653589793238462643383279
+            oscilloscope_damping: {}
+            oscilloscope_amplitude: 
+                default: 1.0
+            oscilloscope_separation:
+                default: 1.0
+        src: |-
+            Real tpf = 2 * M_PI * oscilloscope_frequency;
+            Real t;
+
+            if (oscilloscope_damping == 0.0)
+              t = oscilloscope_amplitude * cos(tpf*p.x) + oscilloscope_separation;
+            else {
+              t = oscilloscope_amplitude * exp(-fabs(p.x)*oscilloscope_damping)
+                  * cos(tpf*p.x) + oscilloscope_separation;
+            }
+
+            if (fabs(p.y) <= t) {
+              result.x += weight*p.x;
+              result.y -= weight*p.y;
+            } else {
+              result.x += weight*p.x;
+              result.y += weight*p.y;
+            }        
+            
+    polar2: |-
+        Real p2v = weight / M_PI;
+
+        result.x += p2v * xcommon(atan);
+        result.y += p2v/2.0 * log(xcommon(sumsq));    
+        
+    popcorn2:
+        param:
+            popcorn2_x: {}
+            popcorn2_y: {}
+            popcorn2_c: {}
+        src: |-
+            result.x += weight * ( p.x + popcorn2_x * sin(tan(p.y*popcorn2_c)));
+            result.y += weight * ( p.y + popcorn2_y * sin(tan(p.x*popcorn2_c)));        
+            
+    scry: |-
+        Real t = xcommon(sumsq);
+        Real r = 1.0 / (xcommon(sqrt) * (t + 1.0/(weight+M_EPS)));
+
+        result.x += p.x * r;
+        result.y += p.y * r;    
+        
+    separation:
+        param:
+            separation_x: {}
+            separation_y: {}
+            separation_xinside: {}
+            separation_yinside: {}
+        src: |-
+            Real sx2 = separation_x * separation_x;
+            Real sy2 = separation_y * separation_y;
+
+            if (p.x > 0.0)
+              result.x += weight * (sqrt(p.x*p.x + sx2)- p.x*separation_xinside);
+            else
+              result.x -= weight * (sqrt(p.x*p.x + sx2)+ p.x*separation_xinside);
+
+            if (p.y > 0.0)
+              result.y += weight * (sqrt(p.y*p.y + sy2)- p.y*separation_yinside);
+            else
+              result.y -= weight * (sqrt(p.y*p.y + sy2)+ p.y*separation_yinside);        
+              
+    split:
+        param:
+            split_xsize: {}
+            split_ysize: {}
+        src: |-
+            if (cos(p.x*split_xsize*M_PI) >= 0)
+              result.y += weight*p.y;
+            else
+              result.y -= weight*p.y;
+
+            if (cos(p.y*split_ysize*M_PI) >= 0)
+              result.x += weight * p.x;
+            else
+              result.x -= weight * p.x;        
+              
+    splits:
+        param:
+            splits_x: {}
+            splits_y: {}
+        src: |-
+            if (p.x >= 0)
+              result.x += weight*(p.x+splits_x);
+            else
+              result.x += weight*(p.x-splits_x);
+
+            if (p.y >= 0)
+              result.y += weight*(p.y+splits_y);
+            else
+              result.y += weight*(p.y-splits_y);       
+
+    stripes:
+        param:
+            stripes_space: {}
+            stripes_warp: {}
+        src: |-
+            Real roundx,offsetx;
+
+            roundx = floor(p.x + 0.5);
+            offsetx = p.x - roundx;
+
+            result.x += weight * (offsetx*(1.0-stripes_space)+roundx);
+            result.y += weight * (p.y + offsetx*offsetx*stripes_warp);  
+
+    wedge: 
+        param:
+            wedge_swirl: {}
+            wedge_count:
+                default: 1.0
+            wedge_angle: {}
+            wedge_hole: {}
+        src: |-
+            Real r = xcommon(sqrt);
+            Real a = xcommon(phi) + wedge_swirl * r;
+            Real c = floor( (wedge_count * a + M_PI)*M_1_PI*0.5);
+
+            Real comp_fac = 1 - wedge_angle*wedge_count*M_1_PI*0.5;
+            Real sa, ca;
+
+            a = a * comp_fac + c * wedge_angle;
+
+            sincos(a,&sa,&ca);
+
+            r = weight * (r + wedge_hole);
+
+            result.x += r*ca;
+            result.y += r*sa;      
+
+    wedge_julia:
+        param:
+            wedge_julia_power:
+                default: 1.0
+            wedge_julia_angle: {}
+            wedge_julia_count:
+                default: 1.0
+            wedge_julia_dist: {}
+        src: |-
+            Real wedgeJulia_cf = 1.0 - wedge_julia_angle * wedge_julia_count * M_1_PI * 0.5;
+            Real wedgeJulia_rN = fabs(wedge_julia_power);
+            Real wedgeJulia_cn = wedge_julia_dist / wedge_julia_power / 2.0;
+            Real r = weight * pow(xcommon(sumsq), wedgeJulia_cn);
+            int t_rnd = (int)((wedgeJulia_rN)*rs->rand_uniform());
+            Real a = (xcommon(phi) + 2 * M_PI * t_rnd) / wedge_julia_power;
+            Real c = floor( (wedge_julia_count * a + M_PI)*M_1_PI*0.5 );
+            Real sa,ca;
+
+            a = a * wedgeJulia_cf + c * wedge_julia_angle;
+
+            sincos(a,&sa,&ca);
+
+            result.x += r * ca;
+            result.y += r * sa;
+            
+    wedge_sph:
+        param:
+            wedge_sph_swirl: {}
+            wedge_sph_count: 
+                default: 1.0
+            wedge_sph_angle: {}
+            wedge_sph_hole: {}
+        src: |-
+            Real r = 1.0/(xcommon(sqrt)+M_EPS);
+            Real a = xcommon(phi) + wedge_sph_swirl * r;
+            Real c = floor( (wedge_sph_count * a + M_PI)*M_1_PI*0.5);
+
+            Real comp_fac = 1 - wedge_sph_angle*wedge_sph_count*M_1_PI*0.5;
+            Real sa, ca;
+
+            a = a * comp_fac + c * wedge_sph_angle;
+
+            sincos(a,&sa,&ca);
+            r = weight * (r + wedge_sph_hole);
+
+            result.x += r*ca;
+            result.y += r*sa;
+            
+    whorl:
+        param:
+            whorl_inside: {}
+            whorl_outside: {}
+        src: |-
+            Real r = xcommon(sqrt);
+            Real a,sa,ca;
+
+            if (r<weight)
+              a = xcommon(phi) + whorl_inside/(weight-r);
+            else
+              a = xcommon(phi) + whorl_outside/(weight-r);
+
+            sincos(a,&sa,&ca);
+
+            result.x += weight*r*ca;
+            result.y += weight*r*sa;     
+
+    waves2:
+        param:
+            waves2_freqx: {}
+            waves2_scalex: {}
+            waves2_freqy: {}
+            waves2_scaley: {}
+        src: |-
+            result.x += weight * (p.x + waves2_scalex * sin(p.y * waves2_freqx));
+            result.y += weight * (p.y + waves2_scaley * sin(p.x * waves2_freqy));
+
+    exp: |-
+        Real expe = exp(p.x);
+        Real expcos,expsin;
+        sincos(p.y,&expsin,&expcos);
+        result.x += weight * expe * expcos;
+        result.y += weight * expe * expsin;
+        
+    log: |-
+        result.x += weight * 0.5 * log(xcommon(sumsq));
+        result.y += weight * xcommon(phi);
+        
+    sin: |-
+        Real sinsin,sinacos,sinsinh,sincosh;
+        sincos(p.x,&sinsin,&sinacos);
+        sinsinh = sinh(p.y);
+        sincosh = cosh(p.y);
+        result.x += weight * sinsin * sincosh;
+        result.y += weight * sinacos * sinsinh;    
+
+    cos: |-
+        Real cossin,coscos,cossinh,coscosh;
+        sincos(p.x,&cossin,&coscos);
+        cossinh = sinh(p.y);
+        coscosh = cosh(p.y);
+        result.x += weight * coscos * coscosh;
+        result.y -= weight * cossin * cossinh;
+        
+    tan: |-
+        Real tansin,tancos,tansinh,tancosh;
+        Real tanden;
+        sincos(2*p.x,&tansin,&tancos);
+        tansinh = sinh(2.0*p.y);
+        tancosh = cosh(2.0*p.y);
+        tanden = 1.0/(tancos + tancosh);
+        result.x += weight * tanden * tansin;
+        result.y += weight * tanden * tansinh;
+        
+    sec: |-
+        Real secsin,seccos,secsinh,seccosh;
+        Real secden;
+        sincos(p.x,&secsin,&seccos);
+        secsinh = sinh(p.y);
+        seccosh = cosh(p.y);
+        secden = 2.0/(cos(2*p.x) + cosh(2*p.y));
+        result.x += weight * secden * seccos * seccosh;
+        result.y += weight * secden * secsin * secsinh;    
+    
+    csc: |-
+        Real cscsin,csccos,cscsinh,csccosh;
+        Real cscden;
+        sincos(p.x,&cscsin,&csccos);
+        cscsinh = sinh(p.y);
+        csccosh = cosh(p.y);
+        cscden = 2.0/(cosh(2.0*p.y) - cos(2.0*p.x));
+        result.x += weight * cscden * cscsin * csccosh;
+        result.y -= weight * cscden * csccos * cscsinh;
+        
+    cot: |-
+        Real cotsin,cotcos,cotsinh,cotcosh;
+        Real cotden;
+        sincos(2.0*p.x,&cotsin,&cotcos);
+        cotsinh = sinh(2.0*p.y);
+        cotcosh = cosh(2.0*p.y);
+        cotden = 1.0/(cotcosh - cotcos);
+        result.x += weight * cotden * cotsin;
+        result.y += weight * cotden * -1 * cotsinh;    
+
+    sinh: |-
+        Real sinhsin,sinhcos,sinhsinh,sinhcosh;
+        sincos(p.y,&sinhsin,&sinhcos);
+        sinhsinh = sinh(p.x);
+        sinhcosh = cosh(p.x);
+        result.x += weight * sinhsinh * sinhcos;
+        result.y += weight * sinhcosh * sinhsin;
+        
+    cosh: |-
+        Real coshsin,coshcos,coshsinh,coshcosh;
+        sincos(p.y,&coshsin,&coshcos);
+        coshsinh = sinh(p.x);
+        coshcosh = cosh(p.x);
+        result.x += weight * coshcosh * coshcos;
+        result.y += weight * coshsinh * coshsin;
+        
+    tanh: |-
+        Real tanhsin,tanhcos,tanhsinh,tanhcosh;
+        Real tanhden;
+        sincos(2.0*p.y,&tanhsin,&tanhcos);
+        tanhsinh = sinh(2.0*p.x);
+        tanhcosh = cosh(2.0*p.x);
+        tanhden = 1.0/(tanhcos + tanhcosh);
+        result.x += weight * tanhden * tanhsinh;
+        result.y += weight * tanhden * tanhsin;
+
+    sech: |-
+        Real sechsin,sechcos,sechsinh,sechcosh;
+        Real sechden;
+        sincos(p.y,&sechsin,&sechcos);
+        sechsinh = sinh(p.x);
+        sechcosh = cosh(p.x);
+        sechden = 2.0/(cos(2.0*p.y) + cosh(2.0*p.x));
+        result.x += weight * sechden * sechcos * sechcosh;
+        result.y -= weight * sechden * sechsin * sechsinh;
+        
+    csch: |-
+        Real cschsin,cschcos,cschsinh,cschcosh;
+        Real cschden;
+        sincos(p.y,&cschsin,&cschcos);
+        cschsinh = sinh(p.x);
+        cschcosh = cosh(p.x);
+        cschden = 2.0/(cosh(2.0*p.x) - cos(2.0*p.y));
+        result.x += weight * cschden * cschsinh * cschcos;
+        result.y -= weight * cschden * cschcosh * cschsin;    
+
+    coth: |-
+        Real cothsin,cothcos,cothsinh,cothcosh;
+        Real cothden;
+        sincos(2.0*p.y,&cothsin,&cothcos);
+        cothsinh = sinh(2.0*p.x);
+        cothcosh = cosh(2.0*p.x);
+        cothden = 1.0/(cothcosh - cothcos);
+        result.x += weight * cothden * cothsinh;
+        result.y += weight * cothden * cothsin;
+
+    auger: 
+        param:
+            auger_freq:
+                default: 1.0
+            auger_weight: {}
+            auger_scale:
+                default: 1.0
+            auger_sym: {}
+        src: |-
+            Real s = sin(auger_freq * p.x);
+            Real t = sin(auger_freq * p.y);
+            Real dy = p.y + auger_weight*(auger_scale*s/2.0 + fabs(p.y)*s);
+            Real dx = p.x + auger_weight*(auger_scale*t/2.0 + fabs(p.x)*t);
+
+            result.x += weight * (p.x + auger_sym*(dx-p.x));
+            result.y += weight * dy;        
+    
+    flux:
+        param:
+            flux_spread: {}
+        src: |-
+            Real xpw = p.x + weight;
+            Real xmw = p.x - weight;
+            Real avgr = weight * (2 + flux_spread) * sqrt( sqrt(p.y*p.y + xpw*xpw) / sqrt(p.y*p.y + xmw*xmw));
+            Real avga = ( atan2(p.y, xmw) - atan2(p.y,xpw) ) * 0.5;
+
+            result.x += avgr * cos(avga);
+            result.y += avgr * sin(avga);        
+
+    mobius:
+        param:
+            mobius_re_a: {}
+            mobius_im_a: {}
+            mobius_re_b: {}
+            mobius_im_b: {}
+            mobius_re_c: {}
+            mobius_im_c: {}
+            mobius_re_d: {}
+            mobius_im_d: {}            
+        src: |-
+            Real re_u, im_u, re_v, im_v, rad_v;
+
+            re_u = mobius_re_a * p.x - mobius_im_a * p.y + mobius_re_b;
+            im_u = mobius_re_a * p.y + mobius_im_a * p.x + mobius_im_b;
+            re_v = mobius_re_c * p.x - mobius_im_c * p.y + mobius_re_d;
+            im_v = mobius_re_c * p.y + mobius_im_c * p.x + mobius_im_d;
+
+            rad_v = weight / (re_v*re_v + im_v*im_v);
+
+            result.x += rad_v * (re_u*re_v + im_u*im_v);
+            result.y += rad_v * (im_u*re_v - re_u*im_v);        
+
+
+       
+
+
+
+
+            
+
+            
+
+            
+
+
+
+
+
+
+
+        
+
+           
+
+           
