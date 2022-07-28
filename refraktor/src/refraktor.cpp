@@ -75,7 +75,7 @@ int main() {
 	auto out_buf = std::make_shared<rfkt::cuda_buffer<uchar4>>(render_w * render_h);//sesh->initialize({ render_w, render_h }, { 1,30 });
 	auto host_buf = std::vector<uchar4>(render_w * render_h);
 
-	auto files = rfkt::fs::list("assets/flames_test/", rfkt::fs::filter::has_extension(".flam3"));
+	auto files = rfkt::fs::list("assets/flames/", rfkt::fs::filter::has_extension(".flam3"));
 
 	int count = 0;
 	for (const auto& filename : files)
@@ -103,7 +103,7 @@ int main() {
 
 
 		int seconds = 0;
-		while (current_quality < target_quality)
+		while (current_quality < target_quality && seconds < 5)
 		{
 			auto result = kernel.bin(rfkt::cuda::thread_local_stream(), state, target_quality - current_quality, 1000, 1'000'000'000);
 			current_quality += result.quality;

@@ -1,4 +1,4 @@
-#include <zlib.h>
+#include <zlib-ng.h>
 
 #include <librefrakt/util/zlib.h>
 
@@ -11,8 +11,8 @@ std::vector<char> rfkt::zlib::compress(const void* data, std::size_t len, unsign
 {
     std::vector<char> ret;
     ret.resize(len);
-    uLongf comp_size = len;
-    compress2((Bytef*) ret.data(), &comp_size, (const Bytef*) data, len, level);
+    auto comp_size = len;
+    zng_compress2((Bytef*) ret.data(), &comp_size, (const Bytef*) data, len, level);
     ret.resize(comp_size);
 
     char* len_bytes = (char*)&len;
@@ -27,9 +27,9 @@ std::vector<char> rfkt::zlib::uncompress(const std::vector<char>& data)
 
 std::vector<char> rfkt::zlib::uncompress(const void* data, std::size_t len)
 {
-    uLongf inflated_size = ((std::size_t*)data)[0];
+    auto inflated_size = ((std::size_t*)data)[0];
     std::vector<char> ret;
     ret.resize(inflated_size);
-    ::uncompress((Bytef*) ret.data(), &inflated_size, (Bytef*) data + sizeof(len), len - sizeof(len));
+    zng_uncompress((Bytef*) ret.data(), &inflated_size, (Bytef*) data + sizeof(len), len - sizeof(len));
     return ret;
 }

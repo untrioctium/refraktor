@@ -268,7 +268,7 @@ void bin(
 			bin = new_bin;
 			hit = (unsigned int)(255.0f * opacity);
 		}
-		hit = __reduce_add_sync(0xffffffff, hit);
+		hit = fl::warp_reduce(hit);
 		if(fl::is_warp_leader()) {
 			atomicAdd(&state.tss_quality, hit);
 		}

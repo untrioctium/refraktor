@@ -68,7 +68,8 @@ target_include_directories(xxhash PUBLIC ${xxhash_SOURCE_DIR})
 # zlib
 FetchContent_Declare(
   zlib
-  GIT_REPOSITORY https://github.com/madler/zlib.git
+  GIT_REPOSITORY https://github.com/zlib-ng/zlib-ng
+  GIT_TAG stable
 )
 FetchContent_MakeAvailable(zlib)
 target_include_directories(zlib PUBLIC ${zlib_SOURCE_DIR} ${zlib_BINARY_DIR})
@@ -154,7 +155,7 @@ target_link_libraries(librefrakt PRIVATE
 	xxhash 
 	#CUDA::nvjpeg
 	CUDA::nvrtc
-	zlib
+	zlibstatic
 	SQLiteCpp
 	yaml-cpp
 	cppcodec
