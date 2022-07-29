@@ -65,6 +65,7 @@ list(REMOVE_ITEM XXHASH_SOURCES ${xxhash_SOURCE_DIR}/xxh_x86dispatch.c)
 add_library(xxhash STATIC ${XXHASH_SOURCES})
 target_include_directories(xxhash PUBLIC ${xxhash_SOURCE_DIR})
 
+set(ZLIB_ENABLE_TESTS OFF CACHE BOOL "" FORCE)
 # zlib
 FetchContent_Declare(
   zlib
@@ -122,8 +123,8 @@ FetchContent_Declare(
  GIT_REPOSITORY https://github.com/tplgy/cppcodec.git
  GIT_TAG master
 )
-FetchContent_MakeAvailable(cppcodec)
-target_include_directories(cppcodec PUBLIC ${cppcodec_SOURCE_DIR}/cppcodec)
+FetchContent_Populate(cppcodec)
+target_include_directories(librefrakt PRIVATE ${cppcodec_SOURCE_DIR}/cppcodec)
 
 # inja, note that this also includes nlohmann::json
 FetchContent_Declare(
@@ -158,7 +159,6 @@ target_link_libraries(librefrakt PRIVATE
 	zlibstatic
 	SQLiteCpp
 	yaml-cpp
-	cppcodec
 	pugixml
 	stb
 )

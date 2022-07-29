@@ -46,7 +46,11 @@ bool break_loop = false;
 int main() {
 
 	rfkt::flame_info::initialize("config/variations.yml");
-	rfkt::cuda::init();
+	auto ctx = rfkt::cuda::init();
+
+
+	SPDLOG_INFO("Running on {}, {} threads per MP, {} MPs", ctx.device().name(), ctx.device().max_threads_per_mp(), ctx.device().mp_count());
+	SPDLOG_INFO("Cuda version {}.{}", ctx.device().compute_major(), ctx.device().compute_minor());
 
 	auto handler = [](int sig) {
 		SPDLOG_INFO("Signal: {}", sig);

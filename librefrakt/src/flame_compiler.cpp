@@ -383,7 +383,7 @@ auto rfkt::flame_compiler::make_opts(precision prec, const flame* f)->std::pair<
         }
     }
 
-    if (most_blocks_idx > 0) most_blocks_idx--;
+    //if (most_blocks_idx > 0) most_blocks_idx--;
     auto& most_blocks = exec_configs[most_blocks_idx];
 
     //flame_generated += fmt::format("__device__ unsigned int flame_size_reals() {{ return {}; }}\n", flame_real_count);
