@@ -12,7 +12,7 @@ auto rfkt::fs::read_bytes(const path& file_path) -> std::vector<char>
 	bytes.resize(file_size);
 
 	auto file = std::ifstream{};
-	file.open(file_path, std::ios::binary | std::ios::in);
+	file.open(file_path, std::ios_base::binary | std::ios_base::in);
 	file.read(bytes.data(), file_size);
 	file.close();
 
@@ -28,7 +28,7 @@ auto rfkt::fs::read_string(const path& file_path) -> std::string
 bool rfkt::fs::write(const path& file_path, const char* bytes, std::size_t length, bool append)
 {
 	auto file = std::ofstream{};
-	file.open(file_path, std::ios::binary | std::ios::out | (append ? std::ios::app : 0));
+	file.open(file_path, std::ios_base::binary | std::ios_base::out | (append ? std::ios_base::app : std::ios_base::trunc));
 	file.write(bytes, length);
 	file.close();
 

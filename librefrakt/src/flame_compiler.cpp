@@ -584,7 +584,7 @@ constexpr auto generate_segment(const vec2<Real>& p0, const vec2<Real>& p1, cons
 auto rfkt::flame_kernel::bin(CUstream stream, flame_kernel::saved_state & state, float target_quality, std::uint32_t ms_bailout, std::uint32_t iter_bailout) const -> bin_result
 {
     struct stream_state_t {
-        std::chrono::steady_clock::time_point start = std::chrono::high_resolution_clock::now();
+        decltype(std::chrono::high_resolution_clock::now()) start = std::chrono::high_resolution_clock::now();
         decltype(start) end;
         std::size_t total_bins;
         std::size_t num_threads;

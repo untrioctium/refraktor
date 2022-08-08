@@ -1,4 +1,6 @@
 #include <algorithm>
+#include <cmath>
+
 #include <librefrakt/util/color.h>
 
 // convert a RGB triplet in [0,255] to a hsv triplet in [0,360] for H and [0,1] for SV
@@ -16,7 +18,7 @@ auto rfkt::color::rgb_to_hsv(const uchar3& rgb) -> double3
 	};
 
 	if (cmax == rgb_d.x)
-		out.x = fmod((rgb_d.y - rgb_d.z) / delta, 6.0);
+		out.x = std::fmod((rgb_d.y - rgb_d.z) / delta, 6.0);
 	else if (cmax == rgb_d.y)
 		out.x = (rgb_d.z - rgb_d.x) / delta + 2.0;
 	else if (cmax == rgb_d.z)

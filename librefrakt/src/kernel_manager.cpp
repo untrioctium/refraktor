@@ -241,7 +241,7 @@ auto rfkt::kernel_manager::compile_string(const std::string& source, const compi
 	}
 
 	cache.cubin.resize(cubin_size);
-	memcpy_s(cache.cubin.data(), cubin_size, cubin, cubin_size);
+	memcpy(cache.cubin.data(), cubin, cubin_size);
 
 	CUDA_SAFE_CALL(cuModuleLoadData(&mod, cubin));
 	CUDA_SAFE_CALL(cuLinkDestroy(link_state));
@@ -348,7 +348,7 @@ auto rfkt::kernel_manager::ptx_from_string(const std::string& source, const comp
 
 	compile_result cr;
 	cr.log = log;
-	delete log;
+	delete[] log;
 
 	if (c_result != NVRTC_SUCCESS) {
 		cr.success = false;

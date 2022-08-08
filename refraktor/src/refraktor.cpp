@@ -6,6 +6,8 @@
 #include <librefrakt/util/filesystem.h>
 #include <librefrakt/util/nvenc.h>
 
+#include <cmath>
+
 #include <signal.h>
 
 struct iterator {
@@ -123,7 +125,7 @@ int main() {
 			out_buf->ptr(),
 			render_w, render_h,
 			static_cast<float>(flame->gamma.sample(0)),
-			std::powf(10.0f, -log10f(current_quality) - 0.5f),
+			powf(10.0f, -log10f(current_quality) - 0.5f),
 			static_cast<float>(flame->brightness.sample(0)),
 			static_cast<float>(flame->vibrancy.sample(0))
 			);

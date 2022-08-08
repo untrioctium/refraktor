@@ -104,7 +104,7 @@ namespace rfkt {
 		static CUresult launch_impl(CUfunction, dim3, dim3, CUstream, bool, void**);
 
 		template<CUfunction_attribute a>
-		auto attribute() const {
+		std::size_t attribute() const {
 			int ret;
 			cuFuncGetAttribute(&ret, a, f);
 			return static_cast<std::size_t>(ret);

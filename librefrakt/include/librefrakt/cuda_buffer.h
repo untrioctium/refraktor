@@ -181,7 +181,7 @@ namespace rfkt {
 		}
 
 	private:
-		friend class parent;
+		friend parent;
 
 		auto allocate() {
 			return Impl::allocate(this->size());

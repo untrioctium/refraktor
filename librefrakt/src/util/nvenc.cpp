@@ -221,7 +221,7 @@ std::optional<std::vector<unsigned char>> rfkt::nvenc::session::submit_frame(boo
 		NV_ENC_LOCK_BITSTREAM out_bitstream = { NV_ENC_LOCK_BITSTREAM_VER }; out_bitstream.outputBitstream = out_stream;
 		NVENC_SAFE_CALL(detail::api().funcs().nvEncLockBitstream(sesh, &out_bitstream));
 		ret_data.resize(out_bitstream.bitstreamSizeInBytes);
-		memcpy_s(ret_data.data(), ret_data.size(), out_bitstream.bitstreamBufferPtr, out_bitstream.bitstreamSizeInBytes);
+		memcpy(ret_data.data(), out_bitstream.bitstreamBufferPtr, out_bitstream.bitstreamSizeInBytes);
 		NVENC_SAFE_CALL(detail::api().funcs().nvEncUnlockBitstream(sesh, out_bitstream.outputBitstream));
 
 		ret = { ret_data };

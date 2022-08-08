@@ -3,6 +3,8 @@
 #include <windows.h>
 #include <commdlg.h>
 #include <processthreadsapi.h>
+#else
+#include <dlfcn.h>
 #endif
 
 #include <librefrakt/util/platform.h>
@@ -14,7 +16,7 @@ auto rfkt::platform::dynlib::load(const std::string& libname) -> std::unique_ptr
 #ifdef _WIN32
 	lib->handle = LoadLibraryA(libname.c_str());
 #else
-	static_assert(false, "No platform handler");
+	lib->handle = dlopen(libname.c_str(), RTLD_NOW);
 #endif
 
 	return lib;
@@ -26,6 +28,8 @@ rfkt::platform::dynlib::~dynlib()
 
 #ifdef _WIN32
 	FreeLibrary((HMODULE) handle);
+#else
+	dlclose(handle);
 #endif
 
 }
@@ -37,7 +41,7 @@ void* rfkt::platform::dynlib::symbol_impl(const std::string& name)
 #ifdef _WIN32
 	return GetProcAddress((HMODULE) handle, name.c_str());
 #else
-	static_assert(false, "No platform handler");
+	return dlsym(handle, name.c_str());
 #endif
 }
 
@@ -67,5 +71,7 @@ std::string rfkt::platform::show_open_dialog()
 }
 
 void rfkt::platform::set_thread_name(const std::wstring& name) {
+#ifdef _WIN32
 	SetThreadDescription(GetCurrentThread(), name.c_str());
+#endif
 }
