@@ -37,6 +37,11 @@ int main() {
 		.flag(rfkt::compile_flag::use_fast_math)
 	);
 
+	if (!tm_result.success) {
+		SPDLOG_ERROR("{}", tm_result.log);
+		return 1;
+	}
+
 	auto render_w = std::uint32_t{ 1280};
 	auto render_h = std::uint32_t{ 720};
 
@@ -66,7 +71,7 @@ int main() {
 
 		auto state = kernel.warmup(rfkt::cuda::thread_local_stream(), flame.value(), {render_w, render_h}, 0.0, 1, 1.0/(30 * 8), 0xdeadbeef, 100);
 
-		auto target_quality = 128.0f;
+		auto target_quality = 2048.0f;
 		auto current_quality = 0.0f;
 		std::size_t total_draws = 0, total_passes = 0;
 		float elapsed_ms = 0;
@@ -84,7 +89,7 @@ int main() {
 			SPDLOG_INFO("quality: {}", (int)current_quality);
 		}
 
-		tm.kernel().launch({ render_w / 8 + 1, render_h / 8 + 1, 1 }, { 8, 8, 1 }, rfkt::cuda::thread_local_stream())(
+		CUDA_SAFE_CALL(tm.kernel().launch({ render_w / 8 + 1, render_h / 8 + 1, 1 }, { 8, 8, 1 }, rfkt::cuda::thread_local_stream())(
 			state.bins.ptr(),
 			out_buf->ptr(),
 			render_w, render_h,
@@ -92,7 +97,7 @@ int main() {
 			std::powf(10.0f, -log10f(current_quality) - 0.5f),
 			static_cast<float>(flame->brightness.sample(0)),
 			static_cast<float>(flame->vibrancy.sample(0))
-			);
+			));
 		out_buf->to_host_async(host_buf.data(), rfkt::cuda::thread_local_stream());
 		cuStreamSynchronize(rfkt::cuda::thread_local_stream());
 

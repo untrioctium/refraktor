@@ -1,10 +1,11 @@
 #include <cooperative_groups/memcpy_async.h>
 #include <cuda_bf16.h>
-#include <cuda_bf16.hpp>
 
 struct bfloat4 {
 	__nv_bfloat16 x, y, z, w;
 };
+
+#define DEBUG(...) if(threadIdx.x == 0 && blockIdx.x == 0) {printf(__VA_ARGS__);}
 
 #include <refrakt/precision.h>
 #include <refrakt/random.h>
@@ -93,6 +94,8 @@ void print_debug_info() {
 	output_sizeof(thread_states_t::xform_vote);
 	printf("------\n");
 	output_sizeof(iterator);
+	output_sizeof(__nv_bfloat16);
+	output_sizeof(bfloat4);
 }
 
 __device__ 
@@ -265,7 +268,6 @@ void bin(
 			new_bin.y = new_bin.y + state.palette[palette_idx].y/255.0f * opacity;
 			new_bin.z = new_bin.z + state.palette[palette_idx].z/255.0f * opacity;
 			new_bin.w = new_bin.w + opacity;
-			
 			bin = new_bin;
 			hit = (unsigned int)(255.0f * opacity);
 		}

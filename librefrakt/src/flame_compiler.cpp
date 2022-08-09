@@ -243,7 +243,7 @@ auto rfkt::flame_compiler::get_flame_kernel(precision prec, const flame* f) -> r
     }
 
     auto func = handle();
-    //handle.kernel("print_debug_info").launch(1, 1)();
+    handle.kernel("print_debug_info").launch(1, 1)();
     auto max_blocks = func.max_blocks_per_mp(most_blocks.block) * cuda::context::current().device().mp_count();
     if (max_blocks < most_blocks.grid) {
         SPDLOG_ERROR("Kernel for {} needs {} blocks but only got {}", f->hash().str64(), most_blocks.grid, max_blocks);

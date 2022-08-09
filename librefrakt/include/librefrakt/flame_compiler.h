@@ -27,7 +27,7 @@ namespace rfkt {
 		};
 
 		struct saved_state: traits::noncopyable<saved_state> {
-			cuda_buffer<float2> bins = {};
+			cuda_buffer<float4> bins = {};
 			uint2 bin_dims = {};
 			cuda_buffer<> shared = {};
 
@@ -46,7 +46,7 @@ namespace rfkt {
 			}
 
 			saved_state(uint2 dims, std::size_t nbytes, std::size_t sample_buffer_size, CUstream stream) :
-				bins(cuda::make_buffer_async<float2>(dims.x* dims.y, stream)),
+				bins(cuda::make_buffer_async<float4>(dims.x* dims.y, stream)),
 				bin_dims(dims),
 				shared(cuda::make_buffer_async<unsigned char>(nbytes, stream)),
 				samples(cuda::make_buffer_async<std::uint64_t>(sample_buffer_size, stream)) {}
@@ -92,7 +92,7 @@ namespace rfkt {
 
 				auto state = flame_kernel::saved_state{ dims, this->saved_state_size(), 1000, stream };
 
-				cuMemsetD32Async(state.bins.ptr(), 0, state.bin_dims.x * state.bin_dims.y * 2, stream);
+				cuMemsetD32Async(state.bins.ptr(), 0, state.bin_dims.x * state.bin_dims.y * 4, stream);
 
 				this->mod.kernel("warmup")
 					.launch(this->exec.first, this->exec.second, stream, true)
