@@ -41,7 +41,9 @@ namespace rfkt::cuda {
         auto max_shared_per_mp() const noexcept { return attribute<CU_DEVICE_ATTRIBUTE_MAX_SHARED_MEMORY_PER_MULTIPROCESSOR>(); }
         auto max_blocks_per_mp() const noexcept { return attribute<CU_DEVICE_ATTRIBUTE_MAX_BLOCKS_PER_MULTIPROCESSOR>(); }
         auto warp_size() const noexcept { return attribute<CU_DEVICE_ATTRIBUTE_WARP_SIZE>(); }
+        auto reserved_shared_per_block() const noexcept { return attribute<CU_DEVICE_ATTRIBUTE_RESERVED_SHARED_MEMORY_PER_BLOCK>(); }
         bool cooperative_supported() const noexcept { return attribute<CU_DEVICE_ATTRIBUTE_COOPERATIVE_LAUNCH>() == 1; }
+        
 
         auto max_concurrent_threads() const noexcept { return max_threads_per_mp() * mp_count(); }
         auto max_concurrent_blocks() const noexcept { return max_blocks_per_mp() * mp_count(); }
@@ -52,7 +54,7 @@ namespace rfkt::cuda {
             auto ret = std::vector<execution_config>{};
             for (int i = 1; i <= max_blocks_per_mp(); i++) {
                 if (max_warps_per_mp() % i == 0 && max_threads_per_mp() / i < max_threads_per_block()) {
-                    ret.push_back({ i * mp_count(), max_threads_per_mp() / i, (max_shared_per_mp() - 1024 * i) / i });
+                    ret.push_back({ i * mp_count(), max_threads_per_mp() / i, (max_shared_per_mp() - reserved_shared_per_block() * i) / i});
                 }
             }
 
@@ -117,9 +119,9 @@ namespace rfkt::cuda {
         }
 
     private:
-        CUcontext ctx_;
-        CUdevice dev_;
-        bool valid;
+        CUcontext ctx_ = nullptr;
+        CUdevice dev_ = 0;
+        bool valid = false;
     };
 
     auto init()->context;

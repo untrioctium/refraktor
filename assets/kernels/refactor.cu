@@ -1,5 +1,6 @@
 #include <cooperative_groups/memcpy_async.h>
 #include <cuda_bf16.h>
+#include <cuda_bf16.hpp>
 
 struct bfloat4 {
 	__nv_bfloat16 x, y, z, w;
@@ -213,13 +214,13 @@ void warmup(
 __global__
 __launch_bounds__(THREADS_PER_BLOCK, BLOCKS_PER_MP)
 void bin(
-	shared_state_t* const in_state,
-	const uint16* const shuf_bufs,
+	shared_state_t* const __restrict__ in_state,
+	const uint16* const __restrict__ shuf_bufs,
 	const uint64 quality_target,
 	const uint32 iter_bailout,
 	const uint64 time_bailout,
-	float4* const bins, const uint32 bins_w, const uint32 bins_h,
-	uint64* const quality_counter, uint64* const pass_counter )
+	bfloat4* const __restrict__ bins, const uint32 bins_w, const uint32 bins_h,
+	uint64* const __restrict__ quality_counter, uint64* const __restrict__ pass_counter )
 {
 	
 	// load shared state
@@ -257,13 +258,13 @@ void bin(
 		&& transformed.position.x < bins_w && transformed.position.y < bins_h 
 		&& opacity > 0.0) {
 
-			float4& bin = bins[int(transformed.position.y) * bins_w + int(transformed.position.x)];
+			bfloat4& bin = bins[int(transformed.position.y) * bins_w + int(transformed.position.x)];
 			unsigned char palette_idx = static_cast<unsigned char>( floor(my_iter().color * 255.4999f) );
-			float4 new_bin = bin;
-			new_bin.x += state.palette[palette_idx].x/255.0f * opacity;
-			new_bin.y += state.palette[palette_idx].y/255.0f * opacity;
-			new_bin.z += state.palette[palette_idx].z/255.0f * opacity;
-			new_bin.w += opacity;
+			bfloat4 new_bin = bin;
+			new_bin.x = new_bin.x + state.palette[palette_idx].x/255.0f * opacity;
+			new_bin.y = new_bin.y + state.palette[palette_idx].y/255.0f * opacity;
+			new_bin.z = new_bin.z + state.palette[palette_idx].z/255.0f * opacity;
+			new_bin.w = new_bin.w + opacity;
 			
 			bin = new_bin;
 			hit = (unsigned int)(255.0f * opacity);

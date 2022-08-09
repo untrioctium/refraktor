@@ -4,42 +4,7 @@
 #include <librefrakt/util.h>
 #include <librefrakt/util/stb.h>
 #include <librefrakt/util/filesystem.h>
-#include <librefrakt/util/nvenc.h>
-
 #include <signal.h>
-
-struct iterator {
-	float2 position;
-	float color;
-};
-
-
-template<std::size_t threads_per_block>
-struct thread_states_t {
-	iterator iterators[threads_per_block];
-	uint4 rand_states[threads_per_block];
-	std::uint16_t shuffle_vote[threads_per_block];
-	std::uint16_t shuffle[threads_per_block];
-	std::uint8_t xform_vote[threads_per_block];
-};
-
-template <std::size_t threads_per_block, std::size_t flame_size_reals>
-struct shared_state_t {
-	thread_states_t<threads_per_block> ts;
-
-	float flame[flame_size_reals];
-	uchar3 palette[256];
-
-	float2 antialiasing_offsets;
-	unsigned long long tss_quality;
-	unsigned long long tss_passes;
-	unsigned long long tss_start;
-	bool should_bail;
-};
-
-constexpr auto iterator_size = sizeof(iterator);
-constexpr auto thread_states_size = sizeof(thread_states_t<96>);
-constexpr auto shared_state_size = sizeof(shared_state_t<96, 56>);
 
 bool break_loop = false;
 
@@ -48,9 +13,10 @@ int main() {
 	rfkt::flame_info::initialize("config/variations.yml");
 	auto ctx = rfkt::cuda::init();
 
-
-	SPDLOG_INFO("Running on {}, {} threads per MP, {} MPs", ctx.device().name(), ctx.device().max_threads_per_mp(), ctx.device().mp_count());
-	SPDLOG_INFO("Cuda version {}.{}", ctx.device().compute_major(), ctx.device().compute_minor());
+	auto dev = ctx.device();
+	SPDLOG_INFO("Using device {}, CUDA {}.{}", dev.name(), dev.compute_major(), dev.compute_minor());
+	SPDLOG_INFO("{} threads per MP, {} MPs, {} total threads", dev.max_threads_per_mp(), dev.mp_count(), dev.max_concurrent_threads());
+	SPDLOG_INFO("{} bytes shared memory per block", dev.max_shared_per_block());
 
 	auto handler = [](int sig) {
 		SPDLOG_INFO("Signal: {}", sig);
@@ -94,7 +60,7 @@ int main() {
 			return 1;
 		}
 
-		SPDLOG_INFO("{}\n{}", k_result.source, k_result.log);
+		//SPDLOG_INFO("{}\n{}", k_result.source, k_result.log);
 		auto& kernel = k_result.kernel.value();
 		count++;
 
@@ -133,7 +99,7 @@ int main() {
 		std::string path = fmt::format("{}.png", filename.string());
 		//stbi_write_bmp("test.bmp", render_w, render_h, 4, host_buf.data());
 		rfkt::stbi::write_file(host_buf.data(), render_w, render_h, path);
-		SPDLOG_INFO("{} quality, {} ms, {}m iter/ms, {} draw/ms\n", current_quality, elapsed_ms, total_passes / elapsed_ms / 1'000'000, total_draws / elapsed_ms / 1'000'000);
+		SPDLOG_INFO("{} quality, {:.4} ms, {:.4}m iter/ms, {:.4}m draw/ms, {:.5}% eff\n", current_quality, elapsed_ms, total_passes / elapsed_ms / 1'000'000, total_draws / elapsed_ms / 1'000'000, total_draws/float(total_passes) * 100.0f);
 		SPDLOG_INFO("{:.4}%", float(count) / files.size() * 100.0f);
 	}
 }
