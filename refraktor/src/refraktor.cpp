@@ -43,15 +43,15 @@ int main() {
 		return 1;
 	}
 
-	auto render_w = std::uint32_t{ 1280};
-	auto render_h = std::uint32_t{ 720};
+	auto render_w = std::uint32_t{ 1280 * 8};
+	auto render_h = std::uint32_t{ 720 * 8};
 
 	//auto sesh = rfkt::nvenc::session::make();
 
 	auto out_buf = std::make_shared<rfkt::cuda_buffer<uchar4>>(render_w * render_h);//sesh->initialize({ render_w, render_h }, { 1,30 });
 	auto host_buf = std::vector<uchar4>(render_w * render_h);
 
-	auto files = rfkt::fs::list("assets/flames/", rfkt::fs::filter::has_extension(".flam3"));
+	auto files = rfkt::fs::list("assets/flames_test/", rfkt::fs::filter::has_extension(".flam3"));
 
 	int count = 0;
 	for (const auto& filename : files)
@@ -79,14 +79,14 @@ int main() {
 
 
 		int seconds = 0;
-		while (current_quality < target_quality && seconds < 5)
+		while (current_quality < target_quality && seconds < 120)
 		{
-			auto result = kernel.bin(rfkt::cuda::thread_local_stream(), state, target_quality - current_quality, 1000, 1'000'000'000);
+			auto result = kernel.bin(rfkt::cuda::thread_local_stream(), state, target_quality - current_quality, 5000, 1'000'000'000);
 			current_quality += result.quality;
 			total_draws += result.total_draws;
 			total_passes += result.total_passes;
 			elapsed_ms += result.elapsed_ms;
-			seconds++;
+			seconds+=5;
 			SPDLOG_INFO("quality: {}", (int)current_quality);
 		}
 
@@ -95,7 +95,7 @@ int main() {
 			out_buf->ptr(),
 			render_w, render_h,
 			static_cast<float>(flame->gamma.sample(0)),
-			std::powf(10.0f, -log10f(current_quality) - 0.5f),
+			1.0f/(current_quality * sqrtf(10.0f)),
 			static_cast<float>(flame->brightness.sample(0)),
 			static_cast<float>(flame->vibrancy.sample(0))
 			));
@@ -105,7 +105,6 @@ int main() {
 		std::string path = fmt::format("{}.png", filename.string());
 		//stbi_write_bmp("test.bmp", render_w, render_h, 4, host_buf.data());
 		rfkt::stbi::write_file(host_buf.data(), render_w, render_h, path);
-		SPDLOG_INFO("{} quality, {:.4} ms, {:.4}m iter/ms, {:.4}m draw/ms, {:.5}% eff\n", current_quality, elapsed_ms, total_passes / elapsed_ms / 1'000'000, total_draws / elapsed_ms / 1'000'000, total_draws/float(total_passes) * 100.0f);
-		SPDLOG_INFO("{:.4}%", float(count) / files.size() * 100.0f);
+		SPDLOG_INFO("{}: {} quality, {:.4} ms, {:.4}m iter/ms, {:.4}m draw/ms, {:.5}% eff\n", filename.filename().string(), current_quality, elapsed_ms, total_passes / elapsed_ms / 1'000'000, total_draws / elapsed_ms / 1'000'000, total_draws / float(total_passes) * 100.0f);
 	}
 }

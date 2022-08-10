@@ -3,6 +3,7 @@ set(HEADER_LIST
 	"include/librefrakt/traits/noncopyable.h"
 	"include/librefrakt/util/hash.h"
 	"include/librefrakt/util/cuda.h"
+	"include/librefrakt/util/gpuinfo.h"
 	"include/librefrakt/util/factory.h"
 	"include/librefrakt/util/filesystem.h"
 	"include/librefrakt/util/platform.h"
@@ -25,6 +26,7 @@ add_library(librefrakt STATIC
 	"src/util/cuda.cpp"
 	"src/util/filesystem.cpp"
 	"src/util/platform.cpp"
+	"src/util/gpuinfo.cpp"
 	"src/util/string.cpp"
 	"src/util/zlib.cpp"
 	"src/util/color.cpp"
@@ -156,6 +158,7 @@ target_link_libraries(librefrakt PRIVATE
 	xxhash 
 	#CUDA::nvjpeg
 	CUDA::nvrtc
+	CUDA::nvml
 	zlibstatic
 	SQLiteCpp
 	yaml-cpp

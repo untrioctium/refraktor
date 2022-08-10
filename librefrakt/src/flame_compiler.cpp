@@ -57,7 +57,7 @@ std::string strip_tabs(const std::string& src) {
 std::string create_vlink_source(const rfkt::vlink& vl, int offset) {
     std::string common_source;
     std::string var_sources;
-    std::string setup_source = "result.x = 0; result.y = 0;\n";
+    std::string setup_source = "nx = 0; ny = 0;\n";
 
     auto var_offset = offset;
     setup_source += fmt::format(
@@ -67,9 +67,9 @@ std::string create_vlink_source(const rfkt::vlink& vl, int offset) {
         "const auto& xaffine_e = state.flame[offset + {}];\n"
         "const auto& xaffine_c = state.flame[offset + {}];\n"
         "const auto& xaffine_f = state.flame[offset + {}];\n"
-        "weight = xaffine_a * p.x + xaffine_b * p.y + xaffine_c;\n"
-        "   p.y = xaffine_d * p.x + xaffine_e * p.y + xaffine_f;\n"
-        "   p.x = weight;\n",
+        "weight = xaffine_a * px + xaffine_b * py + xaffine_c;\n"
+        "   py = xaffine_d * px + xaffine_e * py + xaffine_f;\n"
+        "   px = weight;\n",
         offset, offset + 1, offset + 2, offset + 3, offset + 4, offset + 5);
     var_offset += 6;
 
@@ -126,7 +126,7 @@ std::string create_vlink_source(const rfkt::vlink& vl, int offset) {
 }
 
 std::string create_xform_source(const rfkt::xform& xf) {
-    std::string function_header = fmt::format("template<unsigned long long offset> __device__ void xform_{}( vec3& p, vec3& result, randctx* rs)", xf.hash().str32());
+    std::string function_header = fmt::format("template<unsigned long long offset> __device__ void xform_{}( Real& px, Real& py, Real& nx, Real& ny, randctx* rs)", xf.hash().str32());
 
     std::string xform_src = "Real weight;\n";
 
@@ -134,8 +134,8 @@ std::string create_xform_source(const rfkt::xform& xf) {
     for (auto& vl : xf.vchain) {
         xform_src += fmt::format(
             "{{\n{}\n}}\n"
-            "p.x = result.x;\n"
-            "p.y = result.y;\n", expand_tabs(create_vlink_source(vl, offset)));
+            "px = nx;\n"
+            "py = ny;\n", expand_tabs(create_vlink_source(vl, offset)));
         offset += vl.real_count();
     }
 
@@ -168,7 +168,7 @@ std::string create_flame_source(const rfkt::flame* f) {
     }
 
     src +=
-        "__device__ Real dispatch(int idx, iterator& in, iterator& out) {\n"
+        "__device__ Real dispatch(int idx, Real& px, Real& py, Real& pc, Real& nx, Real& ny, Real& nc) {\n"
         "\tswitch(idx){\n"
         "\t\tdefault: return 0.0f;\n";
 
@@ -177,8 +177,8 @@ std::string create_flame_source(const rfkt::flame* f) {
             src += fmt::format("\t\tcase {}:\n", idx);
             src += fmt::format(
                 "\t\t{{\n"
-                "\t\t\txform_{}<xform_offsets[{}]>(in, out, &my_rand()); \n"
-                "\t\t\tout.z = INTERP(in.z, state.flame[xform_offsets[{}] + 1], state.flame[xform_offsets[{}] + 2]);\n"
+                "\t\t\txform_{}<xform_offsets[{}]>(px, py, nx, ny, &my_rand()); \n"
+                "\t\t\tnc = INTERP(pc, state.flame[xform_offsets[{}] + 1], state.flame[xform_offsets[{}] + 2]);\n"
                 "\t\t\treturn state.flame[xform_offsets[{}] + 3];\n"
                 "\t\t}}\n", 
                 hash.str32(), idx, idx, idx, idx);
@@ -243,7 +243,7 @@ auto rfkt::flame_compiler::get_flame_kernel(precision prec, const flame* f) -> r
     }
 
     auto func = handle();
-    handle.kernel("print_debug_info").launch(1, 1)();
+    //handle.kernel("print_debug_info").launch(1, 1)();
     auto max_blocks = func.max_blocks_per_mp(most_blocks.block) * cuda::context::current().device().mp_count();
     if (max_blocks < most_blocks.grid) {
         SPDLOG_ERROR("Kernel for {} needs {} blocks but only got {}", f->hash().str64(), most_blocks.grid, max_blocks);

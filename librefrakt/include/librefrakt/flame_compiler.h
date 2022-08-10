@@ -192,8 +192,8 @@ namespace rfkt {
 	private:
 
 		auto smem_per_block(precision prec, int flame_real_bytes, int threads_per_block) {
-			const auto per_thread_size = (prec == precision::f32) ? 28 : 48;
-			return per_thread_size * threads_per_block + flame_real_bytes + 256 * 3 + 2 * 4 + 3 * 8 + 1;
+			const auto per_thread_size = (prec == precision::f32) ? 25 : 48;
+			return per_thread_size * threads_per_block + flame_real_bytes + 820;
 		}
 
 		std::pair<cuda::execution_config, compile_opts> make_opts(precision prec, const flame* f);
