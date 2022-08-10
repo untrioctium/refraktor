@@ -17,6 +17,7 @@ int main() {
 	SPDLOG_INFO("Using device {}, CUDA {}.{}", dev.name(), dev.compute_major(), dev.compute_minor());
 	SPDLOG_INFO("{} threads per MP, {} MPs, {} total threads", dev.max_threads_per_mp(), dev.mp_count(), dev.max_concurrent_threads());
 	SPDLOG_INFO("{} bytes shared memory per block", dev.max_shared_per_block());
+	SPDLOG_INFO("{} MHz", dev.clock_rate() / 1000);
 
 	auto handler = [](int sig) {
 		SPDLOG_INFO("Signal: {}", sig);

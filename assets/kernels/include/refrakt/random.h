@@ -1,4 +1,4 @@
-struct jsf32ctx {
+struct randctx {
 
 	using u4 = unsigned int;
 

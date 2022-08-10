@@ -6,7 +6,7 @@ struct bfloat4 {
 	__nv_bfloat16 x, y, z, w;
 };
 
-__global__ void tonemap(const bfloat4* __restrict__ bins, uchar4*  __restrict__ image, unsigned int dims_x, unsigned int dims_y, float gamma, float scale_constant, float brightness, float vibrancy) {
+__global__ void tonemap(const float4* __restrict__ bins, uchar4*  __restrict__ image, unsigned int dims_x, unsigned int dims_y, float gamma, float scale_constant, float brightness, float vibrancy) {
 
 	//DEBUG("%dx%d (%f,%f,%f,%f)\n", dims_x, dims_y, gamma, scale_constant, brightness, vibrancy);
 
@@ -19,8 +19,7 @@ __global__ void tonemap(const bfloat4* __restrict__ bins, uchar4*  __restrict__ 
 	if (pos.x >= dims_x || pos.y >= dims_y) return;
 
 	unsigned int bin_idx = (pos.y) * dims_x + pos.x;
-	const bfloat4& col_ref = bins[bin_idx];
-	float4 col = {col_ref.x, col_ref.y, col_ref.z, col_ref.w};
+	float4 col = bins[bin_idx];
 
 	if(col.w == 0.0) {
 		image[bin_idx] = background;

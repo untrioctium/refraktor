@@ -126,7 +126,7 @@ std::string create_vlink_source(const rfkt::vlink& vl, int offset) {
 }
 
 std::string create_xform_source(const rfkt::xform& xf) {
-    std::string function_header = fmt::format("template<unsigned long long offset> __device__ void xform_{}( vec2& p, vec2& result, jsf32ctx* rs)", xf.hash().str32());
+    std::string function_header = fmt::format("template<unsigned long long offset> __device__ void xform_{}( vec3& p, vec3& result, randctx* rs)", xf.hash().str32());
 
     std::string xform_src = "Real weight;\n";
 
@@ -177,8 +177,8 @@ std::string create_flame_source(const rfkt::flame* f) {
             src += fmt::format("\t\tcase {}:\n", idx);
             src += fmt::format(
                 "\t\t{{\n"
-                "\t\t\txform_{}<xform_offsets[{}]>(in.position, out.position, &my_rand()); \n"
-                "\t\t\tout.color = INTERP(in.color, state.flame[xform_offsets[{}] + 1], state.flame[xform_offsets[{}] + 2]);\n"
+                "\t\t\txform_{}<xform_offsets[{}]>(in, out, &my_rand()); \n"
+                "\t\t\tout.z = INTERP(in.z, state.flame[xform_offsets[{}] + 1], state.flame[xform_offsets[{}] + 2]);\n"
                 "\t\t\treturn state.flame[xform_offsets[{}] + 3];\n"
                 "\t\t}}\n", 
                 hash.str32(), idx, idx, idx, idx);
@@ -344,7 +344,7 @@ rfkt::flame_compiler::flame_compiler(kernel_manager& k_manager): km(k_manager)
     CUdevice dev;
     cuCtxGetDevice(&dev);
     cuDeviceGetProperties(&props, dev);
-    device_mhz = 1'900'000;
+    device_mhz = props.clockRate;
 
     auto [res, result] = km.compile_file("assets/kernels/catmull.cu", 
         compile_opts("catmull")

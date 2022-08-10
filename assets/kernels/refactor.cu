@@ -1,9 +1,4 @@
 #include <cooperative_groups/memcpy_async.h>
-#include <cuda_bf16.h>
-
-struct bfloat4 {
-	__nv_bfloat16 x, y, z, w;
-};
 
 #define DEBUG(...) if(threadIdx.x == 0 && blockIdx.x == 0) {printf(__VA_ARGS__);}
 
@@ -34,14 +29,10 @@ constexpr static uint32 flame_size_bytes = flame_size_reals * sizeof(Real);
 constexpr static uint32 num_shuf_bufs = NUM_SHUF_BUFS;
 constexpr static uint32 shuf_buf_size = threads_per_block * sizeof(uint16);
 
-struct iterator {
-	vec2 position;
-	float color;
-};
-
+using iterator = float3;
 struct thread_states_t {
 	iterator iterators[threads_per_block];
-	jsf32ctx rand_states[threads_per_block];
+	randctx rand_states[threads_per_block];
 	uint16 shuffle_vote[threads_per_block];
 	uint16 shuffle[threads_per_block];
 	uint8 xform_vote[threads_per_block];
@@ -80,7 +71,7 @@ __shared__ shared_state_t state;
 
 __global__
 void print_debug_info() {
-	#define output_sizeof(T) printf("sizeof(" #T ")=%llu\n", sizeof(T))
+	#define output_sizeof(T) printf("sizeof(" #T ")=%llu (%.2f%% of total shared)\n", sizeof(T), sizeof(T) / float(sizeof(shared_state_t)) * 100.0f);
 	
 	output_sizeof(shared_state_t);
 	output_sizeof(shared_state_t::flame);
@@ -94,8 +85,8 @@ void print_debug_info() {
 	output_sizeof(thread_states_t::xform_vote);
 	printf("------\n");
 	output_sizeof(iterator);
-	output_sizeof(__nv_bfloat16);
-	output_sizeof(bfloat4);
+
+	printf("bytes per iterator: %llu (%llu leftover)\n", sizeof(thread_states_t)/THREADS_PER_BLOCK, sizeof(thread_states_t) % THREADS_PER_BLOCK);
 }
 
 __device__ 
@@ -155,7 +146,7 @@ Real flame_pass(unsigned int pass_idx, const unsigned short* const shuf) {
 	}
 	fl::sync_warp();
 
-	auto out_local = iterator{{-666.0, -666.0}, -660.0};
+	auto out_local = iterator{-666.0, -666.0, -660.0};
 	//DEBUG("xid: %d\n", ts[warp.meta_group_rank() * 32 + pass_idx % 32].xid);
 	Real opacity = dispatch( 
 		state.ts.xform_vote[fl::warp_start_in_block() + pass_idx % 32], 
@@ -163,9 +154,9 @@ Real flame_pass(unsigned int pass_idx, const unsigned short* const shuf) {
 	);
 	//out_local = iterator{{-666.0, -666.0}, -660.0};
 
-	if(badvalue(out_local.position.x) || badvalue(out_local.position.y)) {
-		out_local.position.x = my_rand().rand_uniform() * 2.0 - 1.0;
-		out_local.position.y = my_rand().rand_uniform() * 2.0 - 1.0;
+	if(badvalue(out_local.x) || badvalue(out_local.y)) {
+		out_local.x = my_rand().rand_uniform() * 2.0 - 1.0;
+		out_local.y = my_rand().rand_uniform() * 2.0 - 1.0;
 		opacity = 0.0;
 	}
 	
@@ -187,8 +178,7 @@ void warmup(
 {	
 	my_rand().init(seed + fl::grid_rank());
 	
-	my_iter().position = {my_rand().rand_uniform(), my_rand().rand_uniform()};//hammersley::sample( fl::grid_rank(), gridDim.x );
-	my_iter().color = my_rand().rand_uniform();
+	my_iter() = {my_rand().rand_uniform(), my_rand().rand_uniform(), my_rand().rand_uniform()};//hammersley::sample( fl::grid_rank(), gridDim.x );
 	
 	if(fl::is_block_leader()) {
 		state.antialiasing_offsets = my_rand().rand_gaussian(1/3.0);
@@ -222,7 +212,7 @@ void bin(
 	const uint64 quality_target,
 	const uint32 iter_bailout,
 	const uint64 time_bailout,
-	bfloat4* const __restrict__ bins, const uint32 bins_w, const uint32 bins_h,
+	float4* const __restrict__ bins, const uint32 bins_w, const uint32 bins_h,
 	uint64* const __restrict__ quality_counter, uint64* const __restrict__ pass_counter )
 {
 	
@@ -249,25 +239,25 @@ void bin(
 			dispatch(NUM_XFORMS, my_iter_copy, transformed);
 		} else transformed = my_iter();
 		
-		Real tmp = state.flame[0] * transformed.position.x + state.flame[2] * transformed.position.y + state.flame[4];
-		transformed.position.y = trunc(state.flame[1] * transformed.position.x + state.flame[3] * transformed.position.y + state.flame[5]);
-		transformed.position.x = trunc(tmp);
+		Real tmp = state.flame[0] * transformed.x + state.flame[2] * transformed.y + state.flame[4];
+		transformed.y = trunc(state.flame[1] * transformed.x + state.flame[3] * transformed.y + state.flame[5]);
+		transformed.x = trunc(tmp);
 		
-		transformed.position.x += state.antialiasing_offsets.x;
-		transformed.position.y += state.antialiasing_offsets.y;
+		transformed.x += state.antialiasing_offsets.x;
+		transformed.y += state.antialiasing_offsets.y;
 		
 		unsigned int hit = 0;
-		if(transformed.position.x >= 0 && transformed.position.y >= 0 
-		&& transformed.position.x < bins_w && transformed.position.y < bins_h 
+		if(transformed.x >= 0 && transformed.y >= 0 
+		&& transformed.x < bins_w && transformed.y < bins_h 
 		&& opacity > 0.0) {
 
-			bfloat4& bin = bins[int(transformed.position.y) * bins_w + int(transformed.position.x)];
-			unsigned char palette_idx = static_cast<unsigned char>( floor(my_iter().color * 255.4999f) );
-			bfloat4 new_bin = bin;
-			new_bin.x = new_bin.x + state.palette[palette_idx].x/255.0f * opacity;
-			new_bin.y = new_bin.y + state.palette[palette_idx].y/255.0f * opacity;
-			new_bin.z = new_bin.z + state.palette[palette_idx].z/255.0f * opacity;
-			new_bin.w = new_bin.w + opacity;
+			float4& bin = bins[int(transformed.y) * bins_w + int(transformed.x)];
+			unsigned char palette_idx = static_cast<unsigned char>( floor(my_iter().z * 255.4999f) );
+			float4 new_bin = bin;
+			new_bin.x += state.palette[palette_idx].x/255.0f * opacity;
+			new_bin.y += state.palette[palette_idx].y/255.0f * opacity;
+			new_bin.z += state.palette[palette_idx].z/255.0f * opacity;
+			new_bin.w += opacity;
 			bin = new_bin;
 			hit = (unsigned int)(255.0f * opacity);
 		}
