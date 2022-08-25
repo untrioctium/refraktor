@@ -344,7 +344,7 @@ rfkt::flame_compiler::flame_compiler(kernel_manager& k_manager): km(k_manager)
     CUdevice dev;
     cuCtxGetDevice(&dev);
     cuDeviceGetProperties(&props, dev);
-    device_mhz = props.clockRate;
+    device_mhz = 1'965'000;
 
     auto [res, result] = km.compile_file("assets/kernels/catmull.cu", 
         compile_opts("catmull")
@@ -637,4 +637,109 @@ auto rfkt::flame_kernel::bin(CUstream stream, flame_kernel::saved_state & state,
         stream_state.total_bins,
         double(qp_host[1]) / (stream_state.num_threads)
     };
+}
+
+auto rfkt::flame_kernel::warmup(CUstream stream, const flame& f, uint2 dims, double t, std::uint32_t nseg, double loops_per_frame, std::uint32_t seed, std::uint32_t count) const -> flame_kernel::saved_state
+{
+    auto pack_flame = [](const flame& f, uint2 dims, auto& packer, double t) {
+        auto mat = f.make_screen_space_affine(dims.x, dims.y, t);
+        packer(mat.a.sample(t));
+        packer(mat.d.sample(t));
+        packer(mat.b.sample(t));
+        packer(mat.e.sample(t));
+        packer(mat.c.sample(t));
+        packer(mat.f.sample(t));
+
+        auto sum = 0.0;
+        for (const auto& xf : f.xforms) sum += xf.weight.sample(t);
+        packer(sum);
+
+        auto pack_xform = [&packer, &t](const xform& xf) {
+            packer(xf.weight.sample(t));
+            packer(xf.color.sample(t));
+            packer(xf.color_speed.sample(t));
+            packer(xf.opacity.sample(t));
+
+            for (const auto& vl : xf.vchain) {
+
+                auto affine = vl.affine.scale(vl.add_mod_scale.sample(t)).rotate(vl.aff_mod_rotate.sample(t)).translate(vl.aff_mod_translate.first.sample(t), vl.aff_mod_translate.second.sample(t));
+
+                packer(affine.a.sample(t));
+                packer(affine.d.sample(t));
+                packer(affine.b.sample(t));
+                packer(affine.e.sample(t));
+                packer(affine.c.sample(t));
+                packer(affine.f.sample(t));
+
+                for (const auto& [idx, value] : vl.variations) packer(value.sample(t));
+                for (const auto& [idx, value] : vl.parameters) packer(value.sample(t));
+            }
+        };
+
+        for (const auto& xf : f.xforms) pack_xform(xf);
+        if (f.final_xform.has_value()) pack_xform(*f.final_xform);
+
+        for (const auto& hsv : f.palette()) {
+            packer(hsv[0].sample(t));
+            packer(hsv[1].sample(t));
+            packer(hsv[2].sample(t));
+        }
+    };
+
+    auto warmup_impl = [&]<typename Real>() -> flame_kernel::saved_state {
+
+        const auto nreals = f.real_count() + 256 * 3;
+        const auto pack_size_reals = nreals * (nseg + 3);
+        const auto pack_size_bytes = sizeof(Real) * pack_size_reals;
+
+        auto pack = new std::vector<Real>(pack_size_reals);
+        auto packer = [pack, counter = 0](double v) mutable {
+            (*pack)[counter] = static_cast<Real>(v);
+            counter++;
+        };
+
+        const auto seg_length = loops_per_frame / nseg;
+        for (int pos = -1; pos < static_cast<int>(nseg) + 2; pos++) {
+            pack_flame(f, dims, packer, t + pos * seg_length);
+        }
+
+        CUdeviceptr samples_dev;
+        cuMemAllocAsync(&samples_dev, pack_size_bytes, stream);
+        cuMemcpyHtoDAsync(samples_dev, pack->data(), pack_size_bytes, stream);
+        cuLaunchHostFunc(stream, [](void* ptr) {
+            delete static_cast<decltype(pack)>(ptr);
+            }, pack);
+
+        CUdeviceptr segments_dev;
+        cuMemAllocAsync(&segments_dev, pack_size_bytes * 4 * nseg, stream);
+        auto [grid, block] = this->catmull->kernel().suggested_dims();
+        auto nblocks = (nseg * pack_size_reals) / block;
+        if ((nseg * pack_size_reals) % block > 0) nblocks++;
+        this->catmull->kernel().launch(nblocks, block, stream, false)(
+            samples_dev, static_cast<std::uint32_t>(nreals), std::uint32_t{ nseg }, segments_dev
+            );
+        cuMemFreeAsync(samples_dev, stream);
+
+        auto state = flame_kernel::saved_state{ dims, this->saved_state_size(), stream };
+
+        cuMemsetD32Async(state.bins.ptr(), 0, state.bin_dims.x * state.bin_dims.y * 4, stream);
+
+        this->mod.kernel("warmup")
+            .launch(this->exec.first, this->exec.second, stream, true)
+            (
+                std::uint32_t{ nseg },
+                segments_dev,
+                this->shuf_bufs->ptr(),
+                seed, count,
+                state.shared.ptr()
+                );
+
+        cuMemFreeAsync(segments_dev, stream);
+        return state;
+    };
+
+    if (this->prec == precision::f32)
+        return warmup_impl.operator()<float>();
+    else
+        return warmup_impl.operator()<double>();
 }

@@ -24,6 +24,8 @@ namespace rfkt
 		double t0 = 0.0;
 		std::unique_ptr<rfkt::animator> ani = nullptr;
 
+		animated_double(double t0) : t0(t0) {}
+
 		auto sample(double t) const -> double {
 			if (!ani) return t0;
 			else return ani->apply(t, t0);
@@ -36,8 +38,11 @@ namespace rfkt
 			return *this;
 		}
 
+		animated_double(animated_double&& o) noexcept = default;
+		animated_double& operator=(animated_double&& o) noexcept = default;
+
 		animated_double() = default;
-		animated_double(double t0) : t0(t0) {}
+		~animated_double() = default;
 	};
 
 	struct affine_matrix {
@@ -140,9 +145,6 @@ namespace rfkt
 		bool has_variation(std::size_t idx) const {
 			return variations.contains(idx);
 		}
-
-		void add_variation(std::size_t idx, std::optional<double> weight = std::nullopt);
-		void remove_variation(std::size_t idx);
 
 		auto real_count() const noexcept -> std::size_t {
 			return 6 + variations.size() + parameters.size();

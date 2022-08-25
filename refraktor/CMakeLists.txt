@@ -5,4 +5,5 @@ set_target_properties(refraktor PROPERTIES VS_DEBUGGER_WORKING_DIRECTORY ${CMAKE
 target_link_libraries(refraktor 
 	PRIVATE 
 	librefrakt 
-	fmt::fmt)
+	fmt::fmt
+	ap4)

@@ -152,6 +152,15 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(nv-codec-headers)
 target_include_directories(librefrakt PRIVATE ${nv-codec-headers_SOURCE_DIR}/include)
 
+# bento4
+set(BUILD_APPS OFF CACHE BOOL "" FORCE)
+FetchContent_Declare(
+  ap4
+  GIT_REPOSITORY https://github.com/axiomatic-systems/Bento4.git
+)
+FetchContent_MakeAvailable(ap4)
+FetchContent_MakeAvailable(pugixml)
+
 find_package(CUDAToolkit)
 
 target_link_libraries(librefrakt PRIVATE 
@@ -172,4 +181,5 @@ target_link_libraries(librefrakt PUBLIC
 	fmt::fmt
 	concurrencpp
 	inja
+	ap4
 )
