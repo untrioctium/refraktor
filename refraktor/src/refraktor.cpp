@@ -10,6 +10,14 @@
 
 bool break_loop = false;
 
+int mux(const rfkt::fs::path& in, const rfkt::fs::path& out, double fps) {
+	auto mux_cmd = fmt::format("{}/bin/mp4mux.exe --track \"{}\"#frame_rate={} \"{}\"", std::filesystem::current_path().string(), in.string(), fps, out.string());
+	SPDLOG_INFO("Invoking muxer: {}", mux_cmd);
+	auto ret = std::system(mux_cmd.c_str());
+	SPDLOG_INFO("Muxer returned {}", ret);
+	return ret;
+}
+
 int main() {
 
 	rfkt::flame_info::initialize("config/variations.yml");
@@ -45,11 +53,11 @@ int main() {
 		return 1;
 	}
 
-	auto render_w = std::uint32_t{ 1280 };
-	auto render_h = std::uint32_t{ 720 };
+	auto render_w = std::uint32_t{ 1920 };
+	auto render_h = std::uint32_t{ 1080 };
 
-	const int fps = 30;
-	const int seconds = 5;
+	const int fps = 60;
+	const int seconds = 20;
 
 	//auto sesh = rfkt::nvenc::session::make();
 
@@ -85,7 +93,7 @@ int main() {
 		{
 			auto state = kernel.warmup(rfkt::cuda::thread_local_stream(), flame.value(), { render_w, render_h }, frame/float(total_frames), 1, 1.0 / (total_frames), 0xdeadbeef, 100);
 
-			auto target_quality = 2000.0f;
+			auto target_quality = 256.0f;
 			auto current_quality = 0.0f;
 			std::size_t total_draws = 0, total_passes = 0;
 			float elapsed_ms = 0;
@@ -94,12 +102,12 @@ int main() {
 			int seconds = 0;
 			while (current_quality < target_quality && seconds < 5)
 			{
-				auto result = kernel.bin(rfkt::cuda::thread_local_stream(), state, target_quality - current_quality, 25, 1'000'000'000);
+				auto result = kernel.bin(rfkt::cuda::thread_local_stream(), state, target_quality - current_quality, 1000, 1'000'000'000);
 				current_quality += result.quality;
 				total_draws += result.total_draws;
 				total_passes += result.total_passes;
 				elapsed_ms += result.elapsed_ms;
-				seconds += 5;
+				seconds += 1;
 				//SPDLOG_INFO("quality: {}", (int)current_quality);
 			}
 
@@ -124,6 +132,10 @@ int main() {
 
 		auto ret = sesh->submit_frame(false, true);
 		if (ret) rfkt::fs::write(path, ret.value(), true);
+
+		auto new_path = filename.string() + ".mp4";
+		mux(path, new_path, fps);
+		std::filesystem::remove(path);
 
 	}
 }

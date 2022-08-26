@@ -46,3 +46,5 @@ assets/fonts
 assets/templates
 
 .vscode/
+.bin/
+*.swp
