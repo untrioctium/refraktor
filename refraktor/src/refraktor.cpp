@@ -45,10 +45,10 @@ int main() {
 		return 1;
 	}
 
-	auto render_w = std::uint32_t{ 2560 };
-	auto render_h = std::uint32_t{ 1440 };
+	auto render_w = std::uint32_t{ 1280 };
+	auto render_h = std::uint32_t{ 720 };
 
-	const int fps = 24;
+	const int fps = 30;
 	const int seconds = 5;
 
 	//auto sesh = rfkt::nvenc::session::make();
@@ -85,7 +85,7 @@ int main() {
 		{
 			auto state = kernel.warmup(rfkt::cuda::thread_local_stream(), flame.value(), { render_w, render_h }, frame/float(total_frames), 1, 1.0 / (total_frames), 0xdeadbeef, 100);
 
-			auto target_quality = 256.0f;
+			auto target_quality = 2000.0f;
 			auto current_quality = 0.0f;
 			std::size_t total_draws = 0, total_passes = 0;
 			float elapsed_ms = 0;
@@ -94,7 +94,7 @@ int main() {
 			int seconds = 0;
 			while (current_quality < target_quality && seconds < 5)
 			{
-				auto result = kernel.bin(rfkt::cuda::thread_local_stream(), state, target_quality - current_quality, 1000, 1'000'000'000);
+				auto result = kernel.bin(rfkt::cuda::thread_local_stream(), state, target_quality - current_quality, 25, 1'000'000'000);
 				current_quality += result.quality;
 				total_draws += result.total_draws;
 				total_passes += result.total_passes;

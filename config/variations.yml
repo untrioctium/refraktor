@@ -97,7 +97,7 @@ variations:
         Real a = 0.5 * xcommon(atan);
         Real sa,ca;
 
-        a += M_PI * (rs->rand() & 1);
+        a += M_PI * ((rs->rand() >> 24) & 1);
 
         r = weight * sqrt(xcommon(sqrt));
 
