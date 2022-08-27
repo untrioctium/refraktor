@@ -1,6 +1,7 @@
 #pragma once
 
 #include <typeinfo>
+#include <future>
 
 #include <librefrakt/kernel_manager.h>	
 #include <librefrakt/flame_types.h>
@@ -49,7 +50,7 @@ namespace rfkt {
 				/*samples(cuda::make_buffer_async<std::uint64_t>(sample_buffer_size, stream))*/ {}
 		};
 
-		auto bin(CUstream stream, flame_kernel::saved_state& state, float target_quality, std::uint32_t ms_bailout, std::uint32_t iter_bailout) const->bin_result;
+		auto bin(CUstream stream, flame_kernel::saved_state& state, float target_quality, std::uint32_t ms_bailout, std::uint32_t iter_bailout) const-> std::future<bin_result>;
 		auto warmup(CUstream stream, const flame& f, uint2 dims, double t, std::uint32_t nseg, double loops_per_frame, std::uint32_t seed, std::uint32_t count) const->flame_kernel::saved_state;
 
 	private:

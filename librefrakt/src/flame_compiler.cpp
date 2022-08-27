@@ -332,24 +332,11 @@ rfkt::flame_compiler::flame_compiler(kernel_manager& k_manager): km(k_manager)
         }
     }
 
-   /* auto [result, lib] = km->ptx_from_file("assets/kernels/flamelib.cu", compile_opts("flamelib").flag(compile_flag::relocatable_device_code));
-
-    if (!result.success) {
-        SPDLOG_ERROR("Error compiling flamelib:\n{}", result.log);
-        exit(1);
-    }
-    flamelib = lib;*/
-
-    CUdevprop props;
-    CUdevice dev;
-    cuCtxGetDevice(&dev);
-    cuDeviceGetProperties(&props, dev);
     device_mhz = 1'965'000;
 
     auto [res, result] = km.compile_file("assets/kernels/catmull.cu", 
         compile_opts("catmull")
         .flag(compile_flag::extra_vectorization)
-        .flag(compile_flag::use_fast_math)
         .function("generate_sample_coefficients")
     );
 
@@ -361,9 +348,6 @@ rfkt::flame_compiler::flame_compiler(kernel_manager& k_manager): km(k_manager)
     auto func = (*catmull)();
     auto [s_grid, s_block] = func.suggested_dims();
     SPDLOG_INFO("Loaded catmull kernel: {} regs, {} shared, {} local, {}x{} suggested dims", func.register_count(), func.shared_bytes(), func.local_bytes(), s_grid, s_block);
-
-
-
 }
 
 auto rfkt::flame_compiler::make_opts(precision prec, const flame* f)->std::pair<cuda::execution_config, compile_opts>
@@ -384,7 +368,7 @@ auto rfkt::flame_compiler::make_opts(precision prec, const flame* f)->std::pair<
     }
 
     //if (most_blocks_idx > 0) most_blocks_idx--;
-    auto& most_blocks = exec_configs[most_blocks_idx];
+    auto& most_blocks = exec_configs[0];
 
     //flame_generated += fmt::format("__device__ unsigned int flame_size_reals() {{ return {}; }}\n", flame_real_count);
     //flame_generated += fmt::format("__device__ unsigned int flame_size_bytes() {{ return {}; }}\n", flame_size_bytes);
@@ -581,8 +565,53 @@ constexpr auto generate_segment(const vec2<Real>& p0, const vec2<Real>& p1, cons
 
 }*/
 
-auto rfkt::flame_kernel::bin(CUstream stream, flame_kernel::saved_state & state, float target_quality, std::uint32_t ms_bailout, std::uint32_t iter_bailout) const -> bin_result
+template<std::size_t Size>
+class pinned_ring_allocator_t {
+public:
+    pinned_ring_allocator_t() {
+        cuMemAllocHost(&memory, Size);
+    }
+
+    ~pinned_ring_allocator_t() {
+        cuMemFreeHost(&memory);
+    }
+
+    template<std::size_t Amount>
+    void* reserve() {
+        static_assert(Amount < Size, "Requested amount greater than allocator's size");
+
+        if (Amount + offset >= Size) {
+            offset = Amount;
+            return memory;
+        }
+
+        auto old = offset;
+        offset += Amount;
+        return ((std::byte*)memory) + old;
+    }
+
+    template<typename T>
+    T* reserve() {
+        return (T*)reserve<sizeof(T)>();
+    }
+
+    template<typename T, std::size_t Amount>
+    auto reserve()->std::array<T, Amount>* {
+        return reserve<std::array<T, Amount>>();
+    }
+
+private:
+    void* memory;
+    std::size_t offset = 0;
+};
+
+auto rfkt::flame_kernel::bin(CUstream stream, flame_kernel::saved_state & state, float target_quality, std::uint32_t ms_bailout, std::uint32_t iter_bailout) const -> std::future<bin_result>
 {
+    using counter_type = std::size_t;
+    static constexpr auto num_counters = 2;
+    static constexpr auto counters_size = sizeof(counter_type) * num_counters;
+    thread_local pinned_ring_allocator_t<counters_size * 128> pra{};
+
     struct stream_state_t {
         std::chrono::steady_clock::time_point start = std::chrono::high_resolution_clock::now();
         decltype(start) end;
@@ -590,15 +619,21 @@ auto rfkt::flame_kernel::bin(CUstream stream, flame_kernel::saved_state & state,
         std::size_t num_threads;
 
         CUdeviceptr qp_dev;
-    } stream_state;
-    stream_state.total_bins = state.bin_dims.x * state.bin_dims.y;
-    stream_state.num_threads = exec.first * exec.second;
 
-    using counter_type = std::size_t;
-    constexpr auto num_counters = 2;
-    constexpr auto counters_size = sizeof(counter_type) * num_counters;
-    cuMemAllocAsync(&stream_state.qp_dev, counters_size, stream);
-    cuMemsetD32Async(stream_state.qp_dev, 0, counters_size / sizeof(unsigned int), stream);
+        std::promise<flame_kernel::bin_result> promise{};
+        std::array<std::size_t, num_counters>* qp_host;
+
+    };
+
+    auto stream_state = new stream_state_t{};
+    auto future = stream_state->promise.get_future();
+    stream_state->qp_host = pra.reserve<counter_type, num_counters>();
+
+    stream_state->total_bins = state.bin_dims.x * state.bin_dims.y;
+    stream_state->num_threads = exec.first * exec.second;
+
+    cuMemAllocAsync(&stream_state->qp_dev, counters_size, stream);
+    cuMemsetD32Async(stream_state->qp_dev, 0, counters_size / sizeof(unsigned int), stream);
 
     auto klauncher = [&mod = this->mod, stream, &exec = this->exec]<typename ...Ts>(Ts&&... args) {
         return mod("bin").launch(exec.first, exec.second, stream, cuda::context::current().device().cooperative_supported())(std::forward<Ts>(args)...);
@@ -607,36 +642,39 @@ auto rfkt::flame_kernel::bin(CUstream stream, flame_kernel::saved_state & state,
     cuLaunchHostFunc(stream, [](void* ptr) {
         auto* ss = (stream_state_t*)ptr;
         ss->start = std::chrono::high_resolution_clock::now();
-        }, & stream_state);
+        }, stream_state);
+
     CUDA_SAFE_CALL(klauncher(
         state.shared.ptr(),
         shuf_bufs->ptr(),
-        (std::size_t)(target_quality * stream_state.total_bins * 255.0),
+        (std::size_t)(target_quality * stream_state->total_bins * 255.0),
         iter_bailout,
         (long long)(ms_bailout)*device_mhz,
         state.bins.ptr(), state.bin_dims.x, state.bin_dims.y,
-        stream_state.qp_dev,
-        stream_state.qp_dev + sizeof(counter_type)
+        stream_state->qp_dev,
+        stream_state->qp_dev + sizeof(counter_type)
     ));
+    CUDA_SAFE_CALL(cuMemcpyDtoHAsync(stream_state->qp_host->data(), stream_state->qp_dev, counters_size, stream));
+    CUDA_SAFE_CALL(cuMemFreeAsync(stream_state->qp_dev, stream));
+
     cuLaunchHostFunc(stream, [](void* ptr) {
         auto* ss = (stream_state_t*)ptr;
         ss->end = std::chrono::high_resolution_clock::now();
-        }, & stream_state);
 
-    cuStreamSynchronize(stream);
-    std::size_t qp_host[num_counters] = {};
-    CUDA_SAFE_CALL(cuMemcpyDtoH(qp_host, stream_state.qp_dev, counters_size));
-    CUDA_SAFE_CALL(cuMemFree(stream_state.qp_dev));
+        ss->promise.set_value(flame_kernel::bin_result{
+            ss->qp_host->at(0) / (ss->total_bins * 255.0f),
+            std::chrono::duration_cast<std::chrono::nanoseconds>(ss->end - ss->start).count() / 1'000'000.0f,
+            ss->qp_host->at(1),
+            ss->qp_host->at(0) / 255,
+            ss->total_bins,
+            double(ss->qp_host->at(1)) / (ss->num_threads)
+        });
 
-    //stream_state.end = 
-    return flame_kernel::bin_result{
-        qp_host[0] / (stream_state.total_bins * 255.0f),
-        std::chrono::duration_cast<std::chrono::nanoseconds>(stream_state.end - stream_state.start).count() / 1'000'000.0f,
-        qp_host[1],
-        qp_host[0] / 255,
-        stream_state.total_bins,
-        double(qp_host[1]) / (stream_state.num_threads)
-    };
+        delete ss;
+
+    }, stream_state);
+
+    return future;
 }
 
 auto rfkt::flame_kernel::warmup(CUstream stream, const flame& f, uint2 dims, double t, std::uint32_t nseg, double loops_per_frame, std::uint32_t seed, std::uint32_t count) const -> flame_kernel::saved_state

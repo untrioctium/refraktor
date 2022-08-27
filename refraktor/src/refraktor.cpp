@@ -4,6 +4,7 @@
 #include <librefrakt/util.h>
 #include <librefrakt/util/stb.h>
 #include <librefrakt/util/filesystem.h>
+#include <librefrakt/util/platform.h>
 #include <signal.h>
 
 #include <librefrakt/util/nvenc.h>
@@ -11,9 +12,11 @@
 bool break_loop = false;
 
 int mux(const rfkt::fs::path& in, const rfkt::fs::path& out, double fps) {
-	auto mux_cmd = fmt::format("{}/bin/mp4mux.exe --track \"{}\"#frame_rate={} \"{}\"", std::filesystem::current_path().string(), in.string(), fps, out.string());
-	SPDLOG_INFO("Invoking muxer: {}", mux_cmd);
-	auto ret = std::system(mux_cmd.c_str());
+
+	auto args = fmt::format("./bin/mp4mux.exe --track \"{}\"#frame_rate={} {}", in.string(), fps, out.string());
+	SPDLOG_INFO("Invoking muxer: {}", args);
+	auto p = rfkt::platform::process{ {}, args };
+	auto ret = p.wait_for_exit();
 	SPDLOG_INFO("Muxer returned {}", ret);
 	return ret;
 }
@@ -53,11 +56,11 @@ int main() {
 		return 1;
 	}
 
-	auto render_w = std::uint32_t{ 1920 };
-	auto render_h = std::uint32_t{ 1080 };
+	auto render_w = std::uint32_t{ 1280 };
+	auto render_h = std::uint32_t{ 720 };
 
 	const int fps = 60;
-	const int seconds = 20;
+	const int seconds = 5;
 
 	//auto sesh = rfkt::nvenc::session::make();
 
@@ -91,9 +94,10 @@ int main() {
 
 		for (int frame = 0; frame < total_frames; frame++)
 		{
+			auto frame_start = std::chrono::high_resolution_clock::now();
 			auto state = kernel.warmup(rfkt::cuda::thread_local_stream(), flame.value(), { render_w, render_h }, frame/float(total_frames), 1, 1.0 / (total_frames), 0xdeadbeef, 100);
 
-			auto target_quality = 256.0f;
+			auto target_quality = 2048.0;
 			auto current_quality = 0.0f;
 			std::size_t total_draws = 0, total_passes = 0;
 			float elapsed_ms = 0;
@@ -102,12 +106,12 @@ int main() {
 			int seconds = 0;
 			while (current_quality < target_quality && seconds < 5)
 			{
-				auto result = kernel.bin(rfkt::cuda::thread_local_stream(), state, target_quality - current_quality, 1000, 1'000'000'000);
+				auto result = kernel.bin(rfkt::cuda::thread_local_stream(), state, target_quality - current_quality, 25, 1'000'000'000).get();
 				current_quality += result.quality;
 				total_draws += result.total_draws;
 				total_passes += result.total_passes;
 				elapsed_ms += result.elapsed_ms;
-				seconds += 1;
+				seconds += 5;
 				//SPDLOG_INFO("quality: {}", (int)current_quality);
 			}
 
@@ -120,22 +124,22 @@ int main() {
 				static_cast<float>(flame->brightness.sample(0)),
 				static_cast<float>(flame->vibrancy.sample(0))
 				));
-			//out_buf->to_host_async(host_buf.data(), rfkt::cuda::thread_local_stream());
-			//cuStreamSynchronize(rfkt::cuda::thread_local_stream());
+
+			auto frame_end = std::chrono::high_resolution_clock::now();
+			auto total_ms = std::chrono::duration_cast<std::chrono::nanoseconds>(frame_end - frame_start).count() / 1'000'000.0;
 
 			if (auto ret = sesh->submit_frame(frame % fps == 0); ret) rfkt::fs::write(path, ret.value(), frame != 0);
-
 			//stbi_write_bmp("test.bmp", render_w, render_h, 4, host_buf.data());
 			//rfkt::stbi::write_file(host_buf.data(), render_w, render_h, path);
-			SPDLOG_INFO("[{}%] {}: {} quality, {:.4} ms, {:.4}m iter/ms, {:.4}m draw/ms, {:.5}% eff, {:.3} quality at 30fps", static_cast<int>(frame / float(total_frames) * 100.0f), filename.filename().string(), (int)current_quality, elapsed_ms, total_passes / elapsed_ms / 1'000'000, total_draws / elapsed_ms / 1'000'000, total_draws / float(total_passes) * 100.0f, current_quality / elapsed_ms * 1000.0 / 30.0);
+			SPDLOG_INFO("[{}%] {}: {} quality, {:.4} ms bin, {:.4} ms total, {:.4}m iter/ms, {:.4}m draw/ms, {:.5}% eff, {:.3} quality at 30fps", static_cast<int>(frame / float(total_frames) * 100.0f), filename.filename().string(), (int)current_quality, elapsed_ms, total_ms, total_passes / elapsed_ms / 1'000'000, total_draws / elapsed_ms / 1'000'000, total_draws / float(total_passes) * 100.0f, current_quality / elapsed_ms * 1000.0 / 30.0);
 		}
 
 		auto ret = sesh->submit_frame(false, true);
 		if (ret) rfkt::fs::write(path, ret.value(), true);
 
 		auto new_path = filename.string() + ".mp4";
-		mux(path, new_path, fps);
-		std::filesystem::remove(path);
+		auto muxret = mux(path, new_path, fps);
+		if(muxret == 0) std::filesystem::remove(path);
 
 	}
 }

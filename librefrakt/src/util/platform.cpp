@@ -69,3 +69,60 @@ std::string rfkt::platform::show_open_dialog()
 void rfkt::platform::set_thread_name(const std::wstring& name) {
 	SetThreadDescription(GetCurrentThread(), name.c_str());
 }
+
+namespace rfkt::platform {
+
+	class process::impl_t {
+	public:
+		impl_t(const std::string& cmd, const std::string& args) {
+#ifdef _WIN32
+			std::memset(&si, 0, sizeof(si));
+			si.cb = sizeof(si);
+			std::memset(&pi, 0, sizeof(pi));
+
+			valid = CreateProcess(
+				(cmd.length() > 0) ? const_cast<char*>(cmd.c_str()) : nullptr,
+				(args.length() > 0) ? const_cast<char*>(args.c_str()) : nullptr,
+				nullptr, nullptr, false, 0, nullptr, nullptr, &si, &pi);
+#endif		
+		}
+
+		bool running() {
+#ifdef _WIN32
+			return valid;
+#endif
+		}
+		auto wait_for_exit() -> int {
+#ifdef _WIN32
+			if (!valid) return -1;
+
+			WaitForSingleObject(pi.hProcess, INFINITE);
+			exit_code = (GetExitCodeProcess(pi.hProcess, &exit_code) != 0)? 0: 1;
+			CloseHandle(pi.hProcess);
+			CloseHandle(pi.hThread);
+			valid = false;
+			return static_cast<int>(exit_code);
+#endif
+		}
+
+	private:
+#ifdef _WIN32
+		STARTUPINFO si;
+		PROCESS_INFORMATION pi;
+		bool valid = false;
+		DWORD exit_code = 0;
+#endif
+	};
+
+	process::process() = default;
+	process::~process() = default;
+
+	process::process(const std::string& cmd, const std::string& args) : impl(new impl_t{ cmd, args}) {}
+
+	bool process::running() { return impl && impl->running(); }
+	auto process::wait_for_exit() -> int {
+		if (!impl) return -1;
+
+		return impl->wait_for_exit();
+	}
+}
