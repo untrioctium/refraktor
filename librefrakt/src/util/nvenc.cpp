@@ -147,7 +147,7 @@ auto rfkt::nvenc::session::initialize(std::pair<uint32_t, uint32_t> dims, std::p
 	NV_ENC_INITIALIZE_PARAMS init_params{};
 	init_params.version = NV_ENC_INITIALIZE_PARAMS_VER;
 	init_params.encodeGUID = detail::get_codec_guid(codec::h264);
-	init_params.presetGUID = NV_ENC_PRESET_LOW_LATENCY_HP_GUID;
+	init_params.presetGUID = NV_ENC_PRESET_HQ_GUID;
 	init_params.encodeWidth = dims.first;
 	init_params.encodeHeight = dims.second;
 	init_params.darWidth = dims.first;

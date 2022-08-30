@@ -203,6 +203,7 @@ int main(int argc, char** argv) {
 					auto slept_time = 0.0;
 					auto pre_fut_time = 0.0;
 					auto wait_time = 0.0;
+					auto encode_time = 0.0;
 
 					while (!ud->closed) {
 
@@ -219,7 +220,9 @@ int main(int argc, char** argv) {
 
 						// while we wait, let's encode the last frame
 						if (ud->total_frames > 0){
+							auto encode_start = time_since_start();
 							auto ret = ud->session->submit_frame(ud->total_frames % (ud->fps * 5) == 0);
+							encode_time += time_since_start() - encode_start;
 
 							if (ret) {
 								sent_bytes += ret->size();
@@ -228,6 +231,7 @@ int main(int argc, char** argv) {
 						}
 						pre_fut_time += time_since_start() - pre_fut_start;
 						auto wait_start = time_since_start();
+						cuStreamSynchronize(tls);
 						auto result = result_fut.get();
 						wait_time += time_since_start() - wait_start;
 
@@ -239,12 +243,13 @@ int main(int argc, char** argv) {
 
 						if (ud->total_frames > 0 && ud->total_frames % ud->fps == 0) {
 							double factor = 1000.0 / ud->total_frames;
-							SPDLOG_INFO("{:.4} MB, {:.3} mbps, {:.3} ms/frame avg, {:.3} ms/frame to future get, {:.3} ms/frame future wait",
+							SPDLOG_INFO("{:.4} MB, {:.3} mbps, {:.3} ms/frame avg, {:.3} ms/frame to future get, {:.3} ms/frame future wait. {:.3} ms/frame encode",
 								sent_bytes / (1024.0 * 1024.0),
 								(8.0 * sent_bytes / (1024.0 * 1024.0)) / (time_since_start()),
 								(time_since_start() - slept_time) * factor,
 								pre_fut_time * factor,
-								wait_time * factor);
+								wait_time * factor,
+								encode_time * factor);
 						}
 
 						if (ud->total_frames / double(ud->fps) - time_since_start() > 1.0) {
