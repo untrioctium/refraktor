@@ -147,7 +147,7 @@ auto rfkt::nvenc::session::initialize(std::pair<uint32_t, uint32_t> dims, std::p
 	NV_ENC_INITIALIZE_PARAMS init_params{};
 	init_params.version = NV_ENC_INITIALIZE_PARAMS_VER;
 	init_params.encodeGUID = detail::get_codec_guid(codec::h264);
-	init_params.presetGUID = NV_ENC_PRESET_HQ_GUID;
+	init_params.presetGUID = NV_ENC_PRESET_LOW_LATENCY_HP_GUID;
 	init_params.encodeWidth = dims.first;
 	init_params.encodeHeight = dims.second;
 	init_params.darWidth = dims.first;
@@ -190,10 +190,10 @@ auto rfkt::nvenc::session::initialize(std::pair<uint32_t, uint32_t> dims, std::p
 	return input_buffer;
 }
 
-std::optional<std::vector<unsigned char>> rfkt::nvenc::session::submit_frame(bool idr, bool done) {
+std::optional<std::vector<std::byte>> rfkt::nvenc::session::submit_frame(bool idr, bool done) {
 	const auto& funcs = detail::api().funcs();
 
-	auto ret = std::optional<std::vector<unsigned char>>{};
+	auto ret = std::optional<std::vector<std::byte>>{};
 
 	NV_ENC_MAP_INPUT_RESOURCE in_map{};
 	memset(&in_map, 0, sizeof(in_map));
@@ -220,7 +220,7 @@ std::optional<std::vector<unsigned char>> rfkt::nvenc::session::submit_frame(boo
 	if (frame_status != NV_ENC_ERR_NEED_MORE_INPUT) {
 		NVENC_SAFE_CALL(frame_status);
 
-		std::vector<unsigned char> ret_data;
+		std::vector<std::byte> ret_data;
 
 		NV_ENC_LOCK_BITSTREAM out_bitstream = { NV_ENC_LOCK_BITSTREAM_VER }; out_bitstream.outputBitstream = out_stream;
 		NVENC_SAFE_CALL(funcs.nvEncLockBitstream(sesh, &out_bitstream));

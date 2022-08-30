@@ -6,6 +6,7 @@
 #include <librefrakt/util/filesystem.h>
 #include <librefrakt/util/platform.h>
 #include <signal.h>
+#include <fstream>
 
 #include <librefrakt/util/nvenc.h>
 
@@ -65,8 +66,6 @@ int main() {
 	//auto sesh = rfkt::nvenc::session::make();
 
 	//auto out_buf = std::make_shared<rfkt::cuda_buffer<uchar4>>(render_w * render_h);//sesh->initialize({ render_w, render_h }, { 1,30 });
-	auto host_buf = std::vector<uchar4>(render_w * render_h);
-
 	auto files = rfkt::fs::list("assets/flames_test/", rfkt::fs::filter::has_extension(".flam3"));
 
 	int count = 0;
@@ -75,7 +74,7 @@ int main() {
 		if (break_loop) break;
 
 		auto flame = rfkt::flame::import_flam3(filename.string());
-		auto k_result = fc.get_flame_kernel(rfkt::precision::f32, &flame.value());
+		auto k_result = fc.get_flame_kernel(rfkt::precision::f32, flame.value());
 
 		if (!k_result.kernel.has_value()) {
 			SPDLOG_ERROR("Could not compile kernel:\n{}\n-------------\n{}\n", k_result.log, k_result.source);
@@ -91,6 +90,9 @@ int main() {
 
 		auto sesh = rfkt::nvenc::session::make();
 		auto buf = sesh->initialize({ render_w, render_h }, { fps, 1 });
+
+		auto out_file = std::ofstream{};
+		out_file.open(path, std::ios::out | std::ios::binary);
 
 		for (int frame = 0; frame < total_frames; frame++)
 		{
@@ -124,22 +126,25 @@ int main() {
 				static_cast<float>(flame->brightness.sample(0)),
 				static_cast<float>(flame->vibrancy.sample(0))
 				));
-
+			cuStreamSynchronize(rfkt::cuda::thread_local_stream());
 			auto frame_end = std::chrono::high_resolution_clock::now();
 			auto total_ms = std::chrono::duration_cast<std::chrono::nanoseconds>(frame_end - frame_start).count() / 1'000'000.0;
 
-			if (auto ret = sesh->submit_frame(frame % fps == 0); ret) rfkt::fs::write(path, ret.value(), frame != 0);
+			if (auto ret = sesh->submit_frame(frame % fps == 0); ret) {
+				out_file.write((const char*)ret->data(), ret->size());
+			}
 			//stbi_write_bmp("test.bmp", render_w, render_h, 4, host_buf.data());
 			//rfkt::stbi::write_file(host_buf.data(), render_w, render_h, path);
 			SPDLOG_INFO("[{}%] {}: {} quality, {:.4} ms bin, {:.4} ms total, {:.4}m iter/ms, {:.4}m draw/ms, {:.5}% eff, {:.3} quality at 30fps", static_cast<int>(frame / float(total_frames) * 100.0f), filename.filename().string(), (int)current_quality, elapsed_ms, total_ms, total_passes / elapsed_ms / 1'000'000, total_draws / elapsed_ms / 1'000'000, total_draws / float(total_passes) * 100.0f, current_quality / elapsed_ms * 1000.0 / 30.0);
 		}
 
-		auto ret = sesh->submit_frame(false, true);
-		if (ret) rfkt::fs::write(path, ret.value(), true);
-
+		if (auto ret = sesh->submit_frame(false, true); ret) {
+			out_file.write((const char*)ret->data(), ret->size());
+		}
+		out_file.close();
 		auto new_path = filename.string() + ".mp4";
 		auto muxret = mux(path, new_path, fps);
-		if(muxret == 0) std::filesystem::remove(path);
+		//if(muxret == 0) std::filesystem::remove(path);
 
 	}
 }

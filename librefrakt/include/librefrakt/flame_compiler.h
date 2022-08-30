@@ -32,6 +32,8 @@ namespace rfkt {
 			uint2 bin_dims = {};
 			cuda_buffer<> shared = {};
 
+			double warmup_ms = 0.0;
+
 			saved_state() = delete;
 			saved_state(saved_state&& o) noexcept {
 				(*this) = std::move(o);
@@ -81,8 +83,8 @@ namespace rfkt {
 			std::string log;
 		};
 
-		auto get_flame_kernel(precision prec, const flame* f)-> result;
-		bool is_cached(precision prec, const flame* f);
+		auto get_flame_kernel(precision prec, const flame& f)-> result;
+		bool is_cached(precision prec, const flame& f);
 
 		flame_compiler(kernel_manager& k_manager);
 	private:
@@ -92,7 +94,7 @@ namespace rfkt {
 			return per_thread_size * threads_per_block + flame_real_bytes + 820;
 		}
 
-		std::pair<cuda::execution_config, compile_opts> make_opts(precision prec, const flame* f);
+		std::pair<cuda::execution_config, compile_opts> make_opts(precision prec, const flame& f);
 
 		kernel_manager& km;
 		std::map<std::size_t, std::shared_ptr<cuda_buffer<unsigned short>>> shuf_bufs;

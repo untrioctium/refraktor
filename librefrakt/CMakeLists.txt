@@ -86,6 +86,13 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(sqlitecpp)
 
+# concurrencpp
+FetchContent_Declare(
+  concurrencpp
+  GIT_REPOSITORY https://github.com/David-Haim/concurrencpp.git
+)
+FetchContent_MakeAvailable(concurrencpp)
+
 # fmt
 FetchContent_Declare(
   fmt
@@ -93,21 +100,6 @@ FetchContent_Declare(
   GIT_TAG 7.1.2
 )
 FetchContent_MakeAvailable(fmt)
-
-# spdlog
-FetchContent_Declare(
-  spdlog
-  GIT_REPOSITORY https://github.com/gabime/spdlog.git
-  GIT_TAG v1.8.5
-)
-FetchContent_MakeAvailable(spdlog)
-
-# spdlog
-FetchContent_Declare(
-  concurrencpp
-  GIT_REPOSITORY https://github.com/David-Haim/concurrencpp.git
-)
-FetchContent_MakeAvailable(concurrencpp)
 
 # stb
 FetchContent_Declare(
