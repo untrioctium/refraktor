@@ -31,22 +31,22 @@ namespace rfkt::flame_info {
 		};
 	}
 
-	void initialize(const std::string& config_path);
+	void initialize(std::string_view config_path);
 
 	auto num_variations()->std::size_t;
 	auto num_parameters()->std::size_t;
 
-	bool is_variation(const std::string& name);
-	bool is_parameter(const std::string& name);
-	bool is_common(const std::string& name);
+	bool is_variation(std::string_view name);
+	bool is_parameter(std::string_view name);
+	bool is_common(std::string_view name);
 
 	auto variation(std::size_t idx) -> const def::variation&;
-	auto variation(const std::string& name) -> const def::variation&;
+	auto variation(std::string_view name) -> const def::variation&;
 
 	auto parameter(std::size_t idx) -> const def::parameter&;
-	auto parameter(const std::string& name) -> const def::parameter&;
+	auto parameter(std::string_view name) -> const def::parameter&;
 
-	auto common(const std::string& name) -> const def::common&;
+	auto common(std::string_view name) -> const def::common&;
 
 	auto variations() -> const std::vector<def::variation>&;
 }

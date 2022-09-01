@@ -22,6 +22,119 @@ int mux(const rfkt::fs::path& in, const rfkt::fs::path& out, double fps) {
 	return ret;
 }
 
+constexpr auto split_path(std::string_view sv) -> std::pair<std::string_view, std::string_view> {
+	
+	auto pos = sv.find('/');
+	if (pos == std::string_view::npos) return { sv, {} };
+
+	auto head = sv.substr(0, pos);
+	if (pos + 1 >= sv.length()) return { head, {} };
+
+	return { head, sv.substr(pos + 1) };
+}
+
+constexpr int to_int(std::string_view sv) {
+	int ret = 0;
+	for (const auto ch : sv) {
+		if (ch < '0' || ch > '9') return -1;
+		ret *= 10;
+		ret += ch - '0';
+	}
+
+	return ret;
+}
+
+rfkt::animated_double* seek(rfkt::flame& f, std::string_view path) {
+	auto [head, tail] = split_path(path);
+	
+	switch (head[0]) {
+	case 'x': return (head.size() == 1 && tail.empty()) ? &f.center.first : nullptr;
+	case 'y': return (head.size() == 1 && tail.empty()) ? &f.center.second : nullptr;
+	case 's': return (head.size() == 1 && tail.empty()) ? &f.scale : nullptr;
+	case 'r': return (head.size() == 1 && tail.empty()) ? &f.rotate : nullptr;
+	case 'g': return (head.size() == 1 && tail.empty()) ? &f.gamma: nullptr;
+	case 'v': return (head.size() == 1 && tail.empty()) ? &f.vibrancy : nullptr;
+	case 'b': return (head.size() == 1 && tail.empty()) ? &f.brightness : nullptr;
+	}
+}
+
+rfkt::animated_double* seek(rfkt::vlink& vl, std::string_view path) {
+
+	auto [head, tail] = split_path(path);
+
+	if (tail.empty() || head.size() > 1) return nullptr;
+
+	switch (head[0]) {
+	case 'v': {
+		if (!rfkt::flame_info::is_variation(tail)) return nullptr;
+
+		auto iter = vl.variations.find(rfkt::flame_info::variation(tail).index);
+		if (iter == vl.variations.end()) return nullptr;
+		return &iter->second;
+	}
+	case 'p': {
+		if (!rfkt::flame_info::is_parameter(tail)) return nullptr;
+
+		auto iter = vl.parameters.find(rfkt::flame_info::parameter(tail).index);
+		if (iter == vl.parameters.end()) return nullptr;
+		return &iter->second;
+	}
+	case 'a':
+		if (tail.size() > 1) return nullptr;
+		switch (tail[0]) {
+		case 'a': return &vl.affine.a;
+		case 'b': return &vl.affine.b;
+		case 'c': return &vl.affine.c;
+		case 'd': return &vl.affine.d;
+		case 'e': return &vl.affine.e;
+		case 'f': return &vl.affine.f;
+		default: return nullptr;
+		}
+
+	case 'm':
+		if (tail.size() > 1) return nullptr;
+		switch (tail[0]) {
+		case 'r': return &vl.aff_mod_rotate;
+		case 's': return &vl.aff_mod_scale;
+		case 'x': return &vl.aff_mod_translate.first;
+		case 'y': return &vl.aff_mod_translate.second;
+		default: return nullptr;
+		}
+
+	default: return nullptr;
+	}
+}
+
+rfkt::animated_double* seek(rfkt::xform& xf, std::string_view path) {
+	auto [head, tail] = split_path(path);
+
+	switch (head[0]) {
+	case 'w': return (head.size() == 1 && tail.empty())? &xf.weight: nullptr;
+	case 'c':
+		if (head.size() == 1) return &xf.color;
+		if (head.size() != 2) return nullptr;
+
+		if (head[1] == 's') return &xf.color_speed;
+		if (head[2] == 'h') {
+			if (tail.empty()) return nullptr;
+
+			auto [t_head, t_tail] = split_path(tail);
+			if (t_tail.empty()) return nullptr;
+
+			auto idx = to_int(t_head);
+			if (idx < 0 || idx >= xf.vchain.size()) return nullptr;
+			return seek(xf.vchain[idx], t_tail);
+		}
+
+		return nullptr;
+
+	case 'o': return (head.size() == 1 && tail.empty())? &xf.opacity : nullptr;
+	default: return nullptr;
+	}
+}
+
+
+
 int main() {
 
 	rfkt::flame_info::initialize("config/variations.yml");

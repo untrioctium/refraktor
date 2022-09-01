@@ -109,7 +109,7 @@ namespace rfkt
 
 		std::pair<animated_double, animated_double> aff_mod_translate = {0.0, 0.0};
 		animated_double aff_mod_rotate = { 0.0 };
-		animated_double add_mod_scale = { 1.0 };
+		animated_double aff_mod_scale = { 1.0 };
 
 		static vlink identity() {
 			static const auto linear_index = rfkt::flame_info::variation("linear").index;

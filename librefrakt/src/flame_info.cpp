@@ -8,10 +8,10 @@
 struct flame_table {
 	std::vector<rfkt::flame_info::def::variation> variations;
 	std::vector<rfkt::flame_info::def::parameter> parameters;
-	std::map<std::string, rfkt::flame_info::def::common> common;
+	std::map<std::string, rfkt::flame_info::def::common, std::less<>> common;
 
-	std::map<std::string, std::reference_wrapper<rfkt::flame_info::def::variation>> variation_names;
-	std::map<std::string, std::reference_wrapper<rfkt::flame_info::def::parameter>> parameter_names;
+	std::map<std::string, std::reference_wrapper<rfkt::flame_info::def::variation>, std::less<>> variation_names;
+	std::map<std::string, std::reference_wrapper<rfkt::flame_info::def::parameter>, std::less<>> parameter_names;
 };
 
 auto& ft() {
@@ -19,7 +19,7 @@ auto& ft() {
 	return instance;
 }
 
-void rfkt::flame_info::initialize(const std::string& config_path)
+void rfkt::flame_info::initialize(std::string_view config_path)
 {
 	rfkt::animator::init_builtins();
 
@@ -27,7 +27,7 @@ void rfkt::flame_info::initialize(const std::string& config_path)
 		return str_util::find_unique(src, R"regex(xcommon\(\s*([a-zA-z0-9_]+)\s*\))regex");
 	};
 
-	auto defs = YAML::LoadFile(config_path);
+	auto defs = YAML::LoadFile(std::string{ config_path });
 
 	std::size_t num_variations = 0;
 	std::size_t num_parameters = 0;
@@ -108,17 +108,17 @@ auto rfkt::flame_info::num_parameters() -> std::size_t
 	return ft().parameters.size();
 }
 
-bool rfkt::flame_info::is_variation(const std::string& name)
+bool rfkt::flame_info::is_variation(std::string_view name)
 {
 	return ft().variation_names.contains(name);
 }
 
-bool rfkt::flame_info::is_parameter(const std::string& name)
+bool rfkt::flame_info::is_parameter(std::string_view name)
 {
 	return ft().parameter_names.contains(name);
 }
 
-bool rfkt::flame_info::is_common(const std::string& name)
+bool rfkt::flame_info::is_common(std::string_view name)
 {
 	return ft().common.contains(name);
 }
@@ -128,9 +128,9 @@ auto rfkt::flame_info::variation(std::size_t idx) -> const def::variation&
 	return ft().variations.at(idx);
 }
 
-auto rfkt::flame_info::variation(const std::string& name) -> const def::variation&
+auto rfkt::flame_info::variation(std::string_view name) -> const def::variation&
 {
-	return ft().variation_names.at(name);
+	return ft().variation_names.find(name)->second;
 }
 
 auto rfkt::flame_info::parameter(std::size_t idx) -> const def::parameter&
@@ -138,14 +138,14 @@ auto rfkt::flame_info::parameter(std::size_t idx) -> const def::parameter&
 	return ft().parameters.at(idx);
 }
 
-auto rfkt::flame_info::parameter(const std::string& name) -> const def::parameter&
+auto rfkt::flame_info::parameter(std::string_view name) -> const def::parameter&
 {
-	return ft().parameter_names.at(name);
+	return ft().parameter_names.find(name)->second;
 }
 
-auto rfkt::flame_info::common(const std::string& name) -> const def::common&
+auto rfkt::flame_info::common(std::string_view name) -> const def::common&
 {
-	return ft().common.at(name);
+	return ft().common.find(name)->second;
 }
 
 auto rfkt::flame_info::variations() -> const std::vector<def::variation>&

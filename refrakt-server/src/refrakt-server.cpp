@@ -75,6 +75,18 @@ namespace rfkt {
 	};
 }
 
+class render_session : std::enable_shared_from_this<render_session> {
+
+private:
+
+	rfkt::flame flame_;
+	rfkt::flame kernel_;
+
+	std::optional<std::thread> daemon;
+
+
+};
+
 template<typename Type>
 auto get_or_default(nlohmann::json& js, std::string name, Type&& def) {
 	auto& v = js[name];
@@ -204,6 +216,7 @@ int main(int argc, char** argv) {
 					auto pre_fut_time = 0.0;
 					auto wait_time = 0.0;
 					auto encode_time = 0.0;
+					std::size_t total_draws = 0;
 
 					while (!ud->closed) {
 
@@ -233,6 +246,7 @@ int main(int argc, char** argv) {
 						auto wait_start = time_since_start();
 						cuStreamSynchronize(tls);
 						auto result = result_fut.get();
+						total_draws += result.total_draws;
 						wait_time += time_since_start() - wait_start;
 
 						tm.run(state.bins.ptr(), ud->render->ptr(), ud->dims, result.quality, ud->flame);
@@ -242,10 +256,17 @@ int main(int argc, char** argv) {
 						ud->total_frames++;
 
 						if (ud->total_frames > 0 && ud->total_frames % ud->fps == 0) {
+
 							double factor = 1000.0 / ud->total_frames;
-							SPDLOG_INFO("{:.4} MB, {:.3} mbps, {:.3} ms/frame avg, {:.3} ms/frame to future get, {:.3} ms/frame future wait. {:.3} ms/frame encode",
+
+							double avg_quality = (total_draws / double(ud->dims.x * ud->dims.y)) / ud->total_frames;
+							double draws_per_ms = total_draws / (1000 * (time_since_start() - slept_time)) / 1'000'000;
+
+							SPDLOG_INFO("{:.4} MB, {:.3} mbps, {:.3} avg quality, {:.3}m draws/ms, {:.3} ms/frame avg, {:.3} ms/frame to future get, {:.3} ms/frame future wait. {:.3} ms/frame encode",
 								sent_bytes / (1024.0 * 1024.0),
 								(8.0 * sent_bytes / (1024.0 * 1024.0)) / (time_since_start()),
+								avg_quality,
+								draws_per_ms,
 								(time_since_start() - slept_time) * factor,
 								pre_fut_time * factor,
 								wait_time * factor,
