@@ -44,7 +44,7 @@ namespace rfkt {
 		tonemapper(kernel_manager& km) {
 			auto [tm_result, mod] = km.compile_file("assets/kernels/tonemap.cu",
 				rfkt::compile_opts("tonemap")
-				.function("tonemap")
+				.function("tonemap<false>")
 				.flag(rfkt::compile_flag::extra_vectorization)
 				.flag(rfkt::compile_flag::use_fast_math)
 			);
@@ -162,7 +162,6 @@ int main(int argc, char** argv) {
 			std::string cmd = js["cmd"].get<std::string>();
 			if (cmd == "begin") {
 				auto flame = get_or_default<std::string>(js, "flame", "53476");
-	
 
 				auto width = get_or_default(js, "width", 1280u);
 				auto height = get_or_default(js, "height", 720u);
@@ -172,9 +171,11 @@ int main(int argc, char** argv) {
 				auto f = rfkt::flame::import_flam3(fmt::format("assets/flames/electricsheep.247.{}.flam3", flame));
 				if (!f) return;
 
+				std::cout << (f->dump());
+
 				// add the tiniest bit of rotation to show dynamic nature
 				f->rotate.ani = rfkt::animator::make("increase", nlohmann::json::object({ 
-					{"per_loop",360.0 / (60/ seconds_per_loop)}
+					{"per_loop",-360.0 / (60/ seconds_per_loop)}
 				}));
 
 				auto k_result = fc.get_flame_kernel(rfkt::precision::f32, f.value());
@@ -229,12 +230,12 @@ int main(int argc, char** argv) {
 							1, ud->loops_per_frame, 0xdeadbeef, 64
 						);
 
-						auto result_fut = ud->kernel.bin(tls, state, 10000, 26, 1'000'000'000);
+						auto result_fut = ud->kernel.bin(tls, state, 10000, 1000/ud->fps - 8, 1'000'000'000);
 
 						// while we wait, let's encode the last frame
 						if (ud->total_frames > 0){
 							auto encode_start = time_since_start();
-							auto ret = ud->session->submit_frame(ud->total_frames % (ud->fps * 5) == 0);
+							auto ret = ud->session->submit_frame((ud->total_frames - 1) % (ud->fps) == 0);
 							encode_time += time_since_start() - encode_start;
 
 							if (ret) {
@@ -244,7 +245,6 @@ int main(int argc, char** argv) {
 						}
 						pre_fut_time += time_since_start() - pre_fut_start;
 						auto wait_start = time_since_start();
-						cuStreamSynchronize(tls);
 						auto result = result_fut.get();
 						total_draws += result.total_draws;
 						wait_time += time_since_start() - wait_start;
@@ -261,8 +261,9 @@ int main(int argc, char** argv) {
 
 							double avg_quality = (total_draws / double(ud->dims.x * ud->dims.y)) / ud->total_frames;
 							double draws_per_ms = total_draws / (1000 * (time_since_start() - slept_time)) / 1'000'000;
+							double real_fps = ud->total_frames / time_since_start();
 
-							SPDLOG_INFO("{:.4} MB, {:.3} mbps, {:.3} avg quality, {:.3}m draws/ms, {:.3} ms/frame avg, {:.3} ms/frame to future get, {:.3} ms/frame future wait. {:.3} ms/frame encode",
+							SPDLOG_INFO("{:.4} MB, {:.3} mbps, {:.3} avg quality, {:.3}m draws/ms, {:.3} ms/frame avg, {:.3} ms/frame to future get, {:.3} ms/frame future wait. {:.4} real fps",
 								sent_bytes / (1024.0 * 1024.0),
 								(8.0 * sent_bytes / (1024.0 * 1024.0)) / (time_since_start()),
 								avg_quality,
@@ -270,19 +271,29 @@ int main(int argc, char** argv) {
 								(time_since_start() - slept_time) * factor,
 								pre_fut_time * factor,
 								wait_time * factor,
-								encode_time * factor);
+								real_fps);
 						}
 
-						if (ud->total_frames / double(ud->fps) - time_since_start() > 1.0) {
+						if (ud->total_frames / double(ud->fps) - time_since_start() > .3) {
 							SPDLOG_INFO("Sleeping, overbuffered");
-							slept_time += .5;
-							std::this_thread::sleep_for(std::chrono::milliseconds{ 500 });
+							slept_time += .2;
+							std::this_thread::sleep_for(std::chrono::milliseconds{ 200 });
 						}
 					}
 
 				});
 
 				SPDLOG_INFO("Starting session: {}, {}x{}, {} fps", flame, width, height, fps);
+			}
+			else if (cmd == "mod" && *ud) {
+				auto path = get_or_default<std::string>(js, "path", "");
+				if (path.empty()) return;
+				auto val = get_or_default(js, "val", std::numeric_limits<double>::quiet_NaN());
+				if (std::isnan(val)) return;
+
+				auto ptr = ud->get()->flame.seek(path);
+				if (!ptr) return;
+				ptr->t0 = val;
 			}
 		},
 		.drain = [](auto*/*ws*/) {

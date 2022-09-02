@@ -360,7 +360,7 @@ auto rfkt::flame_compiler::make_opts(precision prec, const flame& f)->std::pair<
     }
 
     //if (most_blocks_idx > 0) most_blocks_idx--;
-    auto& most_blocks = exec_configs[0];
+    auto& most_blocks = exec_configs[most_blocks_idx];
 
     //flame_generated += fmt::format("__device__ unsigned int flame_size_reals() {{ return {}; }}\n", flame_real_count);
     //flame_generated += fmt::format("__device__ unsigned int flame_size_bytes() {{ return {}; }}\n", flame_size_bytes);
@@ -576,7 +576,7 @@ auto rfkt::flame_kernel::warmup(CUstream stream, const flame& f, uint2 dims, dou
             counter++;
         };
 
-        const auto seg_length = loops_per_frame / nseg;
+        const auto seg_length = loops_per_frame / nseg * 1.2;
         for (int pos = -1; pos < static_cast<int>(nseg) + 2; pos++) {
             pack_flame(f, dims, packer, t + pos * seg_length);
         }

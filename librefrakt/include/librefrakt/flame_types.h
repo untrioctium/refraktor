@@ -157,6 +157,9 @@ namespace rfkt
 			hs.update(list);
 		}
 
+		rfkt::animated_double* seek(std::string_view path);
+		std::string dump(std::string_view prefix) const;
+
 	//private:
 		std::map<std::size_t, animated_double> variations{};
 		std::map<std::size_t, animated_double> parameters{};
@@ -169,6 +172,9 @@ namespace rfkt
 		animated_double opacity = 0.0;
 
 		std::vector<vlink> vchain;
+
+		rfkt::animated_double* seek(std::string_view path);
+		std::string dump(std::string_view prefix) const;
 
 		static xform identity() {
 			auto xf = xform{};
@@ -210,6 +216,9 @@ namespace rfkt
 
 		auto operator=(flame&&) noexcept -> flame& = default;
 		flame(flame&&) = default;
+
+		rfkt::animated_double* seek(std::string_view path);
+		std::string dump() const;
 
 		auto real_count() const noexcept -> std::size_t {
 			std::size_t count =

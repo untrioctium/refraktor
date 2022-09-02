@@ -4,9 +4,76 @@
 #include <librefrakt/util/color.h>
 #include <librefrakt/flame_types.h>
 
+constexpr auto split_path(std::string_view sv) -> std::pair<std::string_view, std::string_view> {
+
+	auto pos = sv.find('/');
+	if (pos == std::string_view::npos) return { sv, {} };
+
+	auto head = sv.substr(0, pos);
+	if (pos + 1 >= sv.length()) return { head, {} };
+
+	return { head, sv.substr(pos + 1) };
+}
+
+constexpr int to_int(std::string_view sv) {
+	int ret = 0;
+	for (const auto ch : sv) {
+		if (ch < '0' || ch > '9') return -1;
+		ret *= 10;
+		ret += ch - '0';
+	}
+
+	return ret;
+}
+
 rfkt::flame::flame(const flame& o)
 {
 	(*this) = o;
+}
+
+rfkt::animated_double* rfkt::flame::seek(std::string_view path)
+{
+	auto [head, tail] = split_path(path);
+
+	switch (head[0]) {
+	case 'x': return (head.size() == 1 && tail.empty()) ? &center.first : nullptr;
+	case 'y': return (head.size() == 1 && tail.empty()) ? &center.second : nullptr;
+	case 's': return (head.size() == 1 && tail.empty()) ? &scale : nullptr;
+	case 'r': return (head.size() == 1 && tail.empty()) ? &rotate : nullptr;
+	case 'g': return (head.size() == 1 && tail.empty()) ? &gamma : nullptr;
+	case 'v': return (head.size() == 1 && tail.empty()) ? &vibrancy : nullptr;
+	case 'b': return (head.size() == 1 && tail.empty()) ? &brightness : nullptr;
+	case 'f': return (head.size() == 1 && !tail.empty() && final_xform.has_value()) ? final_xform->seek(tail) : nullptr;
+	default: break;
+	}
+
+	if (auto idx = to_int(head); idx >= 0 && !tail.empty() && idx < xforms.size()) {
+		return xforms[idx].seek(tail);
+	}
+
+	return nullptr;
+}
+
+std::string rfkt::flame::dump() const
+{
+	auto ret = std::string{};
+	
+	ret += fmt::format("x {}\n", center.first.t0);
+	ret += fmt::format("y {}\n", center.second.t0);
+	ret += fmt::format("s {}\n", scale.t0);
+	ret += fmt::format("r {}\n", rotate.t0);
+	ret += fmt::format("g {}\n", gamma.t0);
+	ret += fmt::format("v {}\n", vibrancy.t0);
+	ret += fmt::format("b {}\n", brightness.t0);
+
+	for (int i = 0; i < xforms.size(); i++) {
+		auto prefix = fmt::format("{}", i);
+		ret += xforms[i].dump(prefix);
+	}
+
+	if (final_xform) ret += final_xform->dump("f");
+
+	return ret;
 }
 
 std::unique_ptr<rfkt::animator> make_xform_rotator() {
@@ -149,4 +216,125 @@ auto rfkt::flame::operator=(const flame& o) noexcept -> flame& {
 
 	palette() = o.palette();
 	return *this;
+}
+
+rfkt::animated_double* rfkt::vlink::seek(std::string_view path)
+{
+	auto [head, tail] = split_path(path);
+
+	if (tail.empty() || head.size() > 1) return nullptr;
+
+	switch (head[0]) {
+	case 'v': {
+		if (!rfkt::flame_info::is_variation(tail)) return nullptr;
+
+		auto iter = variations.find(rfkt::flame_info::variation(tail).index);
+		if (iter == variations.end()) return nullptr;
+		return &iter->second;
+	}
+	case 'p': {
+		if (!rfkt::flame_info::is_parameter(tail)) return nullptr;
+
+		auto iter = parameters.find(rfkt::flame_info::parameter(tail).index);
+		if (iter == parameters.end()) return nullptr;
+		return &iter->second;
+	}
+	case 'a':
+		if (tail.size() > 1) return nullptr;
+		switch (tail[0]) {
+		case 'a': return &affine.a;
+		case 'b': return &affine.b;
+		case 'c': return &affine.c;
+		case 'd': return &affine.d;
+		case 'e': return &affine.e;
+		case 'f': return &affine.f;
+		default: return nullptr;
+		}
+
+	case 'm':
+		if (tail.size() > 1) return nullptr;
+		switch (tail[0]) {
+		case 'r': return &aff_mod_rotate;
+		case 's': return &aff_mod_scale;
+		case 'x': return &aff_mod_translate.first;
+		case 'y': return &aff_mod_translate.second;
+		default: return nullptr;
+		}
+
+	default: return nullptr;
+	}
+}
+
+std::string rfkt::vlink::dump(std::string_view prefix) const
+{
+	auto ret = std::string{};
+	auto out = [&ret, prefix](auto name, const auto& value) {
+		ret += fmt::format("{}/{} {}\n", prefix, name, value.t0);
+	};
+
+	out("a/a", affine.a);
+	out("a/b", affine.b);
+	out("a/c", affine.c);
+	out("a/d", affine.d);
+	out("a/e", affine.e);
+	out("a/f", affine.f);
+
+	out("m/r", aff_mod_rotate);
+	out("m/s", aff_mod_scale);
+	out("m/x", aff_mod_translate.first);
+	out("m/y", aff_mod_translate.second);
+
+	for (auto& [k, v] : variations) {
+		out(fmt::format("v/{}", rfkt::flame_info::variation(k).name), v);
+	}
+
+	for (auto& [k, v] : parameters) {
+		out(fmt::format("p/{}", rfkt::flame_info::parameter(k).name), v);
+	}
+
+	return ret;
+}
+
+rfkt::animated_double* rfkt::xform::seek(std::string_view path)
+{
+	auto [head, tail] = split_path(path);
+
+	switch (head[0]) {
+	case 'w': return (head.size() == 1 && tail.empty()) ? &weight : nullptr;
+	case 'c':
+		if (head.size() == 1) return &color;
+		if (head.size() != 2) return nullptr;
+
+		if (head[1] == 's') return &color_speed;
+
+		return nullptr;
+
+	case 'o': return (head.size() == 1 && tail.empty()) ? &opacity : nullptr;
+	default: break;
+	}
+
+	if (auto idx = to_int(head); idx >= 0 && !tail.empty() && idx < vchain.size()) {
+		return vchain[idx].seek(tail);
+	}
+
+	return nullptr;
+}
+
+std::string rfkt::xform::dump(std::string_view prefix) const
+{
+	auto ret = std::string{};
+	auto out = [&ret, prefix](auto name, const auto& value) {
+		ret += fmt::format("{}/{} {}\n", prefix, name, value.t0);
+	};
+
+	out("w", weight);
+	out("c", color);
+	out("cs", color_speed);
+	out("o", opacity);
+
+	for (int i = 0; i < vchain.size(); i++) {
+		ret += vchain[i].dump(fmt::format("{}/{}", prefix, i));
+	}
+
+	return ret;
 }

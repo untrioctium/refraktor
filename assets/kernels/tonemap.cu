@@ -6,6 +6,8 @@ struct bfloat4 {
 	__nv_bfloat16 x, y, z, w;
 };
 
+
+template<bool Planar>
 __global__ void tonemap(const float4* __restrict__ bins, uchar4*  __restrict__ image, unsigned int dims_x, unsigned int dims_y, float gamma, float scale_constant, float brightness, float vibrancy) {
 
 	//DEBUG("%dx%d (%f,%f,%f,%f)\n", dims_x, dims_y, gamma, scale_constant, brightness, vibrancy);
@@ -40,6 +42,10 @@ __global__ void tonemap(const float4* __restrict__ bins, uchar4*  __restrict__ i
 	col.w *= gamma_factor;
 
 	#define interp(left, right, mix) ((left) * (1.0f - (mix)) + (right) * (mix))
+
+	if constexpr(Planar) {
+		
+	}
 
 	image[bin_idx] = {
 		(unsigned char) min(255.0f, col.x * 255.0f),
