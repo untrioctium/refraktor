@@ -8,14 +8,14 @@ include(FetchContent)
 include(CheckIPOSupported)
 check_ipo_supported()
 	
-set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED TRUE)
-set(CMAKE_CUDA_STANDARD 17)
-set(CMAKE_CUDA_STANDARD_REQUIRED TRUE)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(BUILD_TESTING OFF CACHE BOOL "" FORCE)
 set(BUILD_BENCHMARK OFF CACHE BOOL "" FORCE)
 set_property(GLOBAL PROPERTY USE_FOLDERS ON)
+
+find_package(CUDAToolkit)
 
 project( 
 	refraktor

@@ -122,12 +122,12 @@ namespace rfkt {
 			return kernel();
 		};
 	
-		auto operator()(std::string name) const {
+		auto operator()(std::string_view name) const {
 			return kernel(name);
 		}
 
-		auto kernel(std::string name) const -> kernel_t {
-			return { functions_.at(name) };
+		auto kernel(std::string_view name) const -> kernel_t {
+			return { functions_.find(name)->second };
 		}
 
 		auto kernel() const -> kernel_t {
@@ -161,8 +161,8 @@ namespace rfkt {
 
 	private:
 		CUmodule module_handle = nullptr;
-		std::map<std::string, CUfunction> functions_ = {};
-		std::map<std::string, std::pair<std::size_t, CUdeviceptr>> globals_ = {};
+		std::map<std::string, CUfunction, std::less<>> functions_ = {};
+		std::map<std::string, std::pair<std::size_t, CUdeviceptr>, std::less<>> globals_ = {};
 	};
 
 	class compile_opts: public traits::hashable<compile_opts> {

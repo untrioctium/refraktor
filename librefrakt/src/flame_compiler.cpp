@@ -360,7 +360,7 @@ auto rfkt::flame_compiler::make_opts(precision prec, const flame& f)->std::pair<
     }
 
     //if (most_blocks_idx > 0) most_blocks_idx--;
-    auto& most_blocks = exec_configs[most_blocks_idx];
+    auto& most_blocks = exec_configs[2];
 
     //flame_generated += fmt::format("__device__ unsigned int flame_size_reals() {{ return {}; }}\n", flame_real_count);
     //flame_generated += fmt::format("__device__ unsigned int flame_size_bytes() {{ return {}; }}\n", flame_size_bytes);
@@ -569,6 +569,14 @@ auto rfkt::flame_kernel::warmup(CUstream stream, const flame& f, uint2 dims, dou
         const auto pack_size_reals = nreals * (nseg + 3);
         const auto pack_size_bytes = sizeof(Real) * pack_size_reals;
 
+        CUdeviceptr samples_dev;
+        cuMemAllocAsync(&samples_dev, pack_size_bytes, stream);
+
+        CUdeviceptr segments_dev;
+        cuMemAllocAsync(&segments_dev, pack_size_bytes * 4 * nseg, stream);
+        auto state = flame_kernel::saved_state{ dims, this->saved_state_size(), stream };
+        cuMemsetD32Async(state.bins.ptr(), 0, state.bin_dims.x * state.bin_dims.y * 4, stream);
+
         thread_local pinned_ring_allocator_t<1024 * 1024 * 4> pra{};
         auto pack = std::span<Real>{ (Real*)pra.reserve(pack_size_bytes), pack_size_reals };
         auto packer = [pack, counter = 0](double v) mutable {
@@ -581,12 +589,8 @@ auto rfkt::flame_kernel::warmup(CUstream stream, const flame& f, uint2 dims, dou
             pack_flame(f, dims, packer, t + pos * seg_length);
         }
 
-        CUdeviceptr samples_dev;
-        cuMemAllocAsync(&samples_dev, pack_size_bytes, stream);
         cuMemcpyHtoDAsync(samples_dev, pack.data(), pack_size_bytes, stream);
 
-        CUdeviceptr segments_dev;
-        cuMemAllocAsync(&segments_dev, pack_size_bytes * 4 * nseg, stream);
         auto [grid, block] = this->catmull->kernel().suggested_dims();
         auto nblocks = (nseg * pack_size_reals) / block;
         if ((nseg * pack_size_reals) % block > 0) nblocks++;
@@ -594,10 +598,6 @@ auto rfkt::flame_kernel::warmup(CUstream stream, const flame& f, uint2 dims, dou
             samples_dev, static_cast<std::uint32_t>(nreals), std::uint32_t{ nseg }, segments_dev
             );
         cuMemFreeAsync(samples_dev, stream);
-
-        auto state = flame_kernel::saved_state{ dims, this->saved_state_size(), stream };
-
-        cuMemsetD32Async(state.bins.ptr(), 0, state.bin_dims.x * state.bin_dims.y * 4, stream);
 
         this->mod.kernel("warmup")
             .launch(this->exec.first, this->exec.second, stream, true)

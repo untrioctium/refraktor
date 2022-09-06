@@ -12,6 +12,7 @@ set(HEADER_LIST
 	"include/librefrakt/util/zlib.h"
 	"include/librefrakt/util/color.h"
 	"include/librefrakt/util/nvenc.h"
+	"include/librefrakt/util/nvjpeg.h"
 	"include/librefrakt/util.h"
 	"include/librefrakt/animators.h"
 	"include/librefrakt/kernel_manager.h"
@@ -32,6 +33,7 @@ add_library(librefrakt STATIC
 	"src/util/color.cpp"
 	"src/util/stb.cpp"
 	"src/util/nvenc.cpp"
+	"src/util/nvjpeg.cpp"
 	"src/kernel_manager.cpp"
 	"src/animators.cpp"
 	"src/flame_types.cpp"
@@ -144,13 +146,11 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(nv-codec-headers)
 target_include_directories(librefrakt PRIVATE ${nv-codec-headers_SOURCE_DIR}/include)
 
-find_package(CUDAToolkit)
-
 target_link_libraries(librefrakt PRIVATE 
 	xxhash 
-	#CUDA::nvjpeg
 	CUDA::nvrtc
 	CUDA::nvml
+	CUDA::nvjpeg
 	zlibstatic
 	SQLiteCpp
 	yaml-cpp
