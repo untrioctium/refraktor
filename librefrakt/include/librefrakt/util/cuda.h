@@ -125,4 +125,5 @@ namespace rfkt::cuda {
     };
 
     auto init()->context;
+
 }

@@ -62,11 +62,11 @@ namespace rfkt {
 			tm = std::move(mod);
 		}
 
-		void run(CUdeviceptr bins, CUdeviceptr out, uint2 dims, double quality, bool planar, double gamma, double brightness, double vibrancy) {
+		void run(CUdeviceptr bins, CUdeviceptr out, uint2 dims, double quality, bool planar, double gamma, double brightness, double vibrancy, CUstream stream) const {
 
 			auto kernel = tm.kernel(planar ? "tonemap<true>" : "tonemap<false>");
 
-			CUDA_SAFE_CALL(kernel.launch({ dims.x / 8 + 1, dims.y / 8 + 1, 1 }, { 8, 8, 1 }, rfkt::cuda::thread_local_stream())(
+			CUDA_SAFE_CALL(kernel.launch({ dims.x / 8 + 1, dims.y / 8 + 1, 1 }, { 8, 8, 1 }, stream)(
 				bins,
 				out,
 				dims.x, dims.y,
@@ -178,11 +178,167 @@ private:
 	std::map<std::string, arg_type> args;
 };
 
+class http_connection_data : public std::enable_shared_from_this<http_connection_data> {
+public:
+	http_connection_data() = delete;
+	~http_connection_data() {
+		SPDLOG_INFO("Closing HTTP session {}", fmt::ptr(this));
+	}
+
+	http_connection_data(const http_connection_data&) = delete;
+	http_connection_data& operator=(const http_connection_data&) = delete;
+
+	http_connection_data(http_connection_data&&) = delete;
+	http_connection_data& operator=(const http_connection_data&&) = delete;
+
+	[[nodiscard]] static auto make(auto* res) {
+		auto ptr = std::shared_ptr<http_connection_data>{ new http_connection_data{res} };
+		ptr->response()->onAborted([cd = ptr->shared_from_this()]() { SPDLOG_INFO("Aborting HTTP session {}", fmt::ptr(cd.get()));  cd->abort(); });
+		return ptr;
+	}
+
+	auto response() { return response_; }
+	void abort() { aborted_ = true; }
+	auto aborted() { return aborted_.operator bool(); }
+
+	explicit operator bool() { return aborted(); }
+
+	void defer(uWS::MoveOnlyFunction<void(http_connection_data&)>&& func) {
+		parent->defer([cd = shared_from_this(), func = std::move(func)]() mutable {
+			func(*cd);
+		});
+	}
+private:
+
+	uWS::HttpResponse<true>* response_;
+	std::atomic_bool aborted_ = false;
+	uWS::Loop* parent;
+
+	http_connection_data(uWS::HttpResponse<true>* res) : response_(res), parent(uWS::Loop::get()) {
+		SPDLOG_INFO("Opening HTTP session {}", fmt::ptr(this));
+	}
+
+};
+
+struct socket_data {
+	rfkt::flame flame;
+	rfkt::flame_kernel kernel;
+
+	std::size_t total_frames;
+	double loops_per_frame;
+	int fps;
+	uint2 dims;
+
+	std::unique_ptr<rfkt::nvenc::session> session;
+	std::shared_ptr<rfkt::cuda_buffer<uchar4>> render;
+
+	std::atomic_bool closed;
+	uWS::MoveOnlyFunction<void(std::vector<std::byte>&&)> feed;
+
+	~socket_data() {
+		SPDLOG_INFO("Closing socket");
+	}
+};
+
+auto session_render_thread(std::shared_ptr<socket_data> ud, const rfkt::tonemapper& tm, rfkt::cuda::context ctx) {
+	return[ud = move(ud), &tm, ctx]() {
+		ctx.make_current_if_not();
+		auto tls = rfkt::cuda::thread_local_stream();
+
+		std::size_t sent_bytes = 0;
+
+		auto time_since_start = [start = std::chrono::high_resolution_clock::now()]() {
+			return std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::high_resolution_clock::now() - start).count() / 1'000'000'000.0;
+		};
+
+		auto slept_time = 0.0;
+		auto pre_fut_time = 0.0;
+		auto wait_time = 0.0;
+		auto encode_time = 0.0;
+		std::size_t total_draws = 0;
+
+		while (!ud->closed) {
+
+			auto t = ud->total_frames * ud->loops_per_frame;
+
+			auto pre_fut_start = time_since_start();
+			auto state = ud->kernel.warmup(
+				tls,
+				ud->flame,
+				ud->dims,
+				t,
+				1, ud->loops_per_frame, 0xdeadbeef, 64
+			);
+
+			auto result_fut = ud->kernel.bin(tls, state, 100, 1000 / ud->fps - 5, 1'000'000'000);
+
+			auto gamma = ud->flame.gamma.sample(t);
+			auto brightness = ud->flame.brightness.sample(t);
+			auto vibrancy = ud->flame.vibrancy.sample(t);
+
+			// while we wait, let's encode the last frame
+			if (ud->total_frames > 0) {
+				auto encode_start = time_since_start();
+				auto ret = ud->session->submit_frame((ud->total_frames - 1) % (ud->fps) == 0);
+				encode_time += time_since_start() - encode_start;
+
+				if (ret) {
+					ret->insert(ret->begin(), std::byte{ 0 });
+					sent_bytes += ret->size();
+					ud->feed(std::move(ret.value()));
+				}
+			}
+			pre_fut_time += time_since_start() - pre_fut_start;
+			auto wait_start = time_since_start();
+			auto result = result_fut.get();
+			total_draws += result.total_draws;
+			wait_time += time_since_start() - wait_start;
+
+			tm.run(state.bins.ptr(), ud->render->ptr(), ud->dims, result.quality, false, gamma, brightness, vibrancy, tls);
+			cuStreamSynchronize(rfkt::cuda::thread_local_stream());
+
+
+			ud->total_frames++;
+
+			double avg_quality = (total_draws / double(ud->dims.x * ud->dims.y)) / ud->total_frames;
+			if (ud->total_frames > 0 && ud->total_frames % ud->fps == 0) {
+
+				double factor = 1000.0 / ud->total_frames;
+
+				double draws_per_ms = total_draws / (1000 * (time_since_start() - slept_time)) / 1'000'000;
+				double real_fps = ud->total_frames / time_since_start();
+
+				SPDLOG_INFO("{:.4} MB, {:.3} mbps, {:.3} avg quality, {:.3}m draws/ms, {:.3} ms/frame avg, {:.3} ms/frame to future get, {:.3} ms/frame future wait. {:.4} real fps",
+					sent_bytes / (1024.0 * 1024.0),
+					(8.0 * sent_bytes / (1024.0 * 1024.0)) / (time_since_start()),
+					avg_quality,
+					draws_per_ms,
+					(time_since_start() - slept_time) * factor,
+					pre_fut_time * factor,
+					wait_time * factor,
+					real_fps);
+			}
+
+			if (result.quality < avg_quality * .8) {
+				SPDLOG_INFO("Dropped frame detected, {} quality", result.quality);
+			}
+
+			if (ud->total_frames / double(ud->fps) - time_since_start() > .2) {
+				SPDLOG_INFO("Sleeping, overbuffered");
+				auto sleep = 200 - 1000 / ud->fps * 2;
+				slept_time += sleep / 1000;
+				std::this_thread::sleep_for(std::chrono::milliseconds{ sleep });
+			}
+		}
+	};
+}
 
 int main(int argc, char** argv) {
 
 	SPDLOG_INFO("Starting refrakt-server");
 	rfkt::flame_info::initialize("config/variations.yml");
+
+	SPDLOG_INFO("Flame system initialized: {} variations, {} parameters", rfkt::flame_info::num_variations(), rfkt::flame_info::num_parameters());
 
 	
 	auto ctx = rfkt::cuda::init();
@@ -197,6 +353,21 @@ int main(int argc, char** argv) {
 	auto tm = rfkt::tonemapper{ km };
 	auto jpeg = rfkt::nvjpeg::encoder{ rfkt::cuda::thread_local_stream() };
 
+	auto [sm_result, sm] = km.compile_file("assets/kernels/smooth.cu",
+		rfkt::compile_opts("smooth")
+		.function("smooth")
+		.flag(rfkt::compile_flag::extra_vectorization)
+		.flag(rfkt::compile_flag::use_fast_math)
+	);
+
+	if (!sm_result.success) {
+		SPDLOG_ERROR("{}\n", sm_result.log);
+		exit(1);
+	}
+	auto func = sm();
+	auto [ss_grid, ss_block] = func.suggested_dims();
+	SPDLOG_INFO("Loaded smooth kernel: {} regs, {} shared, {} local, {}x{} suggested dims", func.register_count(), func.shared_bytes(), func.local_bytes(), ss_grid, ss_block);
+
 	auto jpeg_executor = runtime.make_worker_thread_executor();
 	jpeg_executor->post([ctx]() {
 		ctx.make_current();
@@ -208,25 +379,6 @@ int main(int argc, char** argv) {
 		ctx.make_current_if_not();
 	});
 
-	struct socket_data {
-		rfkt::flame flame;
-		rfkt::flame_kernel kernel;
-
-		std::size_t total_frames;
-		double loops_per_frame;
-		int fps;
-		uint2 dims;
-
-		std::unique_ptr<rfkt::nvenc::session> session;
-		std::shared_ptr<rfkt::cuda_buffer<uchar4>> render;
-
-		std::atomic_bool closed;
-		uWS::MoveOnlyFunction<void(std::vector<std::byte>&&)> feed;
-
-		~socket_data() {
-			SPDLOG_INFO("Closing socket");
-		}
-	};
 	using ws_t = uWS::WebSocket<true, true, std::shared_ptr<socket_data>>;
 	app.ws<std::shared_ptr<socket_data>>("/stream", {
 		.compression = uWS::DISABLED,
@@ -241,7 +393,7 @@ int main(int argc, char** argv) {
 		.open = [](ws_t* ws) {
 			SPDLOG_INFO("Opened session for streaming");
 		},
-		.message = [&km, &fc, &tm, &runtime](ws_t* ws, std::string_view message, uWS::OpCode opCode) {
+		.message = [&fc, &tm, &runtime, ctx](ws_t* ws, std::string_view message, uWS::OpCode opCode) {
 			auto* ud = ws->getUserData();
 			auto js = nlohmann::json::parse(message);
 			if (!js.is_object()) return;
@@ -290,97 +442,7 @@ int main(int argc, char** argv) {
 
 				ud->swap(new_ptr);
 
-				runtime.thread_executor()->post([&tm, ud = *ud, ctx = rfkt::cuda::context::current()]() {
-					ctx.make_current_if_not();
-					auto tls = rfkt::cuda::thread_local_stream();
-
-					std::size_t sent_bytes = 0;
-					
-					auto time_since_start = [start = std::chrono::high_resolution_clock::now()]() {
-						return std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::high_resolution_clock::now() - start).count() / 1'000'000'000.0;
-					};
-
-					auto slept_time = 0.0;
-					auto pre_fut_time = 0.0;
-					auto wait_time = 0.0;
-					auto encode_time = 0.0;
-					std::size_t total_draws = 0;
-
-					while (!ud->closed) {
-
-						auto t = ud->total_frames * ud->loops_per_frame;
-
-						auto pre_fut_start = time_since_start();
-						auto state = ud->kernel.warmup(
-							tls,
-							ud->flame,
-							ud->dims,
-							t,
-							1, ud->loops_per_frame, 0xdeadbeef, 64
-						);
-
-						auto result_fut = ud->kernel.bin(tls, state, 100, 1000/ud->fps - 5, 1'000'000'000);
-
-						auto gamma = ud->flame.gamma.sample(t);
-						auto brightness = ud->flame.brightness.sample(t);
-						auto vibrancy = ud->flame.vibrancy.sample(t);
-
-						// while we wait, let's encode the last frame
-						if (ud->total_frames > 0){
-							auto encode_start = time_since_start();
-							auto ret = ud->session->submit_frame((ud->total_frames - 1) % (ud->fps) == 0);
-							encode_time += time_since_start() - encode_start;
-
-							if (ret) {
-								ret->insert(ret->begin(), std::byte{ 0 });
-								sent_bytes += ret->size();
-								ud->feed(std::move(ret.value()));
-							}
-						}
-						pre_fut_time += time_since_start() - pre_fut_start;
-						auto wait_start = time_since_start();
-						auto result = result_fut.get();
-						total_draws += result.total_draws;
-						wait_time += time_since_start() - wait_start;
-
-						tm.run(state.bins.ptr(), ud->render->ptr(), ud->dims, result.quality, false, gamma, brightness, vibrancy);
-						cuStreamSynchronize(rfkt::cuda::thread_local_stream());
-
-
-						ud->total_frames++;
-
-						double avg_quality = (total_draws / double(ud->dims.x * ud->dims.y)) / ud->total_frames;
-						if (ud->total_frames > 0 && ud->total_frames % ud->fps == 0) {
-
-							double factor = 1000.0 / ud->total_frames;
-
-							double draws_per_ms = total_draws / (1000 * (time_since_start() - slept_time)) / 1'000'000;
-							double real_fps = ud->total_frames / time_since_start();
-
-							SPDLOG_INFO("{:.4} MB, {:.3} mbps, {:.3} avg quality, {:.3}m draws/ms, {:.3} ms/frame avg, {:.3} ms/frame to future get, {:.3} ms/frame future wait. {:.4} real fps",
-								sent_bytes / (1024.0 * 1024.0),
-								(8.0 * sent_bytes / (1024.0 * 1024.0)) / (time_since_start()),
-								avg_quality,
-								draws_per_ms,
-								(time_since_start() - slept_time) * factor,
-								pre_fut_time * factor,
-								wait_time * factor,
-								real_fps);
-						}
-
-						if (result.quality < avg_quality * .8) {
-							SPDLOG_INFO("Dropped frame detected, {} quality", result.quality);
-						}
-
-						if (ud->total_frames / double(ud->fps) - time_since_start() > .2) {
-							SPDLOG_INFO("Sleeping, overbuffered");
-							auto sleep = 200 - 1000 / ud->fps * 2;
-							slept_time += sleep / 1000;
-							std::this_thread::sleep_for(std::chrono::milliseconds{ sleep });
-						}
-					}
-
-				});
+				runtime.thread_executor()->post(session_render_thread(*ud, tm, ctx));
 
 				SPDLOG_INFO("Starting session: {}, {}x{}, {} fps", flame, width, height, fps);
 			}
@@ -415,20 +477,6 @@ int main(int argc, char** argv) {
 			/* You may access ws->getUserData() here */
 		}
 	});
-
-	struct http_connection_data {
-		uWS::HttpResponse<true>* response;
-		std::atomic_bool aborted = false;
-		uWS::Loop* parent;
-
-		http_connection_data(uWS::HttpResponse<true>* res) : response(res), parent(uWS::Loop::get()) {}
-
-		static auto make(auto* res) {
-			auto ptr = std::make_shared<http_connection_data>(res);
-			ptr->response->onAborted([cd = ptr]() {cd->aborted = true; });
-			return ptr;
-		}
-	};
 
 	app.get("/render/:id", [&](auto* res, auto* req) {
 
@@ -474,18 +522,18 @@ int main(int argc, char** argv) {
 			return;
 		}
 
-		jpeg_executor->post([flame_path = std::move(flame_path), cd = std::move(cd), rd = std::move(rd), ctx = ctx, &fc, &tm, &jpeg]() mutable {
+		jpeg_executor->post([flame_path = std::move(flame_path), cd = std::move(cd), rd = std::move(rd), ctx = ctx, &fc, &tm, &jpeg, &sm]() mutable {
 			auto tls = rfkt::cuda::thread_local_stream();
 
 			auto [t_load, fopt] = time_it([&]() { return rfkt::flame::import_flam3(flame_path); });
 			if (!fopt) {
-				end_error<"500", "Internal Server Error">(cd->response);
+				end_error<"500", "Internal Server Error">(cd->response());
 				return;
 			}
 
 			auto [t_kernel, k_result] = time_it([&]() {return fc.get_flame_kernel(rfkt::precision::f32, fopt.value()); });
 			if (!k_result.kernel.has_value()) {
-				end_error<"500", "Internal Server Error>">(cd->response);
+				end_error<"500", "Internal Server Error>">(cd->response());
 				return;
 			}
 
@@ -495,16 +543,27 @@ int main(int argc, char** argv) {
 			auto state = kernel.warmup(tls, fopt.value(), { rd.width, rd.height }, rd.time, 1, double(rd.fps) / rd.loop_speed, 0xdeadbeef, 100);
 			auto [t_bin, result] = time_it([&]() {return kernel.bin(tls, state, rd.quality, rd.bin_time, 1'000'000'000).get(); });
 
+			auto smoothed = rfkt::cuda::make_buffer_async<float4>(rd.width * rd.height, tls);
+			cuMemsetD32Async(smoothed.ptr(), 0, rd.width* rd.height * 4, tls);
+
+			sm().launch({ rd.width / 8 + 1, rd.height / 8 + 1, 1 }, { 8,8,1 }, tls)(
+				state.bins.ptr(),
+				smoothed.ptr(),
+				rd.width, rd.height,
+				(int) 11,
+				(int) 0,
+				0.6f
+				);
+
 			SPDLOG_INFO("load {}, kernel {}, bin {}, quality {}", t_load, t_kernel, t_bin, result.quality);
 
-			tm.run(state.bins.ptr(), render.ptr(), { rd.width, rd.height }, result.quality, true, fopt->gamma.sample(rd.time), fopt->brightness.sample(rd.time), fopt->vibrancy.sample(rd.time));
+			tm.run(smoothed.ptr(), render.ptr(), { rd.width, rd.height }, result.quality, true, fopt->gamma.sample(rd.time), fopt->brightness.sample(rd.time), fopt->vibrancy.sample(rd.time), tls);
 			auto data = jpeg.encode_image(render.ptr(), rd.width, rd.height, rd.jpeg_quality, tls).get();
-
-			auto parent = cd->parent;
-			parent->defer([cd = std::move(cd), data = std::move(data)](){
-				if (!cd->aborted) {
-					cd->response->writeHeader("Content-Type", "image/jpeg");
-					cd->response->tryEnd({ (char*)data.data(), data.size() });
+ 
+			cd->defer([data = std::move(data)](auto& cd){
+				if (!cd.aborted()) {
+					cd.response()->writeHeader("Content-Type", "image/jpeg");
+					cd.response()->tryEnd({(char*)data.data(), data.size()});
 				}
 			});
 		});
