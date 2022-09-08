@@ -141,6 +141,8 @@ std::string rfkt::nvenc::session::last_error() {
 }
 
 auto rfkt::nvenc::session::initialize(std::pair<uint32_t, uint32_t> dims, std::pair<uint32_t, uint32_t> fps) -> std::shared_ptr<cuda_buffer<uchar4>> {
+	const auto& funcs = detail::api().funcs();
+
 	dims_ = dims;
 	NV_ENC_INITIALIZE_PARAMS init_params{};
 	init_params.version = NV_ENC_INITIALIZE_PARAMS_VER;
@@ -159,13 +161,13 @@ auto rfkt::nvenc::session::initialize(std::pair<uint32_t, uint32_t> dims, std::p
 	memset(&preset_config, 0, sizeof(NV_ENC_PRESET_CONFIG));
 	preset_config.version = NV_ENC_PRESET_CONFIG_VER;
 	preset_config.presetCfg.version = NV_ENC_CONFIG_VER;
-	NVENC_SAFE_CALL(detail::api().funcs().nvEncGetEncodePresetConfig(sesh, init_params.encodeGUID, init_params.presetGUID, &preset_config));
+	NVENC_SAFE_CALL(funcs.nvEncGetEncodePresetConfig(sesh, init_params.encodeGUID, init_params.presetGUID, &preset_config));
 	init_params.encodeConfig = &preset_config.presetCfg;
 
-	NVENC_SAFE_CALL(detail::api().funcs().nvEncInitializeEncoder(sesh, &init_params));
+	NVENC_SAFE_CALL(funcs.nvEncInitializeEncoder(sesh, &init_params));
 
 	NV_ENC_CREATE_BITSTREAM_BUFFER out_buf = { NV_ENC_CREATE_BITSTREAM_BUFFER_VER };
-	NVENC_SAFE_CALL(detail::api().funcs().nvEncCreateBitstreamBuffer(sesh, &out_buf) != NV_ENC_SUCCESS);
+	NVENC_SAFE_CALL(funcs.nvEncCreateBitstreamBuffer(sesh, &out_buf) != NV_ENC_SUCCESS);
 	out_stream = out_buf.bitstreamBuffer;
 
 	input_buffer = std::make_shared<cuda_buffer<uchar4>>(dims.first * dims.second);
@@ -188,14 +190,16 @@ auto rfkt::nvenc::session::initialize(std::pair<uint32_t, uint32_t> dims, std::p
 	return input_buffer;
 }
 
-std::optional<std::vector<unsigned char>> rfkt::nvenc::session::submit_frame(bool idr, bool done) {
-	auto ret = std::optional<std::vector<unsigned char>>{};
+std::optional<std::vector<std::byte>> rfkt::nvenc::session::submit_frame(bool idr, bool done) {
+	const auto& funcs = detail::api().funcs();
+
+	auto ret = std::optional<std::vector<std::byte>>{};
 
 	NV_ENC_MAP_INPUT_RESOURCE in_map{};
 	memset(&in_map, 0, sizeof(in_map));
 	in_map.version = NV_ENC_MAP_INPUT_RESOURCE_VER;
 	in_map.registeredResource = in_reg;
-	if (!done) NVENC_SAFE_CALL(detail::api().funcs().nvEncMapInputResource(sesh, &in_map));
+	NVENC_SAFE_CALL(funcs.nvEncMapInputResource(sesh, &in_map));
 
 	NV_ENC_PIC_PARAMS pic_params{};
 	memset(&pic_params, 0, sizeof(pic_params));
@@ -211,18 +215,18 @@ std::optional<std::vector<unsigned char>> rfkt::nvenc::session::submit_frame(boo
 	}
 	pic_params.outputBitstream = out_stream;
 
-	auto frame_status = detail::api().funcs().nvEncEncodePicture(sesh, &pic_params);
+	auto frame_status = funcs.nvEncEncodePicture(sesh, &pic_params);
 
 	if (frame_status != NV_ENC_ERR_NEED_MORE_INPUT) {
 		NVENC_SAFE_CALL(frame_status);
 
-		std::vector<unsigned char> ret_data;
+		std::vector<std::byte> ret_data;
 
 		NV_ENC_LOCK_BITSTREAM out_bitstream = { NV_ENC_LOCK_BITSTREAM_VER }; out_bitstream.outputBitstream = out_stream;
-		NVENC_SAFE_CALL(detail::api().funcs().nvEncLockBitstream(sesh, &out_bitstream));
+		NVENC_SAFE_CALL(funcs.nvEncLockBitstream(sesh, &out_bitstream));
 		ret_data.resize(out_bitstream.bitstreamSizeInBytes);
 		memcpy_s(ret_data.data(), ret_data.size(), out_bitstream.bitstreamBufferPtr, out_bitstream.bitstreamSizeInBytes);
-		NVENC_SAFE_CALL(detail::api().funcs().nvEncUnlockBitstream(sesh, out_bitstream.outputBitstream));
+		NVENC_SAFE_CALL(funcs.nvEncUnlockBitstream(sesh, out_bitstream.outputBitstream));
 
 		ret = { ret_data };
 
@@ -230,11 +234,15 @@ std::optional<std::vector<unsigned char>> rfkt::nvenc::session::submit_frame(boo
 		//SPDLOG_INFO("Encode session {} returning {} bytes", sesh, ret_data.size());
 	}
 
-	if (!done) NVENC_SAFE_CALL(detail::api().funcs().nvEncUnmapInputResource(sesh, in_map.mappedResource));
+	NVENC_SAFE_CALL(funcs.nvEncUnmapInputResource(sesh, in_map.mappedResource));
 
 	return ret;
 }
 
 rfkt::nvenc::session::~session() {
-	detail::api().funcs().nvEncDestroyEncoder(sesh);
+	const auto& funcs = detail::api().funcs();
+
+	funcs.nvEncDestroyBitstreamBuffer(sesh, out_stream);
+	funcs.nvEncUnregisterResource(sesh, in_reg);
+	funcs.nvEncDestroyEncoder(sesh);
 }

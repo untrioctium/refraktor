@@ -65,7 +65,7 @@ public:
 	~kernel_cache() {}
 
 	bool is_available(const std::string& id, const rfkt::hash_t& opts_hash) {
-		//std::lock_guard<std::mutex> lock(mtx);
+		std::lock_guard<std::mutex> lock(mtx);
 
 		auto query = SQLite::Statement(db, "SELECT dependencies,create_ts,opts_hash FROM cache WHERE id = ?");
 		query.bind(1, id);
@@ -93,7 +93,7 @@ public:
 	}
 
 	row get(const std::string& id) {
-		//std::lock_guard<std::mutex> lock(mtx);
+		std::lock_guard<std::mutex> lock(mtx);
 
 		auto query = SQLite::Statement(db, "SELECT id, create_ts, dependencies, functions, globals, cubin FROM cache WHERE id = ?");
 		query.bind(1, id);
@@ -122,7 +122,7 @@ public:
 	}
 
 	void insert(const row& r, const rfkt::hash_t& hash) {
-		//std::lock_guard<std::mutex> lock(mtx);
+		std::lock_guard<std::mutex> lock(mtx);
 
 		auto query = SQLite::Statement(db, "INSERT OR IGNORE INTO cache VALUES(?,?,?,?,?,?,?,?,?)");
 
@@ -148,7 +148,7 @@ private:
 	}
 
 	SQLite::Database db;
-	//std::mutex mtx;
+	std::mutex mtx;
 };
 
 rfkt::kernel_manager::kernel_manager() : k_cache(new kernel_cache()){}

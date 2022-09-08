@@ -12,7 +12,7 @@ CUstream rfkt::cuda::thread_local_stream()
         }
 
         ~stream_wrapper() {
-            if (stream != nullptr) CUDA_SAFE_CALL(cuStreamDestroy(stream));
+            if (stream != nullptr) cuStreamDestroy(stream);
         }
     };
 

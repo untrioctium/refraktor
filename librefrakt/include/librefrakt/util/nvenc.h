@@ -44,7 +44,7 @@ namespace rfkt::nvenc {
 		}
 
 		std::shared_ptr<cuda_buffer<uchar4>> initialize(std::pair<uint32_t, uint32_t> dims, std::pair<uint32_t, uint32_t> fps);
-		std::optional<std::vector<unsigned char>> submit_frame(bool idr, bool done = false);
+		std::optional<std::vector<std::byte>> submit_frame(bool idr, bool done = false);
 		~session();
 
 	private:

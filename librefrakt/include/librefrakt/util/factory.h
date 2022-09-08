@@ -39,6 +39,8 @@ public:
 
 		static bool registerT() {
 			auto name = demangle(typeid(T).name());
+			if (factory::exists(name)) return false;
+
 			auto b_name = demangle(typeid(Base).name());
 			SPDLOG_INFO("Registering subclass '{}' for base '{}'", name, b_name);
 			factory::data()[name] = [](Args... args) -> std::unique_ptr<Base> {

@@ -1,26 +1,26 @@
-struct jsf32ctx {
+struct randctx {
 
 	using u4 = unsigned int;
 
-	u4 a; u4 b; u4 c; u4 d;
+	u4 a; u4 b;
 
 	#define rot32(x,k) (((x)<<(k))|((x)>>(32-(k))))
 	__device__ __host__ u4 rand() {
-		u4 e = a - rot32(b, 27);
-		a = b ^ rot32(c, 17);
-		b = c + d;
-		c = d + e;
-		d = e + a;
-		return d;
+		const u4 s0 = a;
+		u4 s1 = b;
+		const u4 result = s0 * 0x9E3779BB;
+
+		s1 ^= s0;
+		a = rot32(s0, 26) ^ s1 ^ (s1 << 9);
+		b = rot32(s1, 13);
+
+		return result;
 	}
 	#undef rot32
 	
 	__device__ void init(u4 seed) {
 		a = 0xf1ea5eed;
-		b = c = d = seed;
-
-		#pragma unroll
-		for (int i = 0; i < 20; i++) (void) this->rand();
+		b = seed;
 	}
 
 	__device__ Real rand_uniform() {

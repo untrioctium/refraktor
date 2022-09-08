@@ -3,6 +3,7 @@ set(HEADER_LIST
 	"include/librefrakt/traits/noncopyable.h"
 	"include/librefrakt/util/hash.h"
 	"include/librefrakt/util/cuda.h"
+	"include/librefrakt/util/gpuinfo.h"
 	"include/librefrakt/util/factory.h"
 	"include/librefrakt/util/filesystem.h"
 	"include/librefrakt/util/platform.h"
@@ -11,6 +12,7 @@ set(HEADER_LIST
 	"include/librefrakt/util/zlib.h"
 	"include/librefrakt/util/color.h"
 	"include/librefrakt/util/nvenc.h"
+	"include/librefrakt/util/nvjpeg.h"
 	"include/librefrakt/util.h"
 	"include/librefrakt/animators.h"
 	"include/librefrakt/kernel_manager.h"
@@ -25,11 +27,13 @@ add_library(librefrakt STATIC
 	"src/util/cuda.cpp"
 	"src/util/filesystem.cpp"
 	"src/util/platform.cpp"
+	"src/util/gpuinfo.cpp"
 	"src/util/string.cpp"
 	"src/util/zlib.cpp"
 	"src/util/color.cpp"
 	"src/util/stb.cpp"
 	"src/util/nvenc.cpp"
+	"src/util/nvjpeg.cpp"
 	"src/kernel_manager.cpp"
 	"src/animators.cpp"
 	"src/flame_types.cpp"
@@ -84,6 +88,13 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(sqlitecpp)
 
+# concurrencpp
+FetchContent_Declare(
+  concurrencpp
+  GIT_REPOSITORY https://github.com/David-Haim/concurrencpp.git
+)
+FetchContent_MakeAvailable(concurrencpp)
+
 # fmt
 FetchContent_Declare(
   fmt
@@ -91,21 +102,6 @@ FetchContent_Declare(
   GIT_TAG 7.1.2
 )
 FetchContent_MakeAvailable(fmt)
-
-# spdlog
-FetchContent_Declare(
-  spdlog
-  GIT_REPOSITORY https://github.com/gabime/spdlog.git
-  GIT_TAG v1.8.5
-)
-FetchContent_MakeAvailable(spdlog)
-
-# spdlog
-FetchContent_Declare(
-  concurrencpp
-  GIT_REPOSITORY https://github.com/David-Haim/concurrencpp.git
-)
-FetchContent_MakeAvailable(concurrencpp)
 
 # stb
 FetchContent_Declare(
@@ -150,12 +146,11 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(nv-codec-headers)
 target_include_directories(librefrakt PRIVATE ${nv-codec-headers_SOURCE_DIR}/include)
 
-find_package(CUDAToolkit)
-
 target_link_libraries(librefrakt PRIVATE 
 	xxhash 
-	#CUDA::nvjpeg
 	CUDA::nvrtc
+	CUDA::nvml
+	CUDA::nvjpeg
 	zlibstatic
 	SQLiteCpp
 	yaml-cpp

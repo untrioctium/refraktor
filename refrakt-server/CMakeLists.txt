@@ -5,7 +5,9 @@ set_target_properties(refrakt-server PROPERTIES VS_DEBUGGER_WORKING_DIRECTORY ${
 target_link_libraries(refrakt-server
 	PRIVATE 
 	librefrakt 
-	fmt::fmt)
+	fmt::fmt
+	spdlog
+	concurrencpp)
 	
 #libuv
 FetchContent_Declare(

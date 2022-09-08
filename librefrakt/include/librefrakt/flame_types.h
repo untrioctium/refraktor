@@ -24,6 +24,8 @@ namespace rfkt
 		double t0 = 0.0;
 		std::unique_ptr<rfkt::animator> ani = nullptr;
 
+		animated_double(double t0) : t0(t0) {}
+
 		auto sample(double t) const -> double {
 			if (!ani) return t0;
 			else return ani->apply(t, t0);
@@ -36,8 +38,11 @@ namespace rfkt
 			return *this;
 		}
 
+		animated_double(animated_double&& o) noexcept = default;
+		animated_double& operator=(animated_double&& o) noexcept = default;
+
 		animated_double() = default;
-		animated_double(double t0) : t0(t0) {}
+		~animated_double() = default;
 	};
 
 	struct affine_matrix {
@@ -104,7 +109,7 @@ namespace rfkt
 
 		std::pair<animated_double, animated_double> aff_mod_translate = {0.0, 0.0};
 		animated_double aff_mod_rotate = { 0.0 };
-		animated_double add_mod_scale = { 1.0 };
+		animated_double aff_mod_scale = { 1.0 };
 
 		static vlink identity() {
 			static const auto linear_index = rfkt::flame_info::variation("linear").index;
@@ -141,9 +146,6 @@ namespace rfkt
 			return variations.contains(idx);
 		}
 
-		void add_variation(std::size_t idx, std::optional<double> weight = std::nullopt);
-		void remove_variation(std::size_t idx);
-
 		auto real_count() const noexcept -> std::size_t {
 			return 6 + variations.size() + parameters.size();
 		}
@@ -154,6 +156,9 @@ namespace rfkt
 			for (const auto& [id, val] : variations) list.push_back(id);
 			hs.update(list);
 		}
+
+		rfkt::animated_double* seek(std::string_view path);
+		std::string dump(std::string_view prefix) const;
 
 	//private:
 		std::map<std::size_t, animated_double> variations{};
@@ -167,6 +172,9 @@ namespace rfkt
 		animated_double opacity = 0.0;
 
 		std::vector<vlink> vchain;
+
+		rfkt::animated_double* seek(std::string_view path);
+		std::string dump(std::string_view prefix) const;
 
 		static xform identity() {
 			auto xf = xform{};
@@ -208,6 +216,9 @@ namespace rfkt
 
 		auto operator=(flame&&) noexcept -> flame& = default;
 		flame(flame&&) = default;
+
+		rfkt::animated_double* seek(std::string_view path);
+		std::string dump() const;
 
 		auto real_count() const noexcept -> std::size_t {
 			std::size_t count =
