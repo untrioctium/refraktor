@@ -232,11 +232,10 @@ auto rfkt::flame_compiler::get_flame_kernel(precision prec, const flame& f) -> r
     auto [compile_result, handle] = km.compile_file("assets/kernels/refactor.cu", opts);
 
 
-    auto r = result{
-    .kernel = std::nullopt,
-    .source = annotate_source(opts.get_header("flame_generated.h")),
-    .log = std::move(compile_result.log)
-    };
+    auto r = result(
+        annotate_source(opts.get_header("flame_generated.h")),
+        std::move(compile_result.log)
+    );
 
 
     if (!compile_result.success) {
@@ -252,7 +251,7 @@ auto rfkt::flame_compiler::get_flame_kernel(precision prec, const flame& f) -> r
     }
     SPDLOG_INFO("Loaded flame kernel: {} temp. samples, {} flame params, {} regs, {} shared, {} local.", max_blocks, f.real_count(), func.register_count(), func.shared_bytes(), func.local_bytes());
 
-    r.kernel = flame_kernel{ f.hash(), std::move(handle), prec, shuf_bufs[most_blocks.block], device_mhz, std::pair<int, int>{most_blocks.grid, most_blocks.block}, catmull };
+    r.kernel = { f.hash(), std::move(handle), prec, shuf_bufs[most_blocks.block], device_mhz, std::pair<int, int>{most_blocks.grid, most_blocks.block}, catmull };
 
     return r;
 }

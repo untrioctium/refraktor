@@ -334,12 +334,9 @@ auto rfkt::kernel_manager::ptx_from_string(const std::string& source, const comp
 		compile_options.push_back(define_strings.back().c_str());
 	}
 
-	auto [c_time, c_result] = 
-		time_it([&]() 
-		{ 
-				SPDLOG_INFO("Starting compile for {}", opts.name);
-				return nvrtcCompileProgram(prog, compile_options.size(), compile_options.data()); 
-		});
+	auto timer = rfkt::timer();
+	auto c_result = nvrtcCompileProgram(prog, compile_options.size(), compile_options.data()); 
+	auto c_time = timer.count();
 
 	size_t logSize;
 	NVRTC_SAFE_CALL(nvrtcGetProgramLogSize(prog, &logSize));

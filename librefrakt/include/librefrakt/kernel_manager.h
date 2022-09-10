@@ -157,7 +157,7 @@ namespace rfkt {
 			return *this;
 		}
 
-		cuda_module() = default;
+		cuda_module() {}
 
 	private:
 		CUmodule module_handle = nullptr;
@@ -165,7 +165,9 @@ namespace rfkt {
 		std::map<std::string, std::pair<std::size_t, CUdeviceptr>, std::less<>> globals_ = {};
 	};
 
-	class compile_opts: public traits::hashable<compile_opts> {
+	static_assert(std::move_constructible<cuda_module>);
+
+	class compile_opts: public traits::hashable {
 	public:
 		friend class kernel_manager;
 

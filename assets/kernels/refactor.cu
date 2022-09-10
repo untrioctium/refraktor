@@ -195,7 +195,7 @@ void warmup(
 	my_iter(color) = my_rand().rand_uniform();
 	
 	if(fl::is_block_leader()) {
-		state.antialiasing_offsets = my_rand().rand_gaussian(1/3.0);
+		state.antialiasing_offsets = my_rand().rand_gaussian(1/2.0);
 	}
 	queue_shuffle_load(shuf_bufs, 0);
 	

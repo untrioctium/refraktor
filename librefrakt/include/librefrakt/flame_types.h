@@ -104,7 +104,7 @@ namespace rfkt
 		}
 	};
 
-	struct vlink: public traits::hashable<vlink> {
+	struct vlink: public traits::hashable {
 		affine_matrix affine = affine_matrix::identity();
 
 		std::pair<animated_double, animated_double> aff_mod_translate = {0.0, 0.0};
@@ -165,7 +165,7 @@ namespace rfkt
 		std::map<std::size_t, animated_double> parameters{};
 	};
 
-	struct xform: public traits::hashable<xform> {
+	struct xform: public traits::hashable {
 		animated_double weight = 0.0;
 		animated_double color = 0.0;
 		animated_double color_speed = 0.0;
@@ -195,7 +195,7 @@ namespace rfkt
 
 	};
 
-	class flame: public traits::hashable<flame> {
+	class flame: public traits::hashable {
 	public:
 		std::vector<xform> xforms = {};
 		std::optional<xform> final_xform = std::nullopt;
@@ -262,8 +262,6 @@ namespace rfkt
 				cb(i, &xforms[i]);
 			}
 			if (final_xform.has_value()) cb(-1, &final_xform.value());
-
-			constexpr auto test = sizeof(vlink);
 		}
 
 		auto& palette() noexcept { return *palette_hsv; }

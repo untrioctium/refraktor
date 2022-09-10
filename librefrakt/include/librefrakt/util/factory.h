@@ -8,7 +8,8 @@
 
 template <class Base, class... Args> class factory {
 public:
-	template <class ... T>
+
+	template <class ... T> 
 	static std::unique_ptr<Base> make(const std::string& s, T&&... args) {
 		return data().at(s)(std::forward<T>(args)...);
 	}

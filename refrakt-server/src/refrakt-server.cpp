@@ -12,6 +12,8 @@
 #include <librefrakt/util/filesystem.h>
 #include <librefrakt/util.h>
 
+#include <ranges>
+
 class event_loop_executor : public concurrencpp::derivable_executor<event_loop_executor> {
 public:
 
@@ -143,9 +145,10 @@ public:
 			if (type == boolean) ret[name] = false;
 		}
 
-		for (auto p : rfkt::str_util::split(std::string{ data }, '&')) {
-			auto key = p.substr(0, p.find('='));
-			auto val = p.substr(p.find('=') + 1);
+		for (const auto str : std::ranges::views::split(data, '&')) {
+			auto p = std::string_view{ str.begin(), str.end() };
+			auto key = std::string{ p.substr(0, p.find('=')) };
+			auto val = std::string{ p.substr(p.find('=') + 1) };
 
 			if (!args.contains(key)) continue;
 			switch (args.at(key)) {
@@ -175,7 +178,7 @@ public:
 	}
 
 private:
-	std::map<std::string, arg_type> args;
+	std::map< std::string, arg_type, std::less<>> args;
 };
 
 class http_connection_data : public std::enable_shared_from_this<http_connection_data> {
@@ -203,7 +206,7 @@ public:
 
 	explicit operator bool() { return aborted(); }
 
-	void defer(uWS::MoveOnlyFunction<void(http_connection_data&)>&& func) {
+	void defer(std::move_only_function<void(http_connection_data&)>&& func) {
 		parent->defer([cd = shared_from_this(), func = std::move(func)]() mutable {
 			func(*cd);
 		});
@@ -233,7 +236,7 @@ struct socket_data {
 	std::shared_ptr<rfkt::cuda_buffer<uchar4>> render;
 
 	std::atomic_bool closed;
-	uWS::MoveOnlyFunction<void(std::vector<std::byte>&&)> feed;
+	std::move_only_function<void(std::vector<std::byte>&&)> feed;
 
 	~socket_data() {
 		SPDLOG_INFO("Closing socket");
@@ -241,7 +244,7 @@ struct socket_data {
 };
 
 auto session_render_thread(std::shared_ptr<socket_data> ud, const rfkt::tonemapper& tm, rfkt::cuda::context ctx) {
-	return[ud = move(ud), &tm, ctx]() {
+	return [ud = move(ud), &tm, ctx]() {
 		ctx.make_current_if_not();
 		auto tls = rfkt::cuda::thread_local_stream();
 
@@ -425,7 +428,7 @@ int main(int argc, char** argv) {
 
 				auto new_ptr = std::shared_ptr<socket_data>{ new socket_data{
 					.flame = std::move(f.value()),
-					.kernel = std::move(k_result.kernel.value()),
+					.kernel = std::move(*k_result.kernel),
 					.total_frames = 0,
 					.loops_per_frame = 1.0 / (seconds_per_loop * fps),
 					.fps = fps,
@@ -513,6 +516,7 @@ int main(int argc, char** argv) {
 		if (rd.height > 2160) rd.height = 2160;
 		if (rd.quality > 2048) rd.quality = 2048;
 		if (rd.bin_time > 2000) rd.bin_time = 2000;
+		if (rd.jpeg_quality <= 0 || rd.jpeg_quality > 100) rd.jpeg_quality = 85;
 
 		auto cd = http_connection_data::make(res);
 		auto flame_path = fmt::format("assets/flames/electricsheep.247.{}.flam3", req->getParameter(0));
@@ -525,23 +529,32 @@ int main(int argc, char** argv) {
 		jpeg_executor->post([flame_path = std::move(flame_path), cd = std::move(cd), rd = std::move(rd), ctx = ctx, &fc, &tm, &jpeg, &sm]() mutable {
 			auto tls = rfkt::cuda::thread_local_stream();
 
-			auto [t_load, fopt] = time_it([&]() { return rfkt::flame::import_flam3(flame_path); });
+			auto timer = rfkt::timer();
+			auto fopt = rfkt::flame::import_flam3(flame_path);
+			auto t_load = timer.count();
+
 			if (!fopt) {
 				end_error<"500", "Internal Server Error">(cd->response());
 				return;
 			}
 
-			auto [t_kernel, k_result] = time_it([&]() {return fc.get_flame_kernel(rfkt::precision::f32, fopt.value()); });
+			timer.reset();
+			auto k_result = fc.get_flame_kernel(rfkt::precision::f32, fopt.value());
+			auto t_kernel = timer.count();
+
 			if (!k_result.kernel.has_value()) {
 				end_error<"500", "Internal Server Error>">(cd->response());
 				return;
 			}
 
 
-			auto kernel = std::move(k_result.kernel.value());
+			auto kernel = rfkt::flame_kernel{ std::move(k_result.kernel.value()) };
 			auto render = rfkt::cuda::make_buffer_async<uchar4>(rd.width * rd.height, tls);
 			auto state = kernel.warmup(tls, fopt.value(), { rd.width, rd.height }, rd.time, 1, double(rd.fps) / rd.loop_speed, 0xdeadbeef, 100);
-			auto [t_bin, result] = time_it([&]() {return kernel.bin(tls, state, rd.quality, rd.bin_time, 1'000'000'000).get(); });
+
+			timer.reset();
+			auto result = kernel.bin(tls, state, rd.quality, rd.bin_time, 1'000'000'000).get();
+			auto t_bin = timer.count();
 
 			auto smoothed = rfkt::cuda::make_buffer_async<float4>(rd.width * rd.height, tls);
 			cuMemsetD32Async(smoothed.ptr(), 0, rd.width* rd.height * 4, tls);
