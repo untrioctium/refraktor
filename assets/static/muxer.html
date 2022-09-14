@@ -132,7 +132,7 @@
     var ws;
 
     document.addEventListener('DOMContentLoaded', function () {
-      var socketURL = "ws://localhost:3000/stream";
+      var socketURL = "ws://" + location.host + "/stream";
       var fps = 40;
       var jmuxer = new JMuxer({
         node: 'player',
