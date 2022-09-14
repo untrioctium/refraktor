@@ -14,6 +14,13 @@
 
 #include <ranges>
 
+auto cudaize(rfkt::cuda::context ctx, auto&& func) {
+	return [ctx, func = std::move(func)]() {
+		ctx.make_current_if_not();
+		func();
+	};
+}
+
 class event_loop_executor : public concurrencpp::derivable_executor<event_loop_executor> {
 public:
 
@@ -223,7 +230,7 @@ private:
 
 };
 
-struct socket_data {
+struct socket_data  {
 	rfkt::flame flame;
 	rfkt::flame_kernel kernel;
 
@@ -236,7 +243,7 @@ struct socket_data {
 	std::shared_ptr<rfkt::cuda_buffer<uchar4>> render;
 
 	std::atomic_bool closed;
-	std::move_only_function<void(std::vector<std::byte>&&)> feed;
+	std::move_only_function<void(std::vector<std::byte>&&, std::shared_ptr<socket_data>)> feed;
 
 	~socket_data() {
 		SPDLOG_INFO("Closing socket");
@@ -244,8 +251,7 @@ struct socket_data {
 };
 
 auto session_render_thread(std::shared_ptr<socket_data> ud, const rfkt::tonemapper& tm, rfkt::cuda::context ctx) {
-	return [ud = move(ud), &tm, ctx]() {
-		ctx.make_current_if_not();
+	return cudaize(ctx, [ud = move(ud), &tm, ctx]() {
 		auto tls = rfkt::cuda::thread_local_stream();
 
 		std::size_t sent_bytes = 0;
@@ -273,7 +279,7 @@ auto session_render_thread(std::shared_ptr<socket_data> ud, const rfkt::tonemapp
 				1, ud->loops_per_frame, 0xdeadbeef, 64
 			);
 
-			auto result_fut = ud->kernel.bin(tls, state, 100, 1000 / ud->fps - 5, 1'000'000'000);
+			auto result_fut = ud->kernel.bin(tls, state, 1000, 1000 / ud->fps - 5, 1'000'000'000);
 
 			auto gamma = ud->flame.gamma.sample(t);
 			auto brightness = ud->flame.brightness.sample(t);
@@ -288,7 +294,7 @@ auto session_render_thread(std::shared_ptr<socket_data> ud, const rfkt::tonemapp
 				if (ret) {
 					ret->insert(ret->begin(), std::byte{ 0 });
 					sent_bytes += ret->size();
-					ud->feed(std::move(ret.value()));
+					ud->feed(std::move(ret.value()), ud);
 				}
 			}
 			pre_fut_time += time_since_start() - pre_fut_start;
@@ -333,8 +339,9 @@ auto session_render_thread(std::shared_ptr<socket_data> ud, const rfkt::tonemapp
 				std::this_thread::sleep_for(std::chrono::milliseconds{ sleep });
 			}
 		}
-	};
+	});
 }
+
 
 int main(int argc, char** argv) {
 
@@ -382,6 +389,11 @@ int main(int argc, char** argv) {
 		ctx.make_current_if_not();
 	});
 
+	auto local_flames = rfkt::fs::list("assets/flames", rfkt::fs::filter::has_extension(".flam3"));
+
+	// yeah yeah yeah, rand is bad. not cryptographically securing bank transactions here
+	srand(time(0));
+
 	using ws_t = uWS::WebSocket<true, true, std::shared_ptr<socket_data>>;
 	app.ws<std::shared_ptr<socket_data>>("/stream", {
 		.compression = uWS::DISABLED,
@@ -396,7 +408,7 @@ int main(int argc, char** argv) {
 		.open = [](ws_t* ws) {
 			SPDLOG_INFO("Opened session for streaming");
 		},
-		.message = [&fc, &tm, &runtime, ctx](ws_t* ws, std::string_view message, uWS::OpCode opCode) {
+		.message = [&fc, &tm, &runtime, ctx, &local_flames](ws_t* ws, std::string_view message, uWS::OpCode opCode) {
 			auto* ud = ws->getUserData();
 			auto js = nlohmann::json::parse(message);
 			if (!js.is_object()) return;
@@ -405,14 +417,14 @@ int main(int argc, char** argv) {
 
 			std::string cmd = js["cmd"].get<std::string>();
 			if (cmd == "begin") {
-				auto flame = get_or_default<std::string>(js, "flame", "53476");
+				auto flame = (js.count("flame") != 0) ? fmt::format("assets/flames/electricsheep.247.{}.flam3", js["count"].get<std::string>()) : local_flames[rand() % local_flames.size()].string();
 
 				auto width = get_or_default(js, "width", 1280u);
 				auto height = get_or_default(js, "height", 720u);
 				auto seconds_per_loop = get_or_default(js, "loop_length", 5.0);
 				auto fps = get_or_default(js, "fps", 30);
 
-				auto f = rfkt::flame::import_flam3(fmt::format("assets/flames/electricsheep.247.{}.flam3", flame));
+				auto f = rfkt::flame::import_flam3(flame);
 				if (!f) return;
 
 				// add the tiniest bit of rotation to show dynamic nature
@@ -436,9 +448,9 @@ int main(int argc, char** argv) {
 					.session = std::move(sesh),
 					.render = std::move(buf),
 					.closed = false,
-					.feed = [loop = uWS::Loop::get(), ws](std::vector<std::byte>&& d) {
-						loop->defer([ws, d = std::move(d)]() mutable {
-							ws->send(std::string_view{(const char*)d.data(), d.size()});
+					.feed = [loop = uWS::Loop::get(), ws](std::vector<std::byte>&& d, std::shared_ptr<socket_data> ud) mutable {
+						loop->defer([ws, d = std::move(d), ud = std::move(ud)]() mutable {
+							 if(!ud->closed) ws->send(std::string_view{(const char*)d.data(), d.size()});
 						});
 					}
 				} };
@@ -479,6 +491,13 @@ int main(int argc, char** argv) {
 			if(*ws->getUserData()) ws->getUserData()->get()->closed = true;
 			/* You may access ws->getUserData() here */
 		}
+	});
+
+	app.get("/bananas", [](auto* res, auto* req) {
+		auto page = rfkt::fs::read_string("assets/static/muxer.html");
+
+		res->writeStatus("200 OK");
+		res->tryEnd(page);
 	});
 
 	app.get("/render/:id", [&](auto* res, auto* req) {
@@ -534,7 +553,7 @@ int main(int argc, char** argv) {
 			auto t_load = timer.count();
 
 			if (!fopt) {
-				end_error<"500", "Internal Server Error">(cd->response());
+				if(!cd->aborted()) end_error<"500", "Internal Server Error">(cd->response());
 				return;
 			}
 
@@ -543,7 +562,7 @@ int main(int argc, char** argv) {
 			auto t_kernel = timer.count();
 
 			if (!k_result.kernel.has_value()) {
-				end_error<"500", "Internal Server Error>">(cd->response());
+				if (!cd->aborted()) end_error<"500", "Internal Server Error>">(cd->response());
 				return;
 			}
 
