@@ -566,6 +566,8 @@ int main(int argc, char** argv) {
 				return;
 			}
 
+			SPDLOG_INFO("{}", k_result.source);
+
 
 			auto kernel = rfkt::flame_kernel{ std::move(k_result.kernel.value()) };
 			auto render = rfkt::cuda::make_buffer_async<uchar4>(rd.width * rd.height, tls);

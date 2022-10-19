@@ -8,7 +8,7 @@
 #include <signal.h>
 #include <fstream>
 
-#include <librefrakt/util/nvenc.h>
+#include <eznve.hpp>
 
 bool break_loop = false;
 
@@ -68,6 +68,8 @@ int main() {
 	//auto out_buf = std::make_shared<rfkt::cuda_buffer<uchar4>>(render_w * render_h);//sesh->initialize({ render_w, render_h }, { 1,30 });
 	auto files = rfkt::fs::list("assets/flames_test/", rfkt::fs::filter::has_extension(".flam3"));
 
+	auto sesh = eznve::encoder(uint2{ render_w, render_h }, uint2{ fps, 1 }, eznve::codec::h264, (CUcontext)ctx, [](const eznve::encode_info&) {});
+
 	int count = 0;
 	for (const auto& filename : files)
 	{
@@ -97,11 +99,12 @@ int main() {
 		int total_frames = fps * seconds;
 		std::string path = fmt::format("{}.h264", filename.string());
 
-		auto sesh = rfkt::nvenc::session::make();
-		auto buf = sesh->initialize({ render_w, render_h }, { fps, 1 });
-
 		auto out_file = std::ofstream{};
 		out_file.open(path, std::ios::out | std::ios::binary);
+
+		sesh.set_callback([&out_file](const eznve::encode_info& info) {
+			out_file.write((const char*)info.data.data(), info.data.size());
+		});
 
 		for (int frame = 0; frame < total_frames; frame++)
 		{
@@ -128,7 +131,7 @@ int main() {
 
 			CUDA_SAFE_CALL(tm.kernel().launch({ render_w / 8 + 1, render_h / 8 + 1, 1 }, { 8, 8, 1 }, rfkt::cuda::thread_local_stream())(
 				state.bins.ptr(),
-				buf->ptr(),
+				sesh.buffer(),
 				render_w, render_h,
 				static_cast<float>(flame->gamma.sample(0)),
 				1.0f / (current_quality * sqrtf(10.0f)),
@@ -139,17 +142,13 @@ int main() {
 			auto frame_end = std::chrono::high_resolution_clock::now();
 			auto total_ms = std::chrono::duration_cast<std::chrono::nanoseconds>(frame_end - frame_start).count() / 1'000'000.0;
 
-			if (auto ret = sesh->submit_frame(frame % fps == 0); ret) {
-				out_file.write((const char*)ret->data(), ret->size());
-			}
+			sesh.submit_frame((frame % fps == 0)? eznve::frame_flag::idr : eznve::frame_flag::none);
 			//stbi_write_bmp("test.bmp", render_w, render_h, 4, host_buf.data());
 			//rfkt::stbi::write_file(host_buf.data(), render_w, render_h, path);
 			SPDLOG_INFO("[{}%] {}: {} quality, {:.4} ms bin, {:.4} ms total, {:.4}m iter/ms, {:.4}m draw/ms, {:.5}% eff, {:.3} quality at 30fps", static_cast<int>(frame / float(total_frames) * 100.0f), filename.filename().string(), (int)current_quality, elapsed_ms, total_ms, total_passes / elapsed_ms / 1'000'000, total_draws / elapsed_ms / 1'000'000, total_draws / float(total_passes) * 100.0f, current_quality / elapsed_ms * 1000.0 / 30.0);
 		}
 
-		if (auto ret = sesh->submit_frame(false, true); ret) {
-			out_file.write((const char*)ret->data(), ret->size());
-		}
+		sesh.flush();
 		out_file.close();
 		auto new_path = filename.string() + ".mp4";
 		auto muxret = mux(path, new_path, fps);

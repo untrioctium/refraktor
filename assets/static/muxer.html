@@ -133,7 +133,7 @@
 
     document.addEventListener('DOMContentLoaded', function () {
       var socketURL = "ws://" + location.host + "/stream";
-      var fps = 40;
+      var fps = 60;
       var jmuxer = new JMuxer({
         node: 'player',
         mode: "video",
@@ -168,8 +168,8 @@
         var payload = JSON.stringify({
           cmd: "begin",
           fps: fps,
-          width: 1920,
-          height: 1080,
+          width: 1280,
+          height: 720,
           loop_length: 5
         });
 
