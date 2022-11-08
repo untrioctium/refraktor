@@ -46,7 +46,7 @@ namespace rfkt
 	};
 
 	struct affine_matrix {
-		animated_double a{1.0}, d{0.0}, b{0.0}, e{1.0}, c{1.0}, f{1.0};
+		animated_double a{1.0}, d{0.0}, b{0.0}, e{1.0}, c{0.0}, f{0.0};
 
 		static affine_matrix identity() {
 			return affine_matrix{ 1.0,0.0,0.0,1.0,0.0,0.0 };

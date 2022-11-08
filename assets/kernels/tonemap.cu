@@ -49,7 +49,7 @@ __global__ void tonemap(const float4* __restrict__ bins, decltype(image_type<Pla
 	col.x *= gamma_factor; 
 	col.y *= gamma_factor;
 	col.z *= gamma_factor;
-	col.w *= gamma_factor;
+	//col.w *= gamma_factor;
 
 	#define interp(left, right, mix) ((left) * (1.0f - (mix)) + (right) * (mix))
 

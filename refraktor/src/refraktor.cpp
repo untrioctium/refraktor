@@ -60,8 +60,8 @@ int main() {
 	auto render_w = std::uint32_t{ 1280 };
 	auto render_h = std::uint32_t{ 720 };
 
-	const int fps = 60;
-	const int seconds = 5;
+	const int fps = 30;
+	const int seconds = 1;
 
 	//auto sesh = rfkt::nvenc::session::make();
 

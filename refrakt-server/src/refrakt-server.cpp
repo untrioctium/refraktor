@@ -80,7 +80,7 @@ namespace rfkt {
 				out,
 				dims.x, dims.y,
 				static_cast<float>(gamma),
-				1.0f / (static_cast<float>(quality) * sqrtf(10.0f)),
+				std::powf(10.0f, -log10f(quality) - 0.5f),
 				static_cast<float>(brightness),
 				static_cast<float>(vibrancy)
 			));
@@ -562,6 +562,8 @@ int main(int argc, char** argv) {
 			auto t_kernel = timer.count();
 
 			if (!k_result.kernel.has_value()) {
+				SPDLOG_INFO("{}", k_result.source);
+				SPDLOG_INFO("{}", k_result.log);
 				if (!cd->aborted()) end_error<"500", "Internal Server Error>">(cd->response());
 				return;
 			}
@@ -577,7 +579,7 @@ int main(int argc, char** argv) {
 			auto result = kernel.bin(tls, state, rd.quality, rd.bin_time, 1'000'000'000).get();
 			auto t_bin = timer.count();
 
-			auto smoothed = rfkt::cuda::make_buffer_async<float4>(rd.width * rd.height, tls);
+			/*auto smoothed = rfkt::cuda::make_buffer_async<float4>(rd.width * rd.height, tls);
 			cuMemsetD32Async(smoothed.ptr(), 0, rd.width* rd.height * 4, tls);
 
 			sm().launch({ rd.width / 8 + 1, rd.height / 8 + 1, 1 }, { 8,8,1 }, tls)(
@@ -588,10 +590,10 @@ int main(int argc, char** argv) {
 				(int) 0,
 				0.6f
 				);
-
+			*/
 			SPDLOG_INFO("load {}, kernel {}, bin {}, quality {}", t_load, t_kernel, t_bin, result.quality);
 
-			tm.run(smoothed.ptr(), render.ptr(), { rd.width, rd.height }, result.quality, true, fopt->gamma.sample(rd.time), fopt->brightness.sample(rd.time), fopt->vibrancy.sample(rd.time), tls);
+			tm.run(state.bins.ptr(), render.ptr(), { rd.width, rd.height }, result.quality, true, fopt->gamma.sample(rd.time), fopt->brightness.sample(rd.time), fopt->vibrancy.sample(rd.time), tls);
 			auto data = jpeg.encode_image(render.ptr(), rd.width, rd.height, rd.jpeg_quality, tls).get();
  
 			cd->defer([data = std::move(data)](auto& cd){
