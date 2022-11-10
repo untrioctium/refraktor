@@ -25,11 +25,13 @@ namespace rfkt {
 			std::size_t total_draws;
 			std::size_t total_bins;
 			double passes_per_thread;
+			std::vector<double> xform_selections;
 		};
 
 		struct saved_state: public traits::noncopyable {
 			cuda_buffer<float4> bins = {};
 			uint2 bin_dims = {};
+			std::vector<double> norm_xform_weights;
 			cuda_buffer<> shared = {};
 
 			double warmup_ms = 0.0;
@@ -42,13 +44,15 @@ namespace rfkt {
 				std::swap(bins, o.bins);
 				std::swap(bin_dims, o.bin_dims);
 				std::swap(shared, o.shared);
+				std::swap(norm_xform_weights, o.norm_xform_weights);
 				return *this;
 			}
 
-			saved_state(uint2 dims, std::size_t nbytes, CUstream stream) :
+			saved_state(uint2 dims, std::size_t nbytes, CUstream stream, std::vector<double>&& norm_xform_weights) :
 				bins(cuda::make_buffer_async<float4>(dims.x* dims.y, stream)),
 				bin_dims(dims),
-				shared(cuda::make_buffer_async<unsigned char>(nbytes, stream))
+				shared(cuda::make_buffer_async<unsigned char>(nbytes, stream)),
+				norm_xform_weights(std::move(norm_xform_weights))
 				/*samples(cuda::make_buffer_async<std::uint64_t>(sample_buffer_size, stream))*/ {}
 		};
 

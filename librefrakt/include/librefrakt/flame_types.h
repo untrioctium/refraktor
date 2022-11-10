@@ -24,7 +24,7 @@ namespace rfkt
 		double t0 = 0.0;
 		std::unique_ptr<rfkt::animator> ani = nullptr;
 
-		animated_double(double t0) : t0(t0) {}
+		animated_double(double t0, std::unique_ptr<rfkt::animator> ani = nullptr) : t0(t0), ani(std::move(ani)) {}
 
 		auto sample(double t) const -> double {
 			if (!ani) return t0;
@@ -43,6 +43,29 @@ namespace rfkt
 
 		animated_double() = default;
 		~animated_double() = default;
+
+		animated_double make_interpolator(const animated_double& o) const {
+			if (!ani && !o.ani) {
+				return {  
+					t0,
+					animator::make("interpolate", json::object({
+						{"smooth", true},
+						{"final_value", o.t0}
+					})) 
+				};
+			}
+
+			return {
+				t0,
+				animator::make("interp_children", json::object({
+					{"left_name", (ani)? ani->name(): "noop"},
+					{"right_name", (o.ani)? o.ani->name(): "noop"},
+					{"left", (ani) ? ani->serialize() : json::object()},
+					{"right", (o.ani) ? o.ani->serialize() : json::object()},
+					{"right_iv", o.t0}
+				}))
+			};
+		}
 	};
 
 	struct affine_matrix {

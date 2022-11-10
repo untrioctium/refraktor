@@ -148,7 +148,7 @@ void interpolate_palette( Real t, const segment* const __restrict__ seg, uchar3*
 }
 
 __device__ 
-Real flame_pass(unsigned int pass_idx, const unsigned short* const shuf) {
+Real flame_pass(unsigned int pass_idx, const unsigned short* const shuf, uint64* const xform_counters = nullptr) {
 	
 	// every 32 passes, repopulate this warp's xid buffer
 	if(pass_idx % 32 == 0) {
@@ -158,8 +158,10 @@ Real flame_pass(unsigned int pass_idx, const unsigned short* const shuf) {
 
 	auto out_local = iterator{-666.0, -666.0, -660.0};
 	//DEBUG("xid: %d\n", ts[warp.meta_group_rank() * 32 + pass_idx % 32].xid);
+	auto selected_xform = state.ts.xform_vote[fl::warp_start_in_block() + pass_idx % 32];
+	if(fl::is_warp_leader() && xform_counters != nullptr) atomicAdd(xform_counters + selected_xform, fl::warp_size());
 	Real opacity = state.flame.dispatch( 
-		state.ts.xform_vote[fl::warp_start_in_block() + pass_idx % 32], 
+		selected_xform, 
 		my_iter(x), my_iter(y), my_iter(color), out_local.x, out_local.y, out_local.z, &my_rand()
 	);
 	//out_local = iterator{{-666.0, -666.0}, -660.0};
@@ -229,7 +231,8 @@ void bin(
 	const uint32 iter_bailout,
 	const uint64 time_bailout,
 	float4* const __restrict__ bins, const uint32 bins_w, const uint32 bins_h,
-	uint64* const __restrict__ quality_counter, uint64* const __restrict__ pass_counter )
+	uint64* const __restrict__ quality_counter, uint64* const __restrict__ pass_counter,
+	uint64* const __restrict__ xform_counters )
 {
 	
 	// load shared state
@@ -246,7 +249,7 @@ void bin(
 	fl::sync_block();
 	for( unsigned int i =0; !state.should_bail; i++ ) {
 		
-		Real opacity = flame_pass(i, shuf_bufs);
+		Real opacity = flame_pass(i, shuf_bufs, xform_counters);
 
 		auto transformed = float3{};
 		

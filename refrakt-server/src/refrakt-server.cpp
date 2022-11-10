@@ -12,6 +12,7 @@
 #include <librefrakt/util/filesystem.h>
 #include <librefrakt/util.h>
 
+#include <cmath>
 #include <ranges>
 
 auto cudaize(rfkt::cuda::context ctx, auto&& func) {
@@ -152,7 +153,7 @@ public:
 			if (type == boolean) ret[name] = false;
 		}
 
-		for (const auto str : std::ranges::views::split(data, '&')) {
+		for (const auto& str : std::ranges::views::split(data, '&')) {
 			auto p = std::string_view{ str.begin(), str.end() };
 			auto key = std::string{ p.substr(0, p.find('=')) };
 			auto val = std::string{ p.substr(p.find('=') + 1) };
@@ -578,6 +579,14 @@ int main(int argc, char** argv) {
 			timer.reset();
 			auto result = kernel.bin(tls, state, rd.quality, rd.bin_time, 1'000'000'000).get();
 			auto t_bin = timer.count();
+
+			auto max_error = 0.0f;
+			for (int i = 0; i < fopt->xforms.size(); i++) {
+				auto diff = std::abs(state.norm_xform_weights[i] - result.xform_selections[i])/state.norm_xform_weights[i] * 100.0;
+				if (diff > max_error) max_error = diff;
+			}
+
+			SPDLOG_INFO("max xform error: {:.5}%", max_error);
 
 			/*auto smoothed = rfkt::cuda::make_buffer_async<float4>(rd.width * rd.height, tls);
 			cuMemsetD32Async(smoothed.ptr(), 0, rd.width* rd.height * 4, tls);

@@ -8,7 +8,12 @@
 #include <signal.h>
 #include <fstream>
 
+#include <sstream>
+
 #include <eznve.hpp>
+
+#include <sol/sol.hpp>
+#include <librefrakt/util/nvjpeg.h>
 
 bool break_loop = false;
 
@@ -22,7 +27,174 @@ int mux(const rfkt::fs::path& in, const rfkt::fs::path& out, double fps) {
 	return ret;
 }
 
+namespace rfkt {
+	class tonemapper {
+	public:
+		tonemapper(kernel_manager& km) {
+			auto [tm_result, mod] = km.compile_file("assets/kernels/tonemap.cu",
+				rfkt::compile_opts("tonemap")
+				.function("tonemap<false>")
+				.function("tonemap<true>")
+				.flag(rfkt::compile_flag::extra_vectorization)
+				.flag(rfkt::compile_flag::use_fast_math)
+			);
+
+			if (!tm_result.success) {
+				SPDLOG_ERROR("{}", tm_result.log);
+				exit(1);
+			}
+
+			tm = std::move(mod);
+		}
+
+		void run(CUdeviceptr bins, CUdeviceptr out, uint2 dims, double quality, bool planar, double gamma, double brightness, double vibrancy, CUstream stream) const {
+
+			auto kernel = tm.kernel(planar ? "tonemap<true>" : "tonemap<false>");
+
+			CUDA_SAFE_CALL(kernel.launch({ dims.x / 8 + 1, dims.y / 8 + 1, 1 }, { 8, 8, 1 }, stream)(
+				bins,
+				out,
+				dims.x, dims.y,
+				static_cast<float>(gamma),
+				std::powf(10.0f, -log10f(quality) - 0.5f),
+				static_cast<float>(brightness),
+				static_cast<float>(vibrancy)
+				));
+
+		}
+	private:
+		cuda_module tm;
+	};
+}
+
+rfkt::flame interpolate_dumb(const rfkt::flame& fl, const rfkt::flame& fr) {
+
+	if (fl.xforms.size() > fr.xforms.size()) {
+		auto diff = fl.xforms.size() - fr.xforms.size();
+		for( int i = 0; i < diff; i++ ) 
+	}
+
+}
+
 int main() {
+	rfkt::flame_info::initialize("config/variations.yml");
+
+	sol::state lua;
+	lua.open_libraries(sol::lib::base);
+
+	using namespace rfkt;
+
+	auto ctx = rfkt::cuda::init();
+	auto km = rfkt::kernel_manager{};
+	auto fc = rfkt::flame_compiler{ km };
+	auto jpeg = rfkt::nvjpeg::encoder{ rfkt::cuda::thread_local_stream() };
+	auto tm = rfkt::tonemapper{ km };
+
+	lua["render_jpeg"] = [&fc, &tm, &jpeg](sol::table args) -> bool {
+		auto tls = rfkt::cuda::thread_local_stream();
+
+		if (!args["flame"].valid()) return false;
+
+		const flame& f = args["flame"];
+		std::string output_file = args["out"];
+		unsigned int width = args.get_or("width", 1920u);
+		unsigned int height = args.get_or("height", 1080u);
+		double quality = args.get_or("quality", 128.0);
+		double time = args.get_or("time", 0.0);
+		unsigned int jpeg_quality = args.get_or("jpeg_quality", 100u);
+		unsigned int fps = args.get_or("fps", 30u);
+		unsigned int loop_speed = args.get_or("loop_speed", 5000);
+		unsigned int bin_time = args.get_or("bin_time", 2000);
+
+		if (width > 3840) width = 3840;
+		if (height > 2160) height = 2160;
+		if (quality > 2000) quality = 2000;
+		if (bin_time > 2000) bin_time = 2000;
+		if (jpeg_quality <= 0) jpeg_quality = 100;
+		if (jpeg_quality > 100) jpeg_quality = 100;
+
+		auto k_result = fc.get_flame_kernel(rfkt::precision::f32, f);
+		if (!k_result.kernel.has_value()) {
+			SPDLOG_INFO("{}", k_result.source);
+			SPDLOG_INFO("{}", k_result.log);
+			return false;
+		}
+
+		auto kernel = rfkt::flame_kernel{ std::move(k_result.kernel.value()) };
+
+		auto render = rfkt::cuda::make_buffer_async<uchar4>(width * height, tls);
+		auto state = kernel.warmup(tls, f, { width, height }, time, 1, double(fps) / loop_speed, 0xdeadbeef, 100);
+
+		auto result = kernel.bin(tls, state, quality, bin_time, 1'000'000'000).get();
+
+		tm.run(state.bins.ptr(), render.ptr(), { width, height }, quality, true, f.gamma.sample(time), f.brightness.sample(time), f.vibrancy.sample(time), tls);
+		auto data = jpeg.encode_image(render.ptr(), width, height, jpeg_quality, tls).get();
+
+		fs::write(output_file, (const char *) data.data(), data.size(), false);
+		return true;
+	};
+
+
+	auto ad_ut = lua.new_usertype<animated_double>("animated_double", sol::constructors<animated_double()>());
+	ad_ut["t0"] = &animated_double::t0;
+
+	auto aff_ut = lua.new_usertype<affine_matrix>("affine_matrix", sol::constructors<affine_matrix()>());
+	aff_ut["a"] = &affine_matrix::a;
+	aff_ut["d"] = &affine_matrix::d;
+	aff_ut["b"] = &affine_matrix::b;
+	aff_ut["e"] = &affine_matrix::e;
+	aff_ut["c"] = &affine_matrix::c;
+	aff_ut["f"] = &affine_matrix::f;
+	aff_ut["identity"] = &affine_matrix::identity;
+	aff_ut["rotate"] = &affine_matrix::rotate;
+	aff_ut["scale"] = &affine_matrix::scale;
+	aff_ut["translate"] = &affine_matrix::translate;
+
+	auto vl_ut = lua.new_usertype<vlink>("vlink", sol::constructors<vlink()>());
+	vl_ut["identity"] = &vlink::identity;
+	vl_ut["aff_mod_rotate"] = &vlink::aff_mod_rotate;
+	vl_ut["aff_mod_scale"] = &vlink::aff_mod_scale;
+	vl_ut["variations"] = &vlink::variations;
+	vl_ut["parameters"] = &vlink::parameters;
+
+	auto xf_ut = lua.new_usertype<xform>("xform", sol::constructors<xform()>());
+	xf_ut["identity"] = &xform::identity;
+	xf_ut["weight"] = &xform::weight;
+	xf_ut["color"] = &xform::color;
+	xf_ut["color_speed"] = &xform::color_speed;
+	xf_ut["opacity"] = &xform::opacity;
+	xf_ut["vchain"] = &xform::vchain;
+
+	auto f_ut = lua.new_usertype<flame>("flame", sol::constructors<flame()>());
+	f_ut["xforms"] = &flame::xforms;
+	f_ut["final_xform"] = &flame::final_xform;
+	f_ut["scale"] = &flame::scale;
+	f_ut["rotate"] = &flame::rotate;
+	f_ut["gamma"] = &flame::gamma;
+	f_ut["vibrancy"] = &flame::vibrancy;
+	f_ut["brightness"] = &flame::brightness;
+	f_ut["import_flam3"] = &flame::import_flam3;
+
+	signal(SIGINT, [](int sig) {});
+
+	auto exec = [&](std::string_view code) {
+		return lua.script(code, [](lua_State*, sol::protected_function_result pfr) {
+			return pfr;
+			});
+	};
+
+	std::string input;
+	while (true) {
+		std::cout << "> ";
+		std::getline(std::cin, input);
+		if (input == "exit()") break;
+
+		auto result = exec(input);
+		std::cout << result.operator std::string() << std::endl;
+	}
+}
+
+int mainy() {
 
 	rfkt::flame_info::initialize("config/variations.yml");
 	auto ctx = rfkt::cuda::init();
