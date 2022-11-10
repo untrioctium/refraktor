@@ -136,4 +136,6 @@ void rfkt::animator::init_builtins()
 	animators::sine::registerT();
 	animators::interpolate::registerT();
 	animators::increase::registerT();
+	animators::noop::registerT();
+	animators::interp_children::registerT();
 }

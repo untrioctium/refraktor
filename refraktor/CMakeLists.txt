@@ -5,7 +5,7 @@ set_target_properties(refraktor PROPERTIES VS_DEBUGGER_WORKING_DIRECTORY ${CMAKE
 FetchContent_Declare(
   eznve
   GIT_REPOSITORY https://github.com/untrioctium/eznve.git
-  GIT_TAG dev
+  GIT_TAG main
 )
 FetchContent_MakeAvailable(eznve)
 

@@ -42,7 +42,7 @@ add_library(librefrakt STATIC
 	${HEADER_LIST}
 )
 
-set_property(TARGET librefrakt PROPERTY INTERPROCEDURAL_OPTIMIZATION TRUE)
+#set_property(TARGET librefrakt PROPERTY INTERPROCEDURAL_OPTIMIZATION TRUE)
 
 target_include_directories(librefrakt PUBLIC include)
 

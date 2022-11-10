@@ -69,18 +69,112 @@ namespace rfkt {
 
 rfkt::flame interpolate_dumb(const rfkt::flame& fl, const rfkt::flame& fr) {
 
-	if (fl.xforms.size() > fr.xforms.size()) {
-		auto diff = fl.xforms.size() - fr.xforms.size();
-		for( int i = 0; i < diff; i++ ) 
+	auto ret = rfkt::flame{};
+
+	ret.center.first = fl.center.first.make_interpolator(fr.center.first);
+	ret.center.second = fl.center.second.make_interpolator(fr.center.second);
+	ret.scale = fl.scale.make_interpolator(fr.scale);
+	ret.rotate = fl.rotate.make_interpolator(fr.rotate);
+
+	ret.gamma = fl.gamma.make_interpolator(fr.gamma);
+	ret.brightness = fl.brightness.make_interpolator(fr.brightness);
+	ret.vibrancy = fl.vibrancy.make_interpolator(fr.vibrancy);
+
+	static auto interp_vl = [](const rfkt::vlink& vl, const rfkt::vlink& vr) {
+		auto ret = rfkt::vlink{};
+		ret.affine.a = vl.affine.a.make_interpolator(vr.affine.a);
+		ret.affine.d = vl.affine.d.make_interpolator(vr.affine.d);
+		ret.affine.b = vl.affine.b.make_interpolator(vr.affine.b);
+		ret.affine.e = vl.affine.e.make_interpolator(vr.affine.e);
+		ret.affine.c = vl.affine.c.make_interpolator(vr.affine.c);
+		ret.affine.f = vl.affine.f.make_interpolator(vr.affine.f);
+		
+		ret.aff_mod_translate.first = vl.aff_mod_translate.first.make_interpolator(vr.aff_mod_translate.first);
+		ret.aff_mod_translate.second = vl.aff_mod_translate.second.make_interpolator(vr.aff_mod_translate.second);
+		ret.aff_mod_scale = vl.aff_mod_scale.make_interpolator(vr.aff_mod_scale);
+		ret.aff_mod_rotate = vl.aff_mod_rotate.make_interpolator(vr.aff_mod_rotate);
+
+		std::set<std::size_t> all_parameters;
+		std::set<std::size_t> all_variations;
+
+		for (auto& [id, _] : vl.variations) all_variations.insert(id);
+		for (auto& [id, _] : vr.variations) all_variations.insert(id);
+		for (auto& [id, _] : vl.parameters) all_parameters.insert(id);
+		for (auto& [id, _] : vr.parameters) all_parameters.insert(id);
+
+		for (auto id : all_variations) {
+			const auto& left = (vl.variations.contains(id)) ? vl.variations.at(id) : rfkt::animated_double{};
+			const auto& right = (vr.variations.contains(id)) ? vr.variations.at(id) : rfkt::animated_double{};
+
+			ret.variations[id] = left.make_interpolator(right);
+		}
+
+		for (auto id : all_parameters) {
+			const auto& left = (vl.parameters.contains(id)) ? vl.parameters.at(id) : rfkt::animated_double{};
+			const auto& right = (vr.parameters.contains(id)) ? vr.parameters.at(id) : rfkt::animated_double{};
+
+			ret.parameters[id] = left.make_interpolator(right);
+		}
+
+		return ret;
+	};
+
+	static auto interp_xf = [](const rfkt::xform& xl, const rfkt::xform& xr) {
+
+		auto ret = rfkt::xform{};
+		ret.weight = xl.weight.make_interpolator(xr.weight);
+		ret.color = xl.color.make_interpolator(xr.color);
+		ret.color_speed = xl.color_speed.make_interpolator(xr.color_speed);
+		ret.opacity = xl.opacity.make_interpolator(xr.opacity);
+
+		auto total_vls = std::max(xl.vchain.size(), xr.vchain.size());
+		ret.vchain.reserve(total_vls);
+
+		for (int i = 0; i < total_vls; i++) {
+			const auto& left = (i < xl.vchain.size()) ? xl.vchain[i] : rfkt::vlink::identity();
+			const auto& right = (i < xr.vchain.size()) ? xr.vchain[i] : rfkt::vlink::identity();
+
+			auto xi = interp_vl(left, right);
+			ret.vchain.emplace_back(std::move(xi));
+		}
+
+		return ret;
+	};
+
+	auto total_xf = std::max(fl.xforms.size(), fr.xforms.size());
+	ret.xforms.reserve(total_xf);
+	for (int i = 0; i < total_xf; i++) {
+		const auto& left = (i < fl.xforms.size()) ? fl.xforms[i] : rfkt::xform::identity();
+		const auto& right = (i < fr.xforms.size()) ? fr.xforms[i] : rfkt::xform::identity();
+
+		ret.xforms.emplace_back(interp_xf(left, right));
 	}
 
+	if (fl.final_xform || fr.final_xform) {
+		const auto& left = (fl.final_xform) ? fl.final_xform.value() : rfkt::xform::identity();
+		const auto& right = (fr.final_xform) ? fr.final_xform.value() : rfkt::xform::identity();
+
+		ret.final_xform = interp_xf(left, right);
+	}
+
+	auto& ret_pal = ret.palette();
+	const auto& l_pal = fl.palette();
+	const auto& r_pal = fr.palette();
+
+	for (int i = 0; i < ret.palette().size(); i++) {
+		ret_pal[i][0] = l_pal[i][0].make_interpolator(r_pal[i][0]);
+		ret_pal[i][1] = l_pal[i][1].make_interpolator(r_pal[i][1]);
+		ret_pal[i][2] = l_pal[i][2].make_interpolator(r_pal[i][2]);
+	}
+
+	return ret;
 }
 
 int main() {
 	rfkt::flame_info::initialize("config/variations.yml");
 
 	sol::state lua;
-	lua.open_libraries(sol::lib::base);
+	lua.open_libraries(sol::lib::base, sol::lib::math);
 
 	using namespace rfkt;
 
@@ -89,6 +183,11 @@ int main() {
 	auto fc = rfkt::flame_compiler{ km };
 	auto jpeg = rfkt::nvjpeg::encoder{ rfkt::cuda::thread_local_stream() };
 	auto tm = rfkt::tonemapper{ km };
+
+	auto fl = rfkt::flame::import_flam3("assets/flames_test/electricsheep.247.53352.flam3").value();
+	auto fr = rfkt::flame::import_flam3("assets/flames_test/electricsheep.247.54714.flam3").value();
+
+	auto res = interpolate_dumb(fl, fr);
 
 	lua["render_jpeg"] = [&fc, &tm, &jpeg](sol::table args) -> bool {
 		auto tls = rfkt::cuda::thread_local_stream();
@@ -134,6 +233,7 @@ int main() {
 		return true;
 	};
 
+	lua["interpolate_dumb"] = &interpolate_dumb;
 
 	auto ad_ut = lua.new_usertype<animated_double>("animated_double", sol::constructors<animated_double()>());
 	ad_ut["t0"] = &animated_double::t0;
@@ -183,6 +283,20 @@ int main() {
 			});
 	};
 
+	lua.script("function calc(a, b) return a + math.sin(42.0 * math.cos( math.tan(b) )) end");
+	auto calc = lua["calc"];
+
+	auto sum = 0.0;
+
+	auto start = std::chrono::high_resolution_clock::now();
+	for (int i = 0; i < 10000; i++) {
+		sum += calc(i + 2, 2).get<double>();
+	}
+	auto end = std::chrono::high_resolution_clock::now();
+	auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count() * 1.0;
+
+	fmt::print("{} {}", sum / 10000, duration / 10000);
+
 	std::string input;
 	while (true) {
 		std::cout << "> ";
@@ -196,7 +310,7 @@ int main() {
 
 int mainy() {
 
-	rfkt::flame_info::initialize("config/variations.yml");
+	/*rfkt::flame_info::initialize("config/variations.yml");
 	auto ctx = rfkt::cuda::init();
 
 	auto dev = ctx.device();
@@ -240,7 +354,7 @@ int mainy() {
 	//auto out_buf = std::make_shared<rfkt::cuda_buffer<uchar4>>(render_w * render_h);//sesh->initialize({ render_w, render_h }, { 1,30 });
 	auto files = rfkt::fs::list("assets/flames_test/", rfkt::fs::filter::has_extension(".flam3"));
 
-	auto sesh = eznve::encoder(uint2{ render_w, render_h }, uint2{ fps, 1 }, eznve::codec::h264, (CUcontext)ctx, [](const eznve::encode_info&) {});
+	auto sesh = eznve::encoder(uint2{ render_w, render_h }, uint2{ fps, 1 }, eznve::codec::h264, (CUcontext)ctx, [](const eznve:chunk_info&) {});
 
 	int count = 0;
 	for (const auto& filename : files)
@@ -274,7 +388,7 @@ int mainy() {
 		auto out_file = std::ofstream{};
 		out_file.open(path, std::ios::out | std::ios::binary);
 
-		sesh.set_callback([&out_file](const eznve::encode_info& info) {
+		sesh.set_callback([&out_file](const eznve::chunk_info& info) {
 			out_file.write((const char*)info.data.data(), info.data.size());
 		});
 
@@ -326,5 +440,7 @@ int mainy() {
 		auto muxret = mux(path, new_path, fps);
 		//if(muxret == 0) std::filesystem::remove(path);
 
-	}
+	}*/
+
+return 0;
 }

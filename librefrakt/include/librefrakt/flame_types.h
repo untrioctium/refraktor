@@ -46,6 +46,10 @@ namespace rfkt
 
 		animated_double make_interpolator(const animated_double& o) const {
 			if (!ani && !o.ani) {
+				if (t0 == o.t0) {
+					return { t0, nullptr };
+				}
+
 				return {  
 					t0,
 					animator::make("interpolate", json::object({

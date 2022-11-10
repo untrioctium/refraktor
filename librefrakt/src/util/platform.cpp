@@ -105,6 +105,8 @@ namespace rfkt::platform {
 #endif
 		}
 
+		~impl_t() {}
+
 	private:
 #ifdef _WIN32
 		STARTUPINFO si;

@@ -49,6 +49,6 @@ namespace rfkt::platform {
 
 	private:
 		struct impl_t;
-		std::unique_ptr<impl_t> impl = nullptr;
+		std::unique_ptr<impl_t> impl;
 	};
 }
