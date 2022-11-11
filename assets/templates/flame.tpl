@@ -92,7 +92,7 @@ struct flame_t {
         <# for xid in range(num_standard_xforms) #>
             <# set xform=at(xforms, xid) #>
             <# if not loop.is_last #>
-        if( xform_@xform.id@.weight != FloatT(0.0) && (rsum + xform_@xform.id@.weight) >= ratio) return @loop.index@; else { rsum += xform_@xform.id@.weight; last_nonzero=@loop.index@;}
+        if( xform_@xform.id@.weight != FloatT(0.0) && (rsum + xform_@xform.id@.weight) >= ratio) return @loop.index@; else { rsum += xform_@xform.id@.weight; if(xform_@xform.id@.weight != FloatT(0.0)) last_nonzero=@loop.index@;}
             <# else #>
         return ( xform_@xform.id@.weight != FloatT(0.0))? @loop.index@ : last_nonzero;
             <# endif #>

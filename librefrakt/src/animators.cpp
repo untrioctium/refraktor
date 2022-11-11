@@ -106,7 +106,9 @@ namespace rfkt::animators {
 
 		auto apply(double t, double initial) const -> double {
 			auto left_v = left->apply(t, initial);
+			if (t <= 0.0) return left_v;
 			auto right_v = right->apply(t, right_iv);
+			if (t >= 1.0) return right_v;
 
 			t = -2.0 * t * t * t + 3.0 * t * t;
 			return left_v * (1.0 - t) + t * right_v;

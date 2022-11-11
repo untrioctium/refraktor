@@ -174,7 +174,7 @@ int main() {
 	rfkt::flame_info::initialize("config/variations.yml");
 
 	sol::state lua;
-	lua.open_libraries(sol::lib::base, sol::lib::math);
+	lua.open_libraries(sol::lib::base, sol::lib::math, sol::lib::string);
 
 	using namespace rfkt;
 
@@ -184,10 +184,9 @@ int main() {
 	auto jpeg = rfkt::nvjpeg::encoder{ rfkt::cuda::thread_local_stream() };
 	auto tm = rfkt::tonemapper{ km };
 
-	auto fl = rfkt::flame::import_flam3("assets/flames_test/electricsheep.247.53352.flam3").value();
-	auto fr = rfkt::flame::import_flam3("assets/flames_test/electricsheep.247.54714.flam3").value();
-
-	auto res = interpolate_dumb(fl, fr);
+	lua["use_logging"] = [](bool log) {
+		spdlog::set_level((log) ? spdlog::level::info: spdlog::level::off);
+	};
 
 	lua["render_jpeg"] = [&fc, &tm, &jpeg](sol::table args) -> bool {
 		auto tls = rfkt::cuda::thread_local_stream();
@@ -225,6 +224,14 @@ int main() {
 		auto state = kernel.warmup(tls, f, { width, height }, time, 1, double(fps) / loop_speed, 0xdeadbeef, 100);
 
 		auto result = kernel.bin(tls, state, quality, bin_time, 1'000'000'000).get();
+
+		auto max_error = 0.0f;
+		for (int i = 0; i < f.xforms.size(); i++) {
+			auto diff = std::abs(state.norm_xform_weights[i] - result.xform_selections[i]) / state.norm_xform_weights[i] * 100.0;
+			if (diff > max_error) max_error = diff;
+		}
+
+		SPDLOG_INFO("max xform error: {:.5}%", max_error);
 
 		tm.run(state.bins.ptr(), render.ptr(), { width, height }, quality, true, f.gamma.sample(time), f.brightness.sample(time), f.vibrancy.sample(time), tls);
 		auto data = jpeg.encode_image(render.ptr(), width, height, jpeg_quality, tls).get();
@@ -274,6 +281,9 @@ int main() {
 	f_ut["vibrancy"] = &flame::vibrancy;
 	f_ut["brightness"] = &flame::brightness;
 	f_ut["import_flam3"] = &flame::import_flam3;
+	f_ut["ez_import"] = [](unsigned int id) {
+		return flame::import_flam3(fmt::format("assets/flames/electricsheep.247.{}.flam3", id));
+	};
 
 	signal(SIGINT, [](int sig) {});
 
@@ -283,28 +293,15 @@ int main() {
 			});
 	};
 
-	lua.script("function calc(a, b) return a + math.sin(42.0 * math.cos( math.tan(b) )) end");
-	auto calc = lua["calc"];
-
-	auto sum = 0.0;
-
-	auto start = std::chrono::high_resolution_clock::now();
-	for (int i = 0; i < 10000; i++) {
-		sum += calc(i + 2, 2).get<double>();
-	}
-	auto end = std::chrono::high_resolution_clock::now();
-	auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count() * 1.0;
-
-	fmt::print("{} {}", sum / 10000, duration / 10000);
-
 	std::string input;
 	while (true) {
 		std::cout << "> ";
 		std::getline(std::cin, input);
 		if (input == "exit()") break;
 
-		auto result = exec(input);
-		std::cout << result.operator std::string() << std::endl;
+		auto result = exec(fmt::format("print((function() {} end)())", input));
+		if(result.valid() && result.return_count() > 0)
+			std::cout << result.get<std::string>(0) << std::endl;
 	}
 }
 

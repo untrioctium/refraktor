@@ -45,10 +45,10 @@ namespace rfkt
 		~animated_double() = default;
 
 		animated_double make_interpolator(const animated_double& o) const {
-			if (!ani && !o.ani) {
-				if (t0 == o.t0) {
-					return { t0, nullptr };
-				}
+			//if (!ani && !o.ani) {
+				//if (t0 == o.t0) {
+				//	return { t0, nullptr };
+				//}
 
 				return {  
 					t0,
@@ -57,9 +57,9 @@ namespace rfkt
 						{"final_value", o.t0}
 					})) 
 				};
-			}
+			//}
 
-			return {
+			/*return {
 				t0,
 				animator::make("interp_children", json::object({
 					{"left_name", (ani)? ani->name(): "noop"},
@@ -68,7 +68,7 @@ namespace rfkt
 					{"right", (o.ani) ? o.ani->serialize() : json::object()},
 					{"right_iv", o.t0}
 				}))
-			};
+			};*/
 		}
 	};
 
@@ -196,7 +196,7 @@ namespace rfkt
 		animated_double weight = 0.0;
 		animated_double color = 0.0;
 		animated_double color_speed = 0.0;
-		animated_double opacity = 0.0;
+		animated_double opacity = 1.0;
 
 		std::vector<vlink> vchain;
 
