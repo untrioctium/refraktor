@@ -16,3 +16,13 @@ jobs:
           
       - name: Check nvcc.exe installation
         run: nvcc --version
+        
+      - name: Check cmake installation
+        run: cmake --version
+        
+      - name: Configure and Build
+        run: |
+          mkdir build
+          cd build
+          cmake -G "Visual Studio 17 2022" -A x64 ..
+          cmake --build . --config Release
