@@ -6,7 +6,7 @@ namespace rfkt::animators {
 
 	class sine: public animator::registrar<sine> {
 	public:
-		sine(json data) :
+		sine(const json& data) :
 			frequency(data.value("frequency", 1.0)),
 			amplitude(data.value("amplitude", 1.0)),
 			sharpness(data.value("sharpness", 0)),
@@ -39,7 +39,7 @@ namespace rfkt::animators {
 
 	class interpolate : public animator::registrar<interpolate> {
 	public:
-		interpolate(json data):
+		interpolate(const json& data):
 			smooth(data.value("smooth", false)),
 			final_value(data.value("final_value", 0.0))
 		{}
@@ -67,7 +67,7 @@ namespace rfkt::animators {
 
 	class increase : public animator::registrar<increase> {
 	public:
-		increase(json data) :
+		increase(const json& data) :
 			per_loop(data.value("per_loop", 360.0)) {}
 
 		auto serialize() const -> json {
@@ -85,6 +85,52 @@ namespace rfkt::animators {
 	private:
 		double per_loop;
 	};
+
+	class interp_children : public animator::registrar<interp_children> {
+	public:
+		interp_children(const json& data) :
+			left(animator::make(data["left_name"], data["left"])),
+			right(animator::make(data["right_name"], data["right"])),
+			right_iv(data["right_iv"])
+		{}
+
+		auto serialize() const -> json {
+			return json::object({
+				{"left_name", left->name()},
+				{"right_name", right->name()},
+				{"left", left->serialize()},
+				{"right", right->serialize(),
+				{"right_iv"}, right_iv}
+			});
+		}
+
+		auto apply(double t, double initial) const -> double {
+			auto left_v = left->apply(t, initial);
+			if (t <= 0.0) return left_v;
+			auto right_v = right->apply(t, right_iv);
+			if (t >= 1.0) return right_v;
+
+			t = -2.0 * t * t * t + 3.0 * t * t;
+			return left_v * (1.0 - t) + t * right_v;
+		}
+
+		auto name() const -> std::string { return "interp_children"; }
+
+	private:
+		std::unique_ptr<animator> left;
+		std::unique_ptr<animator> right;
+		double right_iv;
+	};
+
+	class noop : public animator::registrar<noop> {
+	public:
+		noop(const json& data) {}
+
+		auto serialize() const -> json { return json::object(); }
+		auto apply(double t, double initial) const -> double { return initial; }
+		auto name() const -> std::string { return "noop"; }
+
+	};
 }
 
 void rfkt::animator::init_builtins()
@@ -92,4 +138,6 @@ void rfkt::animator::init_builtins()
 	animators::sine::registerT();
 	animators::interpolate::registerT();
 	animators::increase::registerT();
+	animators::noop::registerT();
+	animators::interp_children::registerT();
 }

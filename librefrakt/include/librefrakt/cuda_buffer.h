@@ -48,7 +48,7 @@ namespace rfkt {
 			}
 
 			buffer_base(const buffer_base&) = delete;
-			buffer_base& operator=(const Buffer) = delete;
+			buffer_base& operator=(const buffer_base &) = delete;
 
 			auto ptr() const { return ptr_; }
 			auto size() const { return size_; }
@@ -168,7 +168,7 @@ namespace rfkt {
 			Impl::to_host(host, this->ptr(), this->size());
 		}
 
-		void to_host_async(Contained* host, typename Impl::stream_type stream) {
+		void to_host_async(Contained* host, Impl::stream_type stream) {
 			Impl::to_host_async(host, this->ptr(), this->size(), stream);
 		}
 

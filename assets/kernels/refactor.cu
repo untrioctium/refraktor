@@ -29,6 +29,8 @@ constexpr static uint32 flame_size_bytes = flame_size_reals * sizeof(Real);
 constexpr static uint32 num_shuf_bufs = NUM_SHUF_BUFS;
 constexpr static uint32 shuf_buf_size = threads_per_block * sizeof(uint16);
 
+#include "flame_generated.h"
+
 using iterator = float3;
 
 struct iterators_t {
@@ -48,7 +50,7 @@ struct thread_states_t {
 struct __align__(16) shared_state_t {
 	thread_states_t ts;
 	
-	Real flame[flame_size_reals];
+	flame_t<Real> flame;
 	uchar3 palette[palette_channel_size];
 	
 	float2 antialiasing_offsets;
@@ -74,8 +76,6 @@ __shared__ shared_state_t state;
 #define my_shuffle_vote() (state.ts.shuffle_vote[fl::block_rank()])
 #define my_xform_vote() (state.ts.xform_vote[fl::block_rank()])
 
-#include "flame_generated.h"
-
 __global__
 void print_debug_info() {
 	#define output_sizeof(T) printf("sizeof(" #T ")=%llu (%.2f%% of total shared)\n", sizeof(T), sizeof(T) / float(sizeof(shared_state_t)) * 100.0f);
@@ -92,6 +92,8 @@ void print_debug_info() {
 	output_sizeof(thread_states_t::xform_vote);
 	printf("------\n");
 	output_sizeof(iterator);
+
+	output_sizeof(flame_t<float>);
 
 	printf("bytes per iterator: %llu (%llu leftover)\n", sizeof(thread_states_t)/THREADS_PER_BLOCK, sizeof(thread_states_t) % THREADS_PER_BLOCK);
 	printf("shared state size - flame size - iterators size = %llu\n", sizeof(shared_state_t) - sizeof(shared_state_t::flame) - sizeof(thread_states_t));
@@ -146,19 +148,21 @@ void interpolate_palette( Real t, const segment* const __restrict__ seg, uchar3*
 }
 
 __device__ 
-Real flame_pass(unsigned int pass_idx, const unsigned short* const shuf) {
+Real flame_pass(unsigned int pass_idx, const unsigned short* const shuf, uint64* const xform_counters = nullptr) {
 	
 	// every 32 passes, repopulate this warp's xid buffer
 	if(pass_idx % 32 == 0) {
-		my_xform_vote() = select_xform(my_rand().rand_uniform());
+		my_xform_vote() = state.flame.select_xform(my_rand().rand_uniform());
 	}
 	fl::sync_warp();
 
 	auto out_local = iterator{-666.0, -666.0, -660.0};
 	//DEBUG("xid: %d\n", ts[warp.meta_group_rank() * 32 + pass_idx % 32].xid);
-	Real opacity = dispatch( 
-		state.ts.xform_vote[fl::warp_start_in_block() + pass_idx % 32], 
-		my_iter(x), my_iter(y), my_iter(color), out_local.x, out_local.y, out_local.z
+	auto selected_xform = state.ts.xform_vote[fl::warp_start_in_block() + pass_idx % 32];
+	if(fl::is_warp_leader() && xform_counters != nullptr) atomicAdd(xform_counters + selected_xform, fl::warp_size());
+	Real opacity = state.flame.dispatch( 
+		selected_xform, 
+		my_iter(x), my_iter(y), my_iter(color), out_local.x, out_local.y, out_local.z, &my_rand()
 	);
 	//out_local = iterator{{-666.0, -666.0}, -660.0};
 
@@ -195,7 +199,7 @@ void warmup(
 	my_iter(color) = my_rand().rand_uniform();
 	
 	if(fl::is_block_leader()) {
-		state.antialiasing_offsets = my_rand().rand_gaussian(1/3.0);
+		state.antialiasing_offsets = my_rand().rand_gaussian(1/2.0);
 	}
 	queue_shuffle_load(shuf_bufs, 0);
 	
@@ -204,7 +208,7 @@ void warmup(
 	const auto seg = blockIdx.x / seg_size;
 	const auto seg_offset = flame_size_reals + palette_size;
 	
-	interpolate_flame<flame_size_reals>(t, segments + (seg_offset) * seg, state.flame);
+	interpolate_flame<flame_size_reals>(t, segments + (seg_offset) * seg, state.flame.as_array());
 	interpolate_palette<256>(t, segments + flame_size_reals + (seg_offset) * seg, state.palette);
 	
 	fl::sync_block();
@@ -227,7 +231,8 @@ void bin(
 	const uint32 iter_bailout,
 	const uint64 time_bailout,
 	float4* const __restrict__ bins, const uint32 bins_w, const uint32 bins_h,
-	uint64* const __restrict__ quality_counter, uint64* const __restrict__ pass_counter )
+	uint64* const __restrict__ quality_counter, uint64* const __restrict__ pass_counter,
+	uint64* const __restrict__ xform_counters )
 {
 	
 	// load shared state
@@ -244,18 +249,16 @@ void bin(
 	fl::sync_block();
 	for( unsigned int i =0; !state.should_bail; i++ ) {
 		
-		Real opacity = flame_pass(i, shuf_bufs);
+		Real opacity = flame_pass(i, shuf_bufs, xform_counters);
 
 		auto transformed = float3{};
 		
 		if constexpr(HAS_FINAL_XFORM) {
 			float3 my_iter_copy = {my_iter(x), my_iter(y), my_iter(color)};
-			dispatch(NUM_XFORMS, my_iter_copy.x, my_iter_copy.y, my_iter_copy.z, transformed.x, transformed.y, transformed.z);
+			state.flame.dispatch(NUM_XFORMS, my_iter_copy.x, my_iter_copy.y, my_iter_copy.z, transformed.x, transformed.y, transformed.z, &my_rand());
 		} else transformed = {my_iter(x), my_iter(y), my_iter(color)};
 		
-		Real tmp = state.flame[0] * transformed.x + state.flame[2] * transformed.y + state.flame[4];
-		transformed.y = state.flame[1] * transformed.x + state.flame[3] * transformed.y + state.flame[5];
-		transformed.x = tmp;
+		state.flame.screen_space.apply(transformed.x, transformed.y);
 		
 		transformed.x += state.antialiasing_offsets.x;
 		transformed.y += state.antialiasing_offsets.y;

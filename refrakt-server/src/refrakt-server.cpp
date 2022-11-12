@@ -12,6 +12,16 @@
 #include <librefrakt/util/filesystem.h>
 #include <librefrakt/util.h>
 
+#include <cmath>
+#include <ranges>
+
+auto cudaize(rfkt::cuda::context ctx, auto&& func) {
+	return [ctx, func = std::move(func)]() {
+		ctx.make_current_if_not();
+		func();
+	};
+}
+
 class event_loop_executor : public concurrencpp::derivable_executor<event_loop_executor> {
 public:
 
@@ -71,7 +81,7 @@ namespace rfkt {
 				out,
 				dims.x, dims.y,
 				static_cast<float>(gamma),
-				1.0f / (static_cast<float>(quality) * sqrtf(10.0f)),
+				std::powf(10.0f, -log10f(quality) - 0.5f),
 				static_cast<float>(brightness),
 				static_cast<float>(vibrancy)
 			));
@@ -143,9 +153,10 @@ public:
 			if (type == boolean) ret[name] = false;
 		}
 
-		for (auto p : rfkt::str_util::split(std::string{ data }, '&')) {
-			auto key = p.substr(0, p.find('='));
-			auto val = p.substr(p.find('=') + 1);
+		for (const auto& str : std::ranges::views::split(data, '&')) {
+			auto p = std::string_view{ str.begin(), str.end() };
+			auto key = std::string{ p.substr(0, p.find('=')) };
+			auto val = std::string{ p.substr(p.find('=') + 1) };
 
 			if (!args.contains(key)) continue;
 			switch (args.at(key)) {
@@ -175,7 +186,7 @@ public:
 	}
 
 private:
-	std::map<std::string, arg_type> args;
+	std::map< std::string, arg_type, std::less<>> args;
 };
 
 class http_connection_data : public std::enable_shared_from_this<http_connection_data> {
@@ -203,7 +214,7 @@ public:
 
 	explicit operator bool() { return aborted(); }
 
-	void defer(uWS::MoveOnlyFunction<void(http_connection_data&)>&& func) {
+	void defer(std::move_only_function<void(http_connection_data&)>&& func) {
 		parent->defer([cd = shared_from_this(), func = std::move(func)]() mutable {
 			func(*cd);
 		});
@@ -220,7 +231,7 @@ private:
 
 };
 
-struct socket_data {
+struct socket_data  {
 	rfkt::flame flame;
 	rfkt::flame_kernel kernel;
 
@@ -233,7 +244,7 @@ struct socket_data {
 	std::shared_ptr<rfkt::cuda_buffer<uchar4>> render;
 
 	std::atomic_bool closed;
-	uWS::MoveOnlyFunction<void(std::vector<std::byte>&&)> feed;
+	std::move_only_function<void(std::vector<std::byte>&&, std::shared_ptr<socket_data>)> feed;
 
 	~socket_data() {
 		SPDLOG_INFO("Closing socket");
@@ -241,8 +252,7 @@ struct socket_data {
 };
 
 auto session_render_thread(std::shared_ptr<socket_data> ud, const rfkt::tonemapper& tm, rfkt::cuda::context ctx) {
-	return[ud = move(ud), &tm, ctx]() {
-		ctx.make_current_if_not();
+	return cudaize(ctx, [ud = move(ud), &tm, ctx]() {
 		auto tls = rfkt::cuda::thread_local_stream();
 
 		std::size_t sent_bytes = 0;
@@ -270,7 +280,7 @@ auto session_render_thread(std::shared_ptr<socket_data> ud, const rfkt::tonemapp
 				1, ud->loops_per_frame, 0xdeadbeef, 64
 			);
 
-			auto result_fut = ud->kernel.bin(tls, state, 100, 1000 / ud->fps - 5, 1'000'000'000);
+			auto result_fut = ud->kernel.bin(tls, state, 1000, 1000 / ud->fps - 5, 1'000'000'000);
 
 			auto gamma = ud->flame.gamma.sample(t);
 			auto brightness = ud->flame.brightness.sample(t);
@@ -285,7 +295,7 @@ auto session_render_thread(std::shared_ptr<socket_data> ud, const rfkt::tonemapp
 				if (ret) {
 					ret->insert(ret->begin(), std::byte{ 0 });
 					sent_bytes += ret->size();
-					ud->feed(std::move(ret.value()));
+					ud->feed(std::move(ret.value()), ud);
 				}
 			}
 			pre_fut_time += time_since_start() - pre_fut_start;
@@ -330,8 +340,9 @@ auto session_render_thread(std::shared_ptr<socket_data> ud, const rfkt::tonemapp
 				std::this_thread::sleep_for(std::chrono::milliseconds{ sleep });
 			}
 		}
-	};
+	});
 }
+
 
 int main(int argc, char** argv) {
 
@@ -379,6 +390,11 @@ int main(int argc, char** argv) {
 		ctx.make_current_if_not();
 	});
 
+	auto local_flames = rfkt::fs::list("assets/flames", rfkt::fs::filter::has_extension(".flam3"));
+
+	// yeah yeah yeah, rand is bad. not cryptographically securing bank transactions here
+	srand(time(0));
+
 	using ws_t = uWS::WebSocket<true, true, std::shared_ptr<socket_data>>;
 	app.ws<std::shared_ptr<socket_data>>("/stream", {
 		.compression = uWS::DISABLED,
@@ -393,7 +409,7 @@ int main(int argc, char** argv) {
 		.open = [](ws_t* ws) {
 			SPDLOG_INFO("Opened session for streaming");
 		},
-		.message = [&fc, &tm, &runtime, ctx](ws_t* ws, std::string_view message, uWS::OpCode opCode) {
+		.message = [&fc, &tm, &runtime, ctx, &local_flames](ws_t* ws, std::string_view message, uWS::OpCode opCode) {
 			auto* ud = ws->getUserData();
 			auto js = nlohmann::json::parse(message);
 			if (!js.is_object()) return;
@@ -402,14 +418,14 @@ int main(int argc, char** argv) {
 
 			std::string cmd = js["cmd"].get<std::string>();
 			if (cmd == "begin") {
-				auto flame = get_or_default<std::string>(js, "flame", "53476");
+				auto flame = (js.count("flame") != 0) ? fmt::format("assets/flames/electricsheep.247.{}.flam3", js["count"].get<std::string>()) : local_flames[rand() % local_flames.size()].string();
 
 				auto width = get_or_default(js, "width", 1280u);
 				auto height = get_or_default(js, "height", 720u);
 				auto seconds_per_loop = get_or_default(js, "loop_length", 5.0);
 				auto fps = get_or_default(js, "fps", 30);
 
-				auto f = rfkt::flame::import_flam3(fmt::format("assets/flames/electricsheep.247.{}.flam3", flame));
+				auto f = rfkt::flame::import_flam3(flame);
 				if (!f) return;
 
 				// add the tiniest bit of rotation to show dynamic nature
@@ -425,7 +441,7 @@ int main(int argc, char** argv) {
 
 				auto new_ptr = std::shared_ptr<socket_data>{ new socket_data{
 					.flame = std::move(f.value()),
-					.kernel = std::move(k_result.kernel.value()),
+					.kernel = std::move(*k_result.kernel),
 					.total_frames = 0,
 					.loops_per_frame = 1.0 / (seconds_per_loop * fps),
 					.fps = fps,
@@ -433,9 +449,9 @@ int main(int argc, char** argv) {
 					.session = std::move(sesh),
 					.render = std::move(buf),
 					.closed = false,
-					.feed = [loop = uWS::Loop::get(), ws](std::vector<std::byte>&& d) {
-						loop->defer([ws, d = std::move(d)]() mutable {
-							ws->send(std::string_view{(const char*)d.data(), d.size()});
+					.feed = [loop = uWS::Loop::get(), ws](std::vector<std::byte>&& d, std::shared_ptr<socket_data> ud) mutable {
+						loop->defer([ws, d = std::move(d), ud = std::move(ud)]() mutable {
+							 if(!ud->closed) ws->send(std::string_view{(const char*)d.data(), d.size()});
 						});
 					}
 				} };
@@ -478,6 +494,13 @@ int main(int argc, char** argv) {
 		}
 	});
 
+	app.get("/bananas", [](auto* res, auto* req) {
+		auto page = rfkt::fs::read_string("assets/static/muxer.html");
+
+		res->writeStatus("200 OK");
+		res->tryEnd(page);
+	});
+
 	app.get("/render/:id", [&](auto* res, auto* req) {
 
 		SPDLOG_INFO("get {}?{}", req->getUrl(), req->getQuery());
@@ -513,6 +536,7 @@ int main(int argc, char** argv) {
 		if (rd.height > 2160) rd.height = 2160;
 		if (rd.quality > 2048) rd.quality = 2048;
 		if (rd.bin_time > 2000) rd.bin_time = 2000;
+		if (rd.jpeg_quality <= 0 || rd.jpeg_quality > 100) rd.jpeg_quality = 85;
 
 		auto cd = http_connection_data::make(res);
 		auto flame_path = fmt::format("assets/flames/electricsheep.247.{}.flam3", req->getParameter(0));
@@ -525,25 +549,46 @@ int main(int argc, char** argv) {
 		jpeg_executor->post([flame_path = std::move(flame_path), cd = std::move(cd), rd = std::move(rd), ctx = ctx, &fc, &tm, &jpeg, &sm]() mutable {
 			auto tls = rfkt::cuda::thread_local_stream();
 
-			auto [t_load, fopt] = time_it([&]() { return rfkt::flame::import_flam3(flame_path); });
+			auto timer = rfkt::timer();
+			auto fopt = rfkt::flame::import_flam3(flame_path);
+			auto t_load = timer.count();
+
 			if (!fopt) {
-				end_error<"500", "Internal Server Error">(cd->response());
+				if(!cd->aborted()) end_error<"500", "Internal Server Error">(cd->response());
 				return;
 			}
 
-			auto [t_kernel, k_result] = time_it([&]() {return fc.get_flame_kernel(rfkt::precision::f32, fopt.value()); });
+			timer.reset();
+			auto k_result = fc.get_flame_kernel(rfkt::precision::f32, fopt.value());
+			auto t_kernel = timer.count();
+
 			if (!k_result.kernel.has_value()) {
-				end_error<"500", "Internal Server Error>">(cd->response());
+				SPDLOG_INFO("{}", k_result.source);
+				SPDLOG_INFO("{}", k_result.log);
+				if (!cd->aborted()) end_error<"500", "Internal Server Error>">(cd->response());
 				return;
 			}
 
+			SPDLOG_INFO("{}", k_result.source);
 
-			auto kernel = std::move(k_result.kernel.value());
+
+			auto kernel = rfkt::flame_kernel{ std::move(k_result.kernel.value()) };
 			auto render = rfkt::cuda::make_buffer_async<uchar4>(rd.width * rd.height, tls);
 			auto state = kernel.warmup(tls, fopt.value(), { rd.width, rd.height }, rd.time, 1, double(rd.fps) / rd.loop_speed, 0xdeadbeef, 100);
-			auto [t_bin, result] = time_it([&]() {return kernel.bin(tls, state, rd.quality, rd.bin_time, 1'000'000'000).get(); });
 
-			auto smoothed = rfkt::cuda::make_buffer_async<float4>(rd.width * rd.height, tls);
+			timer.reset();
+			auto result = kernel.bin(tls, state, rd.quality, rd.bin_time, 1'000'000'000).get();
+			auto t_bin = timer.count();
+
+			auto max_error = 0.0f;
+			for (int i = 0; i < fopt->xforms.size(); i++) {
+				auto diff = std::abs(state.norm_xform_weights[i] - result.xform_selections[i])/state.norm_xform_weights[i] * 100.0;
+				if (diff > max_error) max_error = diff;
+			}
+
+			SPDLOG_INFO("max xform error: {:.5}%", max_error);
+
+			/*auto smoothed = rfkt::cuda::make_buffer_async<float4>(rd.width * rd.height, tls);
 			cuMemsetD32Async(smoothed.ptr(), 0, rd.width* rd.height * 4, tls);
 
 			sm().launch({ rd.width / 8 + 1, rd.height / 8 + 1, 1 }, { 8,8,1 }, tls)(
@@ -554,10 +599,10 @@ int main(int argc, char** argv) {
 				(int) 0,
 				0.6f
 				);
-
+			*/
 			SPDLOG_INFO("load {}, kernel {}, bin {}, quality {}", t_load, t_kernel, t_bin, result.quality);
 
-			tm.run(smoothed.ptr(), render.ptr(), { rd.width, rd.height }, result.quality, true, fopt->gamma.sample(rd.time), fopt->brightness.sample(rd.time), fopt->vibrancy.sample(rd.time), tls);
+			tm.run(state.bins.ptr(), render.ptr(), { rd.width, rd.height }, result.quality, true, fopt->gamma.sample(rd.time), fopt->brightness.sample(rd.time), fopt->vibrancy.sample(rd.time), tls);
 			auto data = jpeg.encode_image(render.ptr(), rd.width, rd.height, rd.jpeg_quality, tls).get();
  
 			cd->defer([data = std::move(data)](auto& cd){

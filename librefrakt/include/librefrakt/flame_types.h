@@ -24,7 +24,7 @@ namespace rfkt
 		double t0 = 0.0;
 		std::unique_ptr<rfkt::animator> ani = nullptr;
 
-		animated_double(double t0) : t0(t0) {}
+		animated_double(double t0, std::unique_ptr<rfkt::animator> ani = nullptr) : t0(t0), ani(std::move(ani)) {}
 
 		auto sample(double t) const -> double {
 			if (!ani) return t0;
@@ -43,10 +43,37 @@ namespace rfkt
 
 		animated_double() = default;
 		~animated_double() = default;
+
+		animated_double make_interpolator(const animated_double& o) const {
+			//if (!ani && !o.ani) {
+				//if (t0 == o.t0) {
+				//	return { t0, nullptr };
+				//}
+
+				return {  
+					t0,
+					animator::make("interpolate", json::object({
+						{"smooth", true},
+						{"final_value", o.t0}
+					})) 
+				};
+			//}
+
+			/*return {
+				t0,
+				animator::make("interp_children", json::object({
+					{"left_name", (ani)? ani->name(): "noop"},
+					{"right_name", (o.ani)? o.ani->name(): "noop"},
+					{"left", (ani) ? ani->serialize() : json::object()},
+					{"right", (o.ani) ? o.ani->serialize() : json::object()},
+					{"right_iv", o.t0}
+				}))
+			};*/
+		}
 	};
 
 	struct affine_matrix {
-		animated_double a{1.0}, d{0.0}, b{0.0}, e{1.0}, c{1.0}, f{1.0};
+		animated_double a{1.0}, d{0.0}, b{0.0}, e{1.0}, c{0.0}, f{0.0};
 
 		static affine_matrix identity() {
 			return affine_matrix{ 1.0,0.0,0.0,1.0,0.0,0.0 };
@@ -104,7 +131,7 @@ namespace rfkt
 		}
 	};
 
-	struct vlink: public traits::hashable<vlink> {
+	struct vlink: public traits::hashable {
 		affine_matrix affine = affine_matrix::identity();
 
 		std::pair<animated_double, animated_double> aff_mod_translate = {0.0, 0.0};
@@ -165,11 +192,11 @@ namespace rfkt
 		std::map<std::size_t, animated_double> parameters{};
 	};
 
-	struct xform: public traits::hashable<xform> {
+	struct xform: public traits::hashable {
 		animated_double weight = 0.0;
 		animated_double color = 0.0;
 		animated_double color_speed = 0.0;
-		animated_double opacity = 0.0;
+		animated_double opacity = 1.0;
 
 		std::vector<vlink> vchain;
 
@@ -195,7 +222,7 @@ namespace rfkt
 
 	};
 
-	class flame: public traits::hashable<flame> {
+	class flame: public traits::hashable {
 	public:
 		std::vector<xform> xforms = {};
 		std::optional<xform> final_xform = std::nullopt;
@@ -262,8 +289,6 @@ namespace rfkt
 				cb(i, &xforms[i]);
 			}
 			if (final_xform.has_value()) cb(-1, &final_xform.value());
-
-			constexpr auto test = sizeof(vlink);
 		}
 
 		auto& palette() noexcept { return *palette_hsv; }

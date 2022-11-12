@@ -42,7 +42,7 @@ add_library(librefrakt STATIC
 	${HEADER_LIST}
 )
 
-set_property(TARGET librefrakt PROPERTY INTERPROCEDURAL_OPTIMIZATION TRUE)
+#set_property(TARGET librefrakt PROPERTY INTERPROCEDURAL_OPTIMIZATION TRUE)
 
 target_include_directories(librefrakt PUBLIC include)
 
@@ -146,6 +146,22 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(nv-codec-headers)
 target_include_directories(librefrakt PRIVATE ${nv-codec-headers_SOURCE_DIR}/include)
 
+FetchContent_Declare(
+  lua
+  GIT_REPOSITORY https://github.com/walterschell/Lua.git
+  GIT_TAG master
+)
+FetchContent_MakeAvailable(lua)
+
+# sol3
+FetchContent_Declare(
+  sol2
+  GIT_REPOSITORY https://github.com/ThePhD/sol2.git
+  GIT_TAG v3.2.2
+)
+FetchContent_MakeAvailable(sol2)
+
+
 target_link_libraries(librefrakt PRIVATE 
 	xxhash 
 	CUDA::nvrtc
@@ -164,4 +180,6 @@ target_link_libraries(librefrakt PUBLIC
 	fmt::fmt
 	concurrencpp
 	inja
+	lua_static
+	sol2
 )

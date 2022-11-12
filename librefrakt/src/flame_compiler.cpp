@@ -14,18 +14,20 @@
 #include <librefrakt/flame_compiler.h>
 #include <librefrakt/util/cuda.h>
 
+#include <inja/inja.hpp>
+
 template<typename AdjMap, typename VertexID>
-void order_recurse(const VertexID& vertex, const AdjMap& adj, std::set<VertexID>& visited, std::stack<VertexID>& ordering) {
+void order_recurse(const VertexID& vertex, const AdjMap& adj, std::set<VertexID>& visited, std::deque<VertexID>& ordering) {
     visited.insert(vertex);
     for (const auto& edge : adj.at(vertex)) {
         if (!visited.contains(edge)) order_recurse(edge, adj, visited, ordering);
     }
-    ordering.push(vertex);
+    ordering.push_front(vertex);
 }
 
 template<class VertexID, class AdjMap>
-auto get_ordering(const AdjMap& adj) -> std::stack<VertexID> {
-    auto ordering = std::stack<VertexID>{};
+auto get_ordering(const AdjMap& adj) -> std::deque<VertexID> {
+    auto ordering = std::deque<VertexID>{};
     auto visited = std::set<VertexID>{};
 
     for (const auto& [vertex, edges] : adj) {
@@ -35,14 +37,14 @@ auto get_ordering(const AdjMap& adj) -> std::stack<VertexID> {
     return ordering;
 }
 
-std::string expand_tabs(const std::string& src) {
+std::string expand_tabs(const std::string& src, const std::string& tab_str = "\t") {
     std::string result = src;
 
-    result.insert(0, "\t");
+    result.insert(0, tab_str);
 
     for (std::size_t i = 0; i < result.length(); i++) {
         if (result[i] == '\n') {
-            result.insert(i + 1, "\t");
+            result.insert(i + 1, tab_str);
             i++;
         }
     }
@@ -55,163 +57,128 @@ std::string strip_tabs(const std::string& src) {
     return ret;
 }
 
-std::string create_vlink_source(const rfkt::vlink& vl, int offset) {
-    std::string common_source;
-    std::string var_sources;
-    std::string setup_source = "nx = 0; ny = 0;\n";
-
-    auto var_offset = offset;
-    setup_source += fmt::format(
-        "const auto& xaffine_a = state.flame[offset + {}];\n"
-        "const auto& xaffine_d = state.flame[offset + {}];\n"
-        "const auto& xaffine_b = state.flame[offset + {}];\n"
-        "const auto& xaffine_e = state.flame[offset + {}];\n"
-        "const auto& xaffine_c = state.flame[offset + {}];\n"
-        "const auto& xaffine_f = state.flame[offset + {}];\n"
-        "weight = xaffine_a * px + xaffine_b * py + xaffine_c;\n"
-        "   py = xaffine_d * px + xaffine_e * py + xaffine_f;\n"
-        "   px = weight;\n",
-        offset, offset + 1, offset + 2, offset + 3, offset + 4, offset + 5);
-    var_offset += 6;
-
-
-    auto var_count = vl.variations.size();
-    auto param_offset = var_offset + var_count;
-    std::map<std::string, std::vector<std::string>> required_common;
-
-    for (auto& [var_idx, weight] : vl.variations) {
-        auto& vdef = rfkt::flame_info::variation(var_idx);
-        auto src = std::string{};
-        for (auto& p : vdef.parameters) {
-            src += fmt::format("const auto& {} = state.flame[offset + {}];\n", p.get().name, (param_offset++));
-        }
-
-        src += fmt::format("{}\n", vdef.source);
-
-        static auto var_src_fmt =
-            "//{}\n"
-            "weight = state.flame[offset + {}];\n"
-            "if(weight != 0.0) {{\n"
-            "{}\n"
-            "}}\n";
-
-        var_sources += fmt::format(var_src_fmt, vdef.name, (var_offset++), expand_tabs(src));
-
-        for (const auto& common : vdef.dependencies) {
-            auto& name = common.get().name;
-            required_common[name] = {};
-
-            for (auto& cdep : common.get().dependencies) {
-                required_common[name].push_back(cdep);
-            }
-        }
-    }
-
-    /*std::string end_sources =
-        "#undef xaffine_a\n"
-        "#undef xaffine_d\n"
-        "#undef xaffine_b\n"
-        "#undef xaffine_e\n"
-        "#undef xaffine_c\n"
-        "#undef xaffine_f";*/
-
-    auto ordering = get_ordering<std::string>(required_common);
-
-    while (ordering.size()) {
-        const auto& cdef = rfkt::flame_info::common(ordering.top());
-        common_source = fmt::format("Real xcommon_{} = {};\n{}", cdef.name, cdef.source, common_source);
-        ordering.pop();
-    }
-
-    return setup_source + common_source + var_sources;
-}
-
-std::string create_xform_source(const rfkt::xform& xf) {
-    std::string function_header = fmt::format("template<unsigned long long offset> __device__ void xform_{}( Real& px, Real& py, Real& nx, Real& ny, randctx* rs)", xf.hash().str32());
-
-    std::string xform_src = "Real weight;\n";
-
-    int offset = 4;
-    for (auto& vl : xf.vchain) {
-        xform_src += fmt::format(
-            "{{\n{}\n}}\n"
-            "px = nx;\n"
-            "py = ny;\n", expand_tabs(create_vlink_source(vl, offset)));
-        offset += vl.real_count();
-    }
-
-    return fmt::format("{}\n{{\n{}}}\n", function_header, expand_tabs(xform_src));
-}
-
-std::string create_flame_source(const rfkt::flame& f) {
-    std::string src = "#define xcommon(name) xcommon_ ## name\n";
+auto extract_common(const rfkt::flame& f) -> std::map<rfkt::hash_t, std::set<int>> {
 
     std::map<rfkt::hash_t, std::set<int>> shared_xforms;
-    std::vector<std::size_t> xform_offsets;
-    std::size_t offset_counter = 7;
-
     for (int i = 0; i <= f.xforms.size(); i++) {
-        if (i == f.xforms.size() && !f.final_xform.has_value()) continue;
+        if (i == f.xforms.size() && !f.final_xform.has_value()) break;
         auto& xf = (i == f.xforms.size()) ? f.final_xform.value() : f.xforms[i];
         auto xhash = xf.hash();
 
-        //fmt::print("{}\n", xhash.str32());
-
-        if (shared_xforms.contains(xhash)) 
+        if (shared_xforms.contains(xhash))
             shared_xforms[xhash].insert(i);
         else {
-            src += create_xform_source(xf);
             shared_xforms[xhash] = { i };
         }
-
-        xform_offsets.push_back(offset_counter);
-        offset_counter += xf.real_count();
     }
+    return shared_xforms;
+}
 
-    src +=
-        "__device__ Real dispatch(int idx, Real& px, Real& py, Real& pc, Real& nx, Real& ny, Real& nc) {\n"
-        "\tswitch(idx){\n"
-        "\t\tdefault: return 0.0f;\n";
+auto make_struct(const rfkt::flame& f) -> std::string {
 
-    for (auto& [hash, idxs] : shared_xforms) {
-        for (auto idx : idxs) {
-            src += fmt::format("\t\tcase {}:\n", idx);
-            src += fmt::format(
-                "\t\t{{\n"
-                "\t\t\txform_{}<xform_offsets[{}]>(px, py, nx, ny, &my_rand()); \n"
-                "\t\t\tnc = INTERP(pc, state.flame[xform_offsets[{}] + 1], state.flame[xform_offsets[{}] + 2]);\n"
-                "\t\t\treturn state.flame[xform_offsets[{}] + 3];\n"
-                "\t\t}}\n", 
-                hash.str32(), idx, idx, idx, idx);
+    auto info = json::object({
+        {"xform_definitions", json::array()},
+        {"xforms", json::array()},
+        {"num_standard_xforms", f.xforms.size()}
+    });
+
+    auto& xfs = info["xforms"];
+    auto& xfd = info["xform_definitions"];
+
+    const auto common = extract_common(f);
+
+    for (auto& [hash, children] : common) {
+        auto xf_def_js = json::object({
+            {"hash", hash.str32()},
+            {"vchain", json::array()}
+        });
+
+        auto& vc = xf_def_js["vchain"];
+
+        const auto child_id = children.begin().operator*();
+        const auto& child = (child_id == f.xforms.size()) ? f.final_xform.value() : f.xforms[child_id];
+
+        for (auto& vl : child.vchain) {
+            auto vl_def_js = json::object({
+                {"variations", json::array()},
+                {"parameters", json::array()},
+                {"common", json::array()}
+             });
+
+            std::map<std::string, std::vector<std::string>> required_common;
+
+            for (auto& [id, weight] : vl.variations) {
+                vl_def_js["variations"].push_back(
+                    json::object({
+                        {"name", rfkt::flame_info::variation(id).name},
+                        {"id", id}
+                    })
+                );
+
+                auto& vdef = rfkt::flame_info::variation(id);
+                for (const auto& common : vdef.dependencies) {
+                    auto& name = common.get().name;
+                    if (required_common.count(name) > 0) continue;
+
+                    required_common[name] = {};
+
+                    for (auto& cdep : common.get().dependencies) {
+                        required_common[name].push_back(cdep);
+                    }
+                }
+            }
+
+            auto ordering = get_ordering<std::string>(required_common);
+
+            while (ordering.size()) {
+                const auto& cdef = rfkt::flame_info::common(ordering.back());
+                vl_def_js["common"].push_back(json::object({
+                    {"name", cdef.name},
+                    {"source", cdef.source}
+                    }));
+                ordering.pop_back();
+            }
+            
+            for (auto& [id, weight] : vl.parameters) {
+                vl_def_js["parameters"].push_back(rfkt::flame_info::parameter(id).name);
+            }
+
+            vc.push_back(std::move(vl_def_js));
         }
-    }
-    src += "\t}\n}\n";
 
-    std::string offsets = "constexpr static unsigned int xform_offsets[] = {";
+        xfd.push_back(std::move(xf_def_js));
+    }
+
     for (int i = 0; i <= f.xforms.size(); i++) {
-        if (i == f.xforms.size() && !f.final_xform.has_value()) continue;
+        if (i == f.xforms.size() && !f.final_xform.has_value()) break;
+        auto& xf = (i == f.xforms.size()) ? f.final_xform.value() : f.xforms[i];
 
-        if (i != 0) offsets += ",";
-        offsets += fmt::format("{}", xform_offsets[i]);
-    }
-    offsets += "};\n";
-
-    src +=
-        "__device__ unsigned int select_xform(Real ratio){\n"
-        "\tratio *= state.flame[6];\n"
-        "\tReal rsum = 0.0f;\n"
-        "\tunsigned char last_nonzero = 0;\n"
-        "\tReal cur_weight;\n";
-    for (int i = 0; i < f.xforms.size(); i++) {
-        src += fmt::format("\tcur_weight = state.flame[xform_offsets[{0}]];\n", i);
-        if (i + 1 != f.xforms.size())
-            src += fmt::format("\tif( cur_weight != 0.0 && (rsum + cur_weight) >= ratio) return {0}; else {{ rsum += cur_weight; last_nonzero={0};}}\n", i);
-        else src += fmt::format("\treturn (cur_weight != 0.0)? {}: last_nonzero;\n", i);
+        xfs.push_back(json::object({
+            {"hash", xf.hash().str32()},
+            {"id", (i == f.xforms.size()) ? std::string{"final"} : fmt::format("{}", i)}
+            }));
     }
 
-    src += "}\n";
+    SPDLOG_INFO("json: \n{}", info.dump(2));
 
-    return offsets + src;
+    auto environment = []() -> inja::Environment {
+        auto env = inja::Environment{};
+
+        env.set_expression("@", "@");
+        env.set_statement("<#", "#>");
+
+        env.add_callback("get_variation_source", 2, [](inja::Arguments& args) {
+            return expand_tabs(rfkt::flame_info::variation(args.at(0)->get<std::size_t>()).source, args.at(1)->get<std::string>());
+        });
+
+        env.set_trim_blocks(true);
+        env.set_lstrip_blocks(true);
+
+        return env;
+    }();
+
+    return environment.render_file("./assets/templates/flame.tpl", info);
+
 }
 
 std::string annotate_source(std::string src) {
@@ -232,11 +199,10 @@ auto rfkt::flame_compiler::get_flame_kernel(precision prec, const flame& f) -> r
     auto [compile_result, handle] = km.compile_file("assets/kernels/refactor.cu", opts);
 
 
-    auto r = result{
-    .kernel = std::nullopt,
-    .source = annotate_source(opts.get_header("flame_generated.h")),
-    .log = std::move(compile_result.log)
-    };
+    auto r = result(
+        annotate_source(opts.get_header("flame_generated.h")),
+        std::move(compile_result.log)
+    );
 
 
     if (!compile_result.success) {
@@ -245,6 +211,7 @@ auto rfkt::flame_compiler::get_flame_kernel(precision prec, const flame& f) -> r
 
     auto func = handle();
     //handle.kernel("print_debug_info").launch(1, 1)();
+
     auto max_blocks = func.max_blocks_per_mp(most_blocks.block) * cuda::context::current().device().mp_count();
     if (max_blocks < most_blocks.grid) {
         SPDLOG_ERROR("Kernel for {} needs {} blocks but only got {}", f.hash().str64(), most_blocks.grid, max_blocks);
@@ -252,7 +219,7 @@ auto rfkt::flame_compiler::get_flame_kernel(precision prec, const flame& f) -> r
     }
     SPDLOG_INFO("Loaded flame kernel: {} temp. samples, {} flame params, {} regs, {} shared, {} local.", max_blocks, f.real_count(), func.register_count(), func.shared_bytes(), func.local_bytes());
 
-    r.kernel = flame_kernel{ f.hash(), std::move(handle), prec, shuf_bufs[most_blocks.block], device_mhz, std::pair<int, int>{most_blocks.grid, most_blocks.block}, catmull };
+    r.kernel = { f.hash(), std::move(handle), prec, shuf_bufs[most_blocks.block], device_mhz, std::pair<int, int>{most_blocks.grid, most_blocks.block}, catmull };
 
     return r;
 }
@@ -344,7 +311,9 @@ rfkt::flame_compiler::flame_compiler(kernel_manager& k_manager): km(k_manager)
 
 auto rfkt::flame_compiler::make_opts(precision prec, const flame& f)->std::pair<cuda::execution_config, compile_opts>
 {
-    std::string flame_generated = create_flame_source(f);
+    std::string flame_generated = make_struct(f);
+
+    SPDLOG_INFO("source: \n{}", flame_generated);
 
     auto flame_real_count = f.real_count();
     auto flame_size_bytes = ((prec == precision::f32) ? sizeof(float) : sizeof(double)) * flame_real_count;
@@ -360,7 +329,7 @@ auto rfkt::flame_compiler::make_opts(precision prec, const flame& f)->std::pair<
     }
 
     //if (most_blocks_idx > 0) most_blocks_idx--;
-    auto& most_blocks = exec_configs[2];
+    auto& most_blocks = exec_configs[most_blocks_idx];
 
     //flame_generated += fmt::format("__device__ unsigned int flame_size_reals() {{ return {}; }}\n", flame_real_count);
     //flame_generated += fmt::format("__device__ unsigned int flame_size_bytes() {{ return {}; }}\n", flame_size_bytes);
@@ -447,32 +416,36 @@ private:
 auto rfkt::flame_kernel::bin(CUstream stream, flame_kernel::saved_state & state, float target_quality, std::uint32_t ms_bailout, std::uint32_t iter_bailout) const -> std::future<bin_result>
 {
     using counter_type = std::size_t;
-    static constexpr auto num_counters = 2;
-    static constexpr auto counters_size = sizeof(counter_type) * num_counters;
-    thread_local pinned_ring_allocator_t<counters_size * 128> pra{};
+    static constexpr auto counter_size = sizeof(counter_type);
+    thread_local pinned_ring_allocator_t<counter_size * 512> pra{};
 
     struct stream_state_t {
         std::chrono::steady_clock::time_point start = std::chrono::high_resolution_clock::now();
         decltype(start) end;
         std::size_t total_bins;
         std::size_t num_threads;
+        std::size_t num_xforms;
 
-        CUdeviceptr qp_dev;
+        CUdeviceptr qpx_dev;
 
         std::promise<flame_kernel::bin_result> promise{};
-        std::array<std::size_t, num_counters>* qp_host;
+        std::size_t* qpx_host;
 
     };
 
     auto stream_state = new stream_state_t{};
     auto future = stream_state->promise.get_future();
-    stream_state->qp_host = pra.reserve<counter_type, num_counters>();
+    const auto num_counters = 2 + state.norm_xform_weights.size();
+    const auto alloc_size = counter_size * num_counters;
+
+    stream_state->qpx_host = (std::size_t*) pra.reserve(counter_size * num_counters);
 
     stream_state->total_bins = state.bin_dims.x * state.bin_dims.y;
     stream_state->num_threads = exec.first * exec.second;
+    stream_state->num_xforms = state.norm_xform_weights.size();
 
-    cuMemAllocAsync(&stream_state->qp_dev, counters_size, stream);
-    cuMemsetD32Async(stream_state->qp_dev, 0, counters_size / sizeof(unsigned int), stream);
+    cuMemAllocAsync(&stream_state->qpx_dev, alloc_size, stream);
+    cuMemsetD32Async(stream_state->qpx_dev, 0, alloc_size / sizeof(unsigned int), stream);
 
     auto klauncher = [&mod = this->mod, stream, &exec = this->exec]<typename ...Ts>(Ts&&... args) {
         return mod("bin").launch(exec.first, exec.second, stream, cuda::context::current().device().cooperative_supported())(std::forward<Ts>(args)...);
@@ -490,23 +463,33 @@ auto rfkt::flame_kernel::bin(CUstream stream, flame_kernel::saved_state & state,
         iter_bailout,
         (long long)(ms_bailout)*device_mhz,
         state.bins.ptr(), state.bin_dims.x, state.bin_dims.y,
-        stream_state->qp_dev,
-        stream_state->qp_dev + sizeof(counter_type)
+        stream_state->qpx_dev,
+        stream_state->qpx_dev + counter_size,
+        stream_state->qpx_dev + 2 * counter_size
     ));
-    CUDA_SAFE_CALL(cuMemcpyDtoHAsync(stream_state->qp_host->data(), stream_state->qp_dev, counters_size, stream));
-    CUDA_SAFE_CALL(cuMemFreeAsync(stream_state->qp_dev, stream));
+    CUDA_SAFE_CALL(cuMemcpyDtoHAsync(stream_state->qpx_host, stream_state->qpx_dev, alloc_size, stream));
+    CUDA_SAFE_CALL(cuMemFreeAsync(stream_state->qpx_dev, stream));
 
     cuLaunchHostFunc(stream, [](void* ptr) {
         auto* ss = (stream_state_t*)ptr;
         ss->end = std::chrono::high_resolution_clock::now();
 
+        auto actual_weights = std::vector<double>{};
+        actual_weights.resize(ss->num_xforms);
+
+        const auto& total_passes = ss->qpx_host[1];
+        for (int i = 0; i < ss->num_xforms; i++) {
+            actual_weights[i] = double(ss->qpx_host[i + 2]) / total_passes;
+        }
+
         ss->promise.set_value(flame_kernel::bin_result{
-            ss->qp_host->at(0) / (ss->total_bins * 255.0f),
+            ss->qpx_host[0] / (ss->total_bins * 255.0f),
             std::chrono::duration_cast<std::chrono::nanoseconds>(ss->end - ss->start).count() / 1'000'000.0f,
-            ss->qp_host->at(1),
-            ss->qp_host->at(0) / 255,
+            ss->qpx_host[1],
+            ss->qpx_host[0] / 255,
             ss->total_bins,
-            double(ss->qp_host->at(1)) / (ss->num_threads)
+            double(ss->qpx_host[1]) / (ss->num_threads),
+            std::move(actual_weights)
         });
 
         delete ss;
@@ -539,7 +522,7 @@ auto rfkt::flame_kernel::warmup(CUstream stream, const flame& f, uint2 dims, dou
 
             for (const auto& vl : xf.vchain) {
 
-                auto affine = vl.affine.scale(vl.aff_mod_scale.sample(t)).rotate(vl.aff_mod_rotate.sample(t)).translate(vl.aff_mod_translate.first.sample(t), vl.aff_mod_translate.second.sample(t));
+                auto affine = vl.affine;//vl.affine.scale(vl.aff_mod_scale.sample(t)).rotate(vl.aff_mod_rotate.sample(t)).translate(vl.aff_mod_translate.first.sample(t), vl.aff_mod_translate.second.sample(t));
 
                 packer(affine.a.sample(t));
                 packer(affine.d.sample(t));
@@ -569,12 +552,25 @@ auto rfkt::flame_kernel::warmup(CUstream stream, const flame& f, uint2 dims, dou
         const auto pack_size_reals = nreals * (nseg + 3);
         const auto pack_size_bytes = sizeof(Real) * pack_size_reals;
 
+        std::vector<double> norm_weights;
+        norm_weights.resize(f.xforms.size());
+        
+        auto weight_sum = [](const flame& f, double t) -> double {
+            double ret = 0;
+            for (const auto& xf : f.xforms) ret += xf.weight.sample(t);
+            return ret;
+        }(f, t);
+
+        for (int i = 0; i < f.xforms.size(); i++) {
+            norm_weights[i] = f.xforms[i].weight.sample(t) / weight_sum;
+        }
+
         CUdeviceptr samples_dev;
         cuMemAllocAsync(&samples_dev, pack_size_bytes, stream);
 
         CUdeviceptr segments_dev;
         cuMemAllocAsync(&segments_dev, pack_size_bytes * 4 * nseg, stream);
-        auto state = flame_kernel::saved_state{ dims, this->saved_state_size(), stream };
+        auto state = flame_kernel::saved_state{ dims, this->saved_state_size(), stream, std::move(norm_weights)};
         cuMemsetD32Async(state.bins.ptr(), 0, state.bin_dims.x * state.bin_dims.y * 4, stream);
 
         thread_local pinned_ring_allocator_t<1024 * 1024 * 4> pra{};

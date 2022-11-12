@@ -213,7 +213,6 @@ std::optional<std::vector<std::byte>> rfkt::nvenc::session::submit_frame(bool id
 	else {
 		pic_params.encodePicFlags = NV_ENC_PIC_FLAG_EOS;
 	}
-	pic_params.outputBitstream = out_stream;
 
 	auto frame_status = funcs.nvEncEncodePicture(sesh, &pic_params);
 

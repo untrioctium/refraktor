@@ -131,7 +131,10 @@ auto rfkt::flame::import_flam3(const std::string& path) -> std::optional<flame>
 
 				if (aname.starts_with("pre_")) {
 					which_vl = 0;
+					// flam3 treats pre_blur like pre_gaussian_blur
+					// so we make the swap here
 					aname = aname.substr(4);
+					if (aname == "blur") aname = "gaussian_blur";
 				}
 				else if (aname.starts_with("post_")) {
 					which_vl = 2;

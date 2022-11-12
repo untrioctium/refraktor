@@ -8,9 +8,9 @@
 
 template <class Base, class... Args> class factory {
 public:
-	template <class ... T>
-	static std::unique_ptr<Base> make(const std::string& s, T&&... args) {
-		return data().at(s)(std::forward<T>(args)...);
+
+	static std::unique_ptr<Base> make(const std::string& s, Args... args) {
+		return data().at(s)(std::forward<Args>(args)...);
 	}
 
 	static bool exists(const std::string& s) {

@@ -1,7 +1,7 @@
 #pragma once
 
 namespace rfkt::traits {
-	template<typename Class>
+
 	class noncopyable {
 	protected:
 		noncopyable() = default;
@@ -9,4 +9,6 @@ namespace rfkt::traits {
 		noncopyable(const noncopyable&) = delete;
 		noncopyable& operator=(const noncopyable&) = delete;
 	};
+
+	static_assert(!std::copyable<noncopyable>);
 }

@@ -6,7 +6,8 @@
 using json = nlohmann::json;
 
 namespace rfkt {
-	struct animator : factory<animator, json> {
+
+	struct animator : factory<animator, const json&> {
 		static void init_builtins();
 
 		animator(Key){}
@@ -23,4 +24,5 @@ namespace rfkt {
 		virtual auto apply(double t, double initial) const -> double = 0;
 		virtual ~animator() = default;
 	};
+
 }
