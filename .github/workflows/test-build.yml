@@ -13,6 +13,8 @@ jobs:
         run: |
           Invoke-WebRequest -URI "https://developer.download.nvidia.com/compute/cuda/11.8.0/network_installers/cuda_11.8.0_windows_network.exe" -OutFile cuda-net.exe
           .\cuda-net.exe -s cudart_11.8 nvcc_11.8 nvrtc_11.8 nvrtc_dev_11.8 nvjpeg_11.8 nvjpeg_dev_11.8 visual_studio_integration_11.8
+          $env:CUDA_PATH = "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v11.8"
+          $env:PATH = $env:PATH + ";" + $env:CUDA_PATH + "\bin"
           
       - name: Check nvcc.exe installation
         run: nvcc --version
