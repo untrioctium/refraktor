@@ -1,0 +1,15 @@
+name: test-build-msvc
+on: [push]
+jobs:
+  test-build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: ilammy/msvc-dev-cmd@v1
+        with:
+          vsversion: "2022"
+      - uses: Jimver/cuda-toolkit@v0.2.8
+      - run: cmake --version
+      - run: |
+          cmake --version
+          nvcc -v
