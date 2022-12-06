@@ -16,15 +16,18 @@ namespace rfkt::flame_info {
 		};
 
 		struct parameter {
-			std::size_t index;
+			std::uint32_t index;
 			std::string name;
 			double default_value = 0.0;
+			bool is_precalc;
+			std::uint32_t owner;
 		};
 
 		struct variation {
-			std::size_t index;
+			std::uint32_t index;
 			std::string name;
 			std::string source;
+			std::string precalc_source;
 			std::vector<std::reference_wrapper<parameter>> parameters;
 			std::vector<std::reference_wrapper<common>> dependencies;
 			std::set<std::string> flags;
@@ -40,10 +43,10 @@ namespace rfkt::flame_info {
 	bool is_parameter(std::string_view name);
 	bool is_common(std::string_view name);
 
-	auto variation(std::size_t idx) -> const def::variation&;
+	auto variation(std::uint32_t idx) -> const def::variation&;
 	auto variation(std::string_view name) -> const def::variation&;
 
-	auto parameter(std::size_t idx) -> const def::parameter&;
+	auto parameter(std::uint32_t idx) -> const def::parameter&;
 	auto parameter(std::string_view name) -> const def::parameter&;
 
 	auto common(std::string_view name) -> const def::common&;

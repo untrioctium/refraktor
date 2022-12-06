@@ -71,7 +71,7 @@ rfkt::flame interpolate_dumb(const rfkt::flame& fl, const rfkt::flame& fr) {
 
 	auto ret = rfkt::flame{};
 
-	ret.center.first = fl.center.first.make_interpolator(fr.center.first);
+	/*ret.center.first = fl.center.first.make_interpolator(fr.center.first);
 	ret.center.second = fl.center.second.make_interpolator(fr.center.second);
 	ret.scale = fl.scale.make_interpolator(fr.scale);
 	ret.rotate = fl.rotate.make_interpolator(fr.rotate);
@@ -165,7 +165,7 @@ rfkt::flame interpolate_dumb(const rfkt::flame& fl, const rfkt::flame& fr) {
 		ret_pal[i][0] = l_pal[i][0].make_interpolator(r_pal[i][0]);
 		ret_pal[i][1] = l_pal[i][1].make_interpolator(r_pal[i][1]);
 		ret_pal[i][2] = l_pal[i][2].make_interpolator(r_pal[i][2]);
-	}
+	}*/
 
 	return ret;
 }
@@ -261,8 +261,8 @@ int main() {
 	vl_ut["identity"] = &vlink::identity;
 	vl_ut["aff_mod_rotate"] = &vlink::aff_mod_rotate;
 	vl_ut["aff_mod_scale"] = &vlink::aff_mod_scale;
-	vl_ut["variations"] = &vlink::variations;
-	vl_ut["parameters"] = &vlink::parameters;
+	//vl_ut["variations"] = &vlink::variations;
+	//vl_ut["parameters"] = &vlink::parameters;
 
 	auto xf_ut = lua.new_usertype<xform>("xform", sol::constructors<xform()>());
 	xf_ut["identity"] = &xform::identity;

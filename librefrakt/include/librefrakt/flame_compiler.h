@@ -76,7 +76,7 @@ namespace rfkt {
 			return *this;
 		}
 
-		flame_kernel() {}
+		flame_kernel() = default;
 
 	private:
 
@@ -86,15 +86,13 @@ namespace rfkt {
 			mod(std::move(mod)), flame_hash(flame_hash), prec(prec), shuf_bufs(shuf), device_mhz(mhz), exec(exec), catmull(catmull) {
 		}
 
-		precision prec = rfkt::precision::f32;
-		rfkt::hash_t flame_hash = {};
-		long long device_mhz = 0;
-		std::pair<std::uint32_t, std::uint32_t> exec = {};
-
-		cuda_module mod = {};
-
 		std::shared_ptr<cuda_module> catmull = nullptr;
 		std::shared_ptr<cuda_buffer<unsigned short>> shuf_bufs = nullptr;
+		rfkt::hash_t flame_hash = {};
+		long long device_mhz = 0;
+		cuda_module mod = {};
+		std::pair<std::uint32_t, std::uint32_t> exec = {};
+		precision prec = rfkt::precision::f32;
 	};
 
 	static_assert(std::move_constructible<flame_kernel>);

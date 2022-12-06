@@ -168,9 +168,6 @@ target_link_libraries(librefrakt PRIVATE
 	CUDA::nvml
 	CUDA::nvjpeg
 	zlibstatic
-	SQLiteCpp
-	yaml-cpp
-	pugixml
 	stb
 )
 
@@ -182,4 +179,7 @@ target_link_libraries(librefrakt PUBLIC
 	inja
 	lua_static
 	sol2
+	yaml-cpp
+	SQLiteCpp
+	pugixml
 )

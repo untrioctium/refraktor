@@ -141,6 +141,8 @@ auto rfkt::flame::import_flam3(const std::string& path) -> std::optional<flame>
 					aname = aname.substr(5);
 				}
 
+				auto& cur_vl = vlinks[which_vl];
+
 				if (aname == "weight") xf.weight = attr.as_double();
 				else if (aname == "color") xf.color = attr.as_double();
 				else if (aname == "color_speed") xf.color_speed = attr.as_double();
@@ -155,20 +157,28 @@ auto rfkt::flame::import_flam3(const std::string& path) -> std::optional<flame>
 					has_post_affine = true;
 				}
 				else if (flame_info::is_parameter(aname)) {
-					vlinks[which_vl].parameters[flame_info::parameter(aname).index] = attr.as_double();
+					const auto& pdef = flame_info::parameter(aname);
+					if (not cur_vl.has_variation(pdef.owner)) {
+						cur_vl.add_variation(pdef.owner);
+					}
+					cur_vl.parameter(pdef.index) = attr.as_double();
 				}
 				else if (flame_info::is_variation(aname)) {
-					vlinks[which_vl].variations[flame_info::variation(aname).index] = attr.as_double();
+					const auto& vdef = flame_info::variation(aname);
+					if (not cur_vl.has_variation(vdef.index)) {
+						cur_vl.add_variation(vdef.index, attr.as_double());
+					}
+					else cur_vl.variation(vdef.index) = attr.as_double();
 				}
 				else if (aname != "chaos") { SPDLOG_ERROR("Unknown attribute {} in flame {}", aname, path); is_bad = true; }
 			}
 
-			if (vlinks[0].variations.size() > 0) {
+			if (vlinks[0].variation_count() > 0) {
 				xf.vchain.push_back(vlinks[0]);
 			}
 			xf.vchain.push_back(vlinks[1]);
-			if (vlinks[2].variations.size() > 0 || has_post_affine) {
-				if (vlinks[2].variations.size() == 0) vlinks[2].variations[flame_info::variation("linear").index] = 1.0;
+			if (vlinks[2].variation_count() > 0 || has_post_affine) {
+				if (vlinks[2].variation_count() == 0) vlinks[2].add_variation(flame_info::variation("linear").index, 1.0);
 				xf.vchain.push_back(vlinks[2]);
 			}
 

@@ -6,6 +6,9 @@
 #define xaffine_e aff.e
 #define xaffine_f aff.f
 
+constexpr static uint64 num_xforms = @num_standard_xforms@;
+constexpr static bool has_final_xform = @num_standard_xforms < length(xforms)@;
+
 template<typename FloatT>
 struct affine {
     FloatT a, d, b, e, c, f;
@@ -42,6 +45,11 @@ struct xform_@xform.hash@_t {
         FloatT @parameter@;
         <# endfor #> 
 
+        // precalc
+        <# for parameter in vlink.precalc #>
+        FloatT @parameter@;
+        <# endfor #> 
+
         __device__ void apply(FloatT& px, FloatT& py, FloatT& nx, FloatT& ny, randctx* rs) const {
             nx = 0; ny = 0;
             aff.apply(px, py);
@@ -57,7 +65,15 @@ struct xform_@xform.hash@_t {
                 @-get_variation_source(variation.id, "                ")@
             }
             <# endfor #>
-        }               
+        }
+
+        __device__ void do_precalc() {
+            <# for variation in vlink.variations #>
+            <# if variation_has_precalc(variation.id) #>
+            @-get_precalc_source(variation.id, "            ")@
+            <# endif #>
+            <# endfor #>
+        }     
 
     } vlink_@loop.index@;
 
@@ -69,6 +85,12 @@ struct xform_@xform.hash@_t {
         px = nx;
         py = ny;
             <# endif #>
+        <# endfor #>
+    }
+
+    __device__ void do_precalc() {
+        <# for vlink in xform.vchain #>
+        vlink_@loop.index@.do_precalc();
         <# endfor #>
     }
 };
@@ -116,6 +138,15 @@ struct flame_t {
 
     __device__ FloatT* as_array() {
         return reinterpret_cast<FloatT*>(this);
+    }
+
+    __device__ FloatT do_precalc() {
+        // calculate weight sum
+        weight_sum = <# for xid in range(num_standard_xforms) #>xform_@xid@.weight<# if not loop.is_last #> +<# endif #><# endfor #>;
+
+        <# for xform in xforms #>
+        xform_@xform.id@.do_precalc();
+        <# endfor #>
     }
 };
 

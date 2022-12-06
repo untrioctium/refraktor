@@ -146,35 +146,66 @@ namespace rfkt
 		}
 
 		template<typename Callback>
-		void for_each_variation(Callback&& cb) const {
-			for (const auto& [id, val] : variations)
+		void for_each_variation(this auto&& self, Callback&& cb) {
+			for (auto& [id, val] : self.variations)
 				cb(flame_info::variation(id), val);
 		}
 
 		template<typename Callback>
-		void for_each_variation(Callback&& cb) {
-			for (auto& [id, val] : variations)
-				cb(flame_info::variation(id), val);
-		}
-
-		template<typename Callback>
-		void for_each_parameter(Callback&& cb) const {
-			for (const auto& [id, val] : parameters)
+		void for_each_parameter(this auto&& self, Callback&& cb) {
+			for (auto& [id, val] : self.parameters)
 				cb(flame_info::parameter(id), val);
 		}
 
 		template<typename Callback>
-		void for_each_parameter(Callback&& cb) {
-			for (auto& [id, val] : parameters)
-				cb(flame_info::parameter(id), val);
+		void for_each_precalc(this auto&& self, Callback&& cb) {
+			for (auto id : self.precalc)
+				cb(flame_info::parameter(id));
+		}
+
+		void add_variation(std::uint32_t idx, double weight = 0.0) {
+			variations[idx] = weight;
+
+			const auto& vdef = rfkt::flame_info::variation(idx);
+			for (const rfkt::flame_info::def::parameter& pdef : vdef.parameters) {
+				if (pdef.is_precalc)
+					precalc.insert(pdef.index);
+				else {
+					parameters[pdef.index] = pdef.default_value;
+				}
+			}
+		}
+
+		void remove_variation(std::uint32_t idx) {
+			variations.erase(idx);
+
+			const auto& vdef = rfkt::flame_info::variation(idx);
+			for (const rfkt::flame_info::def::parameter& pdef : vdef.parameters) {
+				if (pdef.is_precalc) 
+					precalc.erase(pdef.index);
+				else {
+					parameters.erase(pdef.index);
+				}
+			}
 		}
 
 		bool has_variation(std::size_t idx) const {
 			return variations.contains(idx);
 		}
 
+		auto& variation(this auto&& self, std::size_t idx) {
+			return self.variations.at(idx);
+		}
+
+		auto variation_count() const { return variations.size(); }
+		auto precalc_count() const { return precalc.size(); }
+
+		auto& parameter(this auto&& self, std::size_t idx) {
+			return self.parameters.at(idx);
+		}
+
 		auto real_count() const noexcept -> std::size_t {
-			return 6 + variations.size() + parameters.size();
+			return 6 + variations.size() + parameters.size() + precalc.size();
 		}
 
 		void add_to_hash(rfkt::hash::state_t& hs) const {
@@ -187,9 +218,10 @@ namespace rfkt
 		rfkt::animated_double* seek(std::string_view path);
 		std::string dump(std::string_view prefix) const;
 
-	//private:
-		std::map<std::size_t, animated_double> variations{};
-		std::map<std::size_t, animated_double> parameters{};
+	private:
+		std::map<std::uint32_t, animated_double> variations{};
+		std::map<std::uint32_t, animated_double> parameters{};
+		std::set<std::uint32_t> precalc{};
 	};
 
 	struct xform: public traits::hashable {
@@ -258,6 +290,16 @@ namespace rfkt
 			return count;
 		}
 
+		auto pack(double t, auto&& packer) const {
+
+			auto weight_sum = std::accumulate(xforms.begin(), xforms.end(), 0.0, [](const double& sum, const xform& xf) { return sum + xf.weight.sample(t);  });
+
+			for (int i = 0; i < xforms.size(); i++) {
+
+			}
+
+		}
+
 		void add_to_hash(rfkt::hash::state_t& hs) const {
 			for (const auto& xf : xforms) xf.add_to_hash(hs);
 
@@ -295,6 +337,96 @@ namespace rfkt
 		const auto& palette() const noexcept { return *palette_hsv; }
 
 		static auto import_flam3(const std::string& path)->std::optional<flame>;
+
+		void pack(auto&& packer, uint2 dims, double t) const {
+			auto mat = make_screen_space_affine(dims.x, dims.y, t);
+			packer(mat.a.sample(t));
+			packer(mat.d.sample(t));
+			packer(mat.b.sample(t));
+			packer(mat.e.sample(t));
+			packer(mat.c.sample(t));
+			packer(mat.f.sample(t));
+
+			auto sum = 0.0;
+			for (const auto& xf : xforms) sum += xf.weight.sample(t);
+			packer(sum);
+
+			auto pack_xform = [&packer, &t](const xform& xf) {
+				packer(xf.weight.sample(t));
+				packer(xf.color.sample(t));
+				packer(xf.color_speed.sample(t));
+				packer(xf.opacity.sample(t));
+
+				for (const auto& vl : xf.vchain) {
+
+					auto affine = vl.affine.scale(vl.aff_mod_scale.sample(t)).rotate(vl.aff_mod_rotate.sample(t)).translate(vl.aff_mod_translate.first.sample(t), vl.aff_mod_translate.second.sample(t));
+
+					packer(affine.a.sample(t));
+					packer(affine.d.sample(t));
+					packer(affine.b.sample(t));
+					packer(affine.e.sample(t));
+					packer(affine.c.sample(t));
+					packer(affine.f.sample(t));
+
+					vl.for_each_variation([&packer, t](const auto& vdef, const auto& value) { packer(value.sample(t)); });
+					vl.for_each_parameter([&packer, t](const auto& pdef, const auto& value) { packer(value.sample(t)); });
+					for (int i = 0; i < vl.precalc_count(); i++) packer(-42.42);
+
+				}
+			};
+
+			for (const auto& xf : xforms) pack_xform(xf);
+			if (final_xform.has_value()) pack_xform(*final_xform);
+
+			for (const auto& hsv : palette()) {
+				packer(hsv[0].sample(t));
+				packer(hsv[1].sample(t));
+				packer(hsv[2].sample(t));
+			}
+		}
+
+		std::vector<std::uint32_t> make_description() {
+
+			/*const auto xf_size = [](const rfkt::xform& xf) {
+				auto ret = std::size_t{ 0 };
+				for (const auto& vl : xf.vchain) ret += vl.variations.size();
+				return ret + xf.vchain.size();
+			};
+
+			std::size_t ret_size = 0;
+			for (int i = -1; i < xforms.size(); i++) {
+				if (i == -1 && !final_xform.has_value()) continue;
+				const auto& xf = (i == -1) ? final_xform.value() : xforms[i];
+				ret_size += xf_size(xf) + 1;
+			}
+			std::vector<std::uint32_t> ret;
+			ret.reserve(ret_size);
+
+			const auto make_marker = [](std::uint16_t high, std::uint16_t low) -> std::uint32_t {
+				return high << 16 | low;
+			};
+
+			for (int i = -1; i < xforms.size(); i++) {
+				if (i == -1 && !final_xform.has_value()) continue;
+				const auto& xf = (i == -1) ? final_xform.value() : xforms[i];
+
+				auto xfs = xf_size(xf);
+
+				ret.push_back(make_marker((i > 0) ? 0 : 1, xfs));
+
+				for (const auto& vl : xf.vchain) {
+					ret.push_back(make_marker(2, vl.variations.size()));
+
+					for (const auto& [id, _] : vl.variations) {
+						ret.push_back(id);
+					}
+				}
+			}
+
+			return ret;*/
+			return {};
+
+		}
 	private:
 		std::unique_ptr<std::array<std::array<animated_double, 3>, 256>> palette_hsv = std::make_unique<std::array<std::array<animated_double, 3>, 256>>();
 	};

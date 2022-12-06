@@ -34,7 +34,7 @@ struct randctx {
 		#endif
 	}
 
-	__device__ float2 rand_gaussian(float stddev = 1.0f) {
+	__device__ vec2 rand_gaussian(float stddev = 1.0f) {
         Real r, sinang,cosang;
         sincos( rand_uniform() * 2 * M_PI, &sinang, &cosang );
         r = stddev * (rand_uniform() + rand_uniform() + rand_uniform() + rand_uniform() - 2.0);

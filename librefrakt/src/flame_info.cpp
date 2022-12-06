@@ -70,6 +70,8 @@ void rfkt::flame_info::initialize(std::string_view config_path)
 			auto node = yml.as<YAML::Node>();
 			def.source = node["src"].as<std::string>();
 
+			if (node["precalc"].IsScalar()) def.precalc_source = node["precalc"].as<std::string>();
+
 			auto param = node["param"];
 
 			for (auto it = param.begin(); it != param.end(); it++) {
@@ -77,8 +79,11 @@ void rfkt::flame_info::initialize(std::string_view config_path)
 				pdef.name = it->first.as<std::string>();;
 
 				if (it->second["default"].IsScalar()) pdef.default_value = it->second["default"].as<double>();
+				if (it->second["is_precalc"].IsScalar()) pdef.is_precalc = it->second["is_precalc"].as<bool>();
 
 				pdef.index = (num_parameters++);
+				pdef.owner = def.index;
+
 				ft().parameters.push_back(pdef);
 				ft().parameter_names.insert_or_assign(pdef.name, std::ref(ft().parameters[pdef.index]));
 				def.parameters.push_back(std::ref(ft().parameters.at(pdef.index)));
@@ -123,7 +128,7 @@ bool rfkt::flame_info::is_common(std::string_view name)
 	return ft().common.contains(name);
 }
 
-auto rfkt::flame_info::variation(std::size_t idx) -> const def::variation&
+auto rfkt::flame_info::variation(std::uint32_t idx) -> const def::variation&
 {
 	return ft().variations.at(idx);
 }
@@ -133,7 +138,7 @@ auto rfkt::flame_info::variation(std::string_view name) -> const def::variation&
 	return ft().variation_names.find(name)->second;
 }
 
-auto rfkt::flame_info::parameter(std::size_t idx) -> const def::parameter&
+auto rfkt::flame_info::parameter(std::uint32_t idx) -> const def::parameter&
 {
 	return ft().parameters.at(idx);
 }

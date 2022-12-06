@@ -7,7 +7,11 @@
 #include <librefrakt/util/zlib.h>
 #include <librefrakt/util/hash.h>
 
+#include <nlohmann/json.hpp>
+
 #include <spdlog/spdlog.h>
+
+#include <span>
 
 #define NVRTC_SAFE_CALL(x)                                        \
   do {                                                            \
@@ -33,7 +37,96 @@ const std::string& compute_version() {
 	return version;
 }
 
-class rfkt::kernel_manager::kernel_cache {
+class sqlite_cache : public rfkt::kernel_manager::cache {
+public:
+	sqlite_cache(std::string_view path) : 
+		db(path.data(), SQLite::OPEN_READWRITE | SQLite::OPEN_CREATE),
+		count_query(db,  "SELECT 1 FROM cache WHERE id = :id"),
+		remove_query(db, "DELETE FROM cache WHERE id = :id"),
+		insert_query(db, "INSERT INTO cache VALUES(:id, :meta, :signature, :cubin)"),
+		signature_query(db, "SELECT signature FROM cache WHERE id = :id")
+	{
+		db.exec("CREATE TABLE IF NOT EXISTS cache( id TEXT PRIMARY KEY, meta TEXT, signature TEXT, cubin BLOB )");
+	}
+
+	bool has(std::string_view id) override {
+		count_query.reset();
+		count_query.bind("id", id.data());
+		return count_query.executeStep();
+	}
+
+	auto get_signature(std::string_view id) -> std::optional<std::string> override {
+		signature_query.reset();
+		signature_query.bind("id", id.data());
+		if (!signature_query.executeStep()) return std::nullopt;
+		return signature_query.getColumn(1).getString();
+	}
+
+	auto get_meta(std::string_view id) -> rfkt::kernel_manager::cache::handle override {
+		auto query = SQLite::Statement(db, meta_query.data());
+
+		query.bind("id", id.data());
+
+		if (!query.executeStep()) return nullptr;
+
+		auto col = query.getColumn(1);
+		auto ptr = col.getText();
+		auto size = col.getBytes();
+		return rfkt::kernel_manager::cache::handle(
+			std::span<const char>(ptr, size),
+			[query = std::move(query)](std::span<const char>*) {}
+		);
+	}
+
+	auto get_cubin(std::string_view id) -> rfkt::kernel_manager::cache::handle override {
+
+		auto query = SQLite::Statement(db, cubin_query.data());
+
+		query.bind("id", id.data());
+
+		if (!query.executeStep()) return nullptr;
+
+		auto col = query.getColumn(1);
+		auto ptr = (const char*)col.getBlob();
+		auto size = col.getBytes();
+
+		return rfkt::kernel_manager::cache::handle(
+			std::span<const char>(ptr, size),
+			[query = std::move(query)](std::span<const char>*) {}
+		);
+	}
+
+	bool remove(std::string_view id) override {
+		remove_query.reset();
+		remove_query.bind("id", id.data());
+		remove_query.exec();
+		return remove_query.exec() > 0;
+	}
+
+	bool insert(std::string_view id, std::string_view meta, std::string_view signature, std::span<const char> cubin) override {
+		insert_query.reset();
+		insert_query.bind("id", id.data());
+		insert_query.bind("meta", meta.data());
+		insert_query.bind("signature", signature.data());
+		insert_query.bind("cubin", (const void*)cubin.data(), cubin.size_bytes());
+		return insert_query.exec() > 0;
+	}
+
+private:
+
+	constexpr static std::string_view cubin_query = "SELECT cubin FROM cache WHERE id = :id";
+	constexpr static std::string_view meta_query = "SELECT meta FROM cache WHERE id = :id";
+
+	SQLite::Database db;
+
+	SQLite::Statement count_query;
+	SQLite::Statement remove_query;
+	SQLite::Statement insert_query;
+	SQLite::Statement signature_query;
+
+};
+
+/*class rfkt::kernel_manager::kernel_cache {
 public:
 
 	struct row {
@@ -154,8 +247,9 @@ private:
 rfkt::kernel_manager::kernel_manager() : k_cache(new kernel_cache()){}
 
 rfkt::kernel_manager::~kernel_manager() = default;
+*/
 
-auto rfkt::kernel_manager::load_cache(const compile_opts & opts) -> cuda_module
+auto rfkt::kernel_manager::load_cache(const compile_opts& opts) -> cuda_module
 {
 	auto handle = cuda_module{};
 	auto row = k_cache->get(opts.name);
@@ -340,12 +434,12 @@ auto rfkt::kernel_manager::ptx_from_string(const std::string& source, const comp
 
 	size_t logSize;
 	NVRTC_SAFE_CALL(nvrtcGetProgramLogSize(prog, &logSize));
-	char* log = new char[logSize];
-	NVRTC_SAFE_CALL(nvrtcGetProgramLog(prog, log));
+	std::string log{};
+	log.resize(logSize);
+	NVRTC_SAFE_CALL(nvrtcGetProgramLog(prog, log.data()));
 
 	compile_result cr;
-	cr.log = log;
-	delete log;
+	cr.log = std::move(log);
 
 	if (c_result != NVRTC_SUCCESS) {
 		cr.success = false;
@@ -360,7 +454,14 @@ auto rfkt::kernel_manager::ptx_from_string(const std::string& source, const comp
 
 bool rfkt::kernel_manager::is_cached(const compile_opts& opts) const
 {
-	return k_cache->is_available(opts.name, opts.hash());
+	if (!k_cache) return false;
+
+	k_cache->get_signature(opts.name)
+		.and_then([&](std::string sig) {
+		if (sig == opts.hash().str64()) return k_cache->get_meta(opts.name);
+		return std::nullopt;
+			});
+
 }
 
 rfkt::ptx::ptx(nvrtcProgram prog_state) : prog(prog_state) {

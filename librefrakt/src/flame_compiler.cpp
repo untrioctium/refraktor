@@ -102,20 +102,20 @@ auto make_struct(const rfkt::flame& f) -> std::string {
             auto vl_def_js = json::object({
                 {"variations", json::array()},
                 {"parameters", json::array()},
+                {"precalc", json::array()},
                 {"common", json::array()}
              });
 
             std::map<std::string, std::vector<std::string>> required_common;
 
-            for (auto& [id, weight] : vl.variations) {
+            vl.for_each_variation([&](const auto& vdef, const auto& weight) {
                 vl_def_js["variations"].push_back(
                     json::object({
-                        {"name", rfkt::flame_info::variation(id).name},
-                        {"id", id}
-                    })
+                        {"name", vdef.name},
+                        {"id", vdef.index}
+                        })
                 );
 
-                auto& vdef = rfkt::flame_info::variation(id);
                 for (const auto& common : vdef.dependencies) {
                     auto& name = common.get().name;
                     if (required_common.count(name) > 0) continue;
@@ -126,7 +126,7 @@ auto make_struct(const rfkt::flame& f) -> std::string {
                         required_common[name].push_back(cdep);
                     }
                 }
-            }
+            });
 
             auto ordering = get_ordering<std::string>(required_common);
 
@@ -139,9 +139,13 @@ auto make_struct(const rfkt::flame& f) -> std::string {
                 ordering.pop_back();
             }
             
-            for (auto& [id, weight] : vl.parameters) {
-                vl_def_js["parameters"].push_back(rfkt::flame_info::parameter(id).name);
-            }
+            vl.for_each_parameter([&](const auto& pdef, const auto& weight) {
+                vl_def_js["parameters"].push_back(pdef.name);
+            });
+
+            vl.for_each_precalc([&](const auto& pdef) {
+                vl_def_js["precalc"].push_back(pdef.name);
+            });
 
             vc.push_back(std::move(vl_def_js));
         }
@@ -168,7 +172,15 @@ auto make_struct(const rfkt::flame& f) -> std::string {
         env.set_statement("<#", "#>");
 
         env.add_callback("get_variation_source", 2, [](inja::Arguments& args) {
-            return expand_tabs(rfkt::flame_info::variation(args.at(0)->get<std::size_t>()).source, args.at(1)->get<std::string>());
+            return expand_tabs(rfkt::flame_info::variation(args.at(0)->get<std::uint32_t>()).source, args.at(1)->get<std::string>());
+        });
+
+        env.add_callback("variation_has_precalc", 1, [](inja::Arguments& args) {
+            return rfkt::flame_info::variation(args.at(0)->get<std::uint32_t>()).precalc_source.size() > 0;
+        });
+
+        env.add_callback("get_precalc_source", 2, [](inja::Arguments& args) {
+            return expand_tabs(rfkt::flame_info::variation(args.at(0)->get<std::uint32_t>()).precalc_source, args.at(1)->get<std::string>());
         });
 
         env.set_trim_blocks(true);
@@ -219,7 +231,7 @@ auto rfkt::flame_compiler::get_flame_kernel(precision prec, const flame& f) -> r
     }
     SPDLOG_INFO("Loaded flame kernel: {} temp. samples, {} flame params, {} regs, {} shared, {} local.", max_blocks, f.real_count(), func.register_count(), func.shared_bytes(), func.local_bytes());
 
-    r.kernel = { f.hash(), std::move(handle), prec, shuf_bufs[most_blocks.block], device_mhz, std::pair<int, int>{most_blocks.grid, most_blocks.block}, catmull };
+    r.kernel = flame_kernel{ f.hash(), std::move(handle), prec, shuf_bufs[most_blocks.block], device_mhz, std::pair<int, int>{most_blocks.grid, most_blocks.block}, catmull };
 
     return r;
 }
@@ -279,15 +291,17 @@ rfkt::flame_compiler::flame_compiler(kernel_manager& k_manager): km(k_manager)
     for (auto& exec : exec_configs) {
         shuf_bufs[exec.block] = make_shuffle_buffers(exec.block, num_shufs);
 
+        fmt::print("{{{}, {}, {}}},\n", exec.grid, exec.block, exec.shared_per_block);
+
         {
             auto leftover = exec.shared_per_block - smem_per_block(precision::f32, 0, exec.block);
             if (leftover <= 0) continue;
-            SPDLOG_INFO("{}x{}xf32: {:> 5} leftover shared ({:> 5} floats)", exec.grid, exec.block, leftover, leftover / 4);
+            //SPDLOG_INFO("{}x{}xf32: {:> 5} leftover shared ({:> 5} floats)", exec.grid, exec.block, leftover, leftover / 4);
         }
         {
             auto leftover = exec.shared_per_block - smem_per_block(precision::f64, 0, exec.block);
             if (leftover <= 0) continue;
-            SPDLOG_INFO("{}x{}xf64: {:> 5} leftover shared ({:> 5} doubles)", exec.grid, exec.block, leftover, leftover / 8);
+            //SPDLOG_INFO("{}x{}xf64: {:> 5} leftover shared ({:> 5} doubles)", exec.grid, exec.block, leftover, leftover / 8);
         }
     }
 
@@ -341,11 +355,9 @@ auto rfkt::flame_compiler::make_opts(precision prec, const flame& f)->std::pair<
         //.flag(compile_flag::use_fast_math)
         //.flag(compile_flag::relocatable_device_code)
         //.flag(compile_flag::line_info)
-        .define("NUM_XFORMS", f.xforms.size())
         .define("NUM_SHUF_BUFS", num_shufs)
         .define("THREADS_PER_BLOCK", most_blocks.block)
         .define("BLOCKS_PER_MP", most_blocks.grid / cuda::context::current().device().mp_count())
-        .define("HAS_FINAL_XFORM", f.final_xform.has_value())
         .define("FLAME_SIZE_REALS", flame_real_count)
         .define("FLAME_SIZE_BYTES", flame_size_bytes)
         .header("flame_generated.h", flame_generated)
@@ -355,7 +367,7 @@ auto rfkt::flame_compiler::make_opts(precision prec, const flame& f)->std::pair<
         .function("print_debug_info");
 
     if (prec == precision::f64) opts.define("DOUBLE_PRECISION");
-    else opts.flag(compile_flag::use_fast_math);
+    opts.flag(compile_flag::use_fast_math);
 
     return { most_blocks, opts };
 }
@@ -501,51 +513,6 @@ auto rfkt::flame_kernel::bin(CUstream stream, flame_kernel::saved_state & state,
 
 auto rfkt::flame_kernel::warmup(CUstream stream, const flame& f, uint2 dims, double t, std::uint32_t nseg, double loops_per_frame, std::uint32_t seed, std::uint32_t count) const -> flame_kernel::saved_state
 {
-    auto pack_flame = [](const flame& f, uint2 dims, auto& packer, double t) {
-        auto mat = f.make_screen_space_affine(dims.x, dims.y, t);
-        packer(mat.a.sample(t));
-        packer(mat.d.sample(t));
-        packer(mat.b.sample(t));
-        packer(mat.e.sample(t));
-        packer(mat.c.sample(t));
-        packer(mat.f.sample(t));
-
-        auto sum = 0.0;
-        for (const auto& xf : f.xforms) sum += xf.weight.sample(t);
-        packer(sum);
-
-        auto pack_xform = [&packer, &t](const xform& xf) {
-            packer(xf.weight.sample(t));
-            packer(xf.color.sample(t));
-            packer(xf.color_speed.sample(t));
-            packer(xf.opacity.sample(t));
-
-            for (const auto& vl : xf.vchain) {
-
-                auto affine = vl.affine;//vl.affine.scale(vl.aff_mod_scale.sample(t)).rotate(vl.aff_mod_rotate.sample(t)).translate(vl.aff_mod_translate.first.sample(t), vl.aff_mod_translate.second.sample(t));
-
-                packer(affine.a.sample(t));
-                packer(affine.d.sample(t));
-                packer(affine.b.sample(t));
-                packer(affine.e.sample(t));
-                packer(affine.c.sample(t));
-                packer(affine.f.sample(t));
-
-                for (const auto& [idx, value] : vl.variations) packer(value.sample(t));
-                for (const auto& [idx, value] : vl.parameters) packer(value.sample(t));
-            }
-        };
-
-        for (const auto& xf : f.xforms) pack_xform(xf);
-        if (f.final_xform.has_value()) pack_xform(*f.final_xform);
-
-        for (const auto& hsv : f.palette()) {
-            packer(hsv[0].sample(t));
-            packer(hsv[1].sample(t));
-            packer(hsv[2].sample(t));
-        }
-    };
-
     auto warmup_impl = [&]<typename Real>() -> flame_kernel::saved_state {
 
         const auto nreals = f.real_count() + 256 * 3;
@@ -582,7 +549,7 @@ auto rfkt::flame_kernel::warmup(CUstream stream, const flame& f, uint2 dims, dou
 
         const auto seg_length = loops_per_frame / nseg * 1.2;
         for (int pos = -1; pos < static_cast<int>(nseg) + 2; pos++) {
-            pack_flame(f, dims, packer, t + pos * seg_length);
+           f.pack(packer, dims, t + pos * seg_length);
         }
 
         cuMemcpyHtoDAsync(samples_dev, pack.data(), pack_size_bytes, stream);
@@ -609,8 +576,8 @@ auto rfkt::flame_kernel::warmup(CUstream stream, const flame& f, uint2 dims, dou
         return state;
     };
 
-    if (this->prec == precision::f32)
-        return warmup_impl.operator()<float>();
-    else
+    //if (this->prec == precision::f32)
+    //    return warmup_impl.operator()<float>();
+    //else
         return warmup_impl.operator()<double>();
 }

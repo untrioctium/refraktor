@@ -29,43 +29,53 @@ constexpr static uint32 flame_size_bytes = flame_size_reals * sizeof(Real);
 constexpr static uint32 num_shuf_bufs = NUM_SHUF_BUFS;
 constexpr static uint32 shuf_buf_size = threads_per_block * sizeof(uint16);
 
+struct exec_config {
+	uint64 grid;
+	uint64 block;
+	uint64 shared_per_block;
+};
+
 #include "flame_generated.h"
 
-using iterator = float3;
+using iterator = vec3;
 
+template<typename FloatT, uint64 ThreadsPerBlock>
 struct iterators_t {
-	float x[threads_per_block];
-	float y[threads_per_block];
-	float color[threads_per_block];
+	FloatT x[ThreadsPerBlock];
+	FloatT y[ThreadsPerBlock];
+	FloatT color[ThreadsPerBlock];
 };
 
+template<typename FloatT, uint64 ThreadsPerBlock>
 struct thread_states_t {
-	iterators_t iterators;
-	randctx rand_states[threads_per_block];
-	uint16 shuffle_vote[threads_per_block];
-	uint16 shuffle[threads_per_block];
-	uint8 xform_vote[threads_per_block];
+	iterators_t<FloatT, ThreadsPerBlock> iterators;
+	randctx rand_states[ThreadsPerBlock];
+	uint16 shuffle_vote[ThreadsPerBlock];
+	uint16 shuffle[ThreadsPerBlock];
+	uint8 xform_vote[ThreadsPerBlock];
 };
 
-struct __align__(16) shared_state_t {
-	thread_states_t ts;
+template<typename FlameT, typename FloatT, uint64 ThreadsPerBlock>
+struct __align__(16) shared_state_tmpl {
+	thread_states_t<FloatT, ThreadsPerBlock> ts;
 	
-	flame_t<Real> flame;
+	FlameT flame;
 	uchar3 palette[palette_channel_size];
 	
-	float2 antialiasing_offsets;
+	vec2 antialiasing_offsets;
 	unsigned long long tss_quality;
 	unsigned long long tss_passes;
 	decltype(clock64()) tss_start;
 	bool should_bail;
 };
 
+using shared_state_t = shared_state_tmpl<flame_t<Real>, Real, threads_per_block>;
 constexpr auto shared_size_bytes = sizeof(shared_state_t);
 
 struct segment {
-	Real a, b, c, d;
+	double a, b, c, d;
 	
-	auto sample(Real t) const { return a * t * t * t + b * t * t + c * t + d; }
+	Real sample(Real t) const { return Real(a * t * t * t + b * t * t + c * t + d); }
 };
 
 __shared__ shared_state_t state;
@@ -78,7 +88,7 @@ __shared__ shared_state_t state;
 
 __global__
 void print_debug_info() {
-	#define output_sizeof(T) printf("sizeof(" #T ")=%llu (%.2f%% of total shared)\n", sizeof(T), sizeof(T) / float(sizeof(shared_state_t)) * 100.0f);
+	/*#define output_sizeof(T) printf("sizeof(" #T ")=%llu (%.2f%% of total shared)\n", sizeof(T), sizeof(T) / float(sizeof(shared_state_t)) * 100.0f);
 	
 	output_sizeof(shared_state_t);
 	output_sizeof(shared_state_t::flame);
@@ -96,7 +106,7 @@ void print_debug_info() {
 	output_sizeof(flame_t<float>);
 
 	printf("bytes per iterator: %llu (%llu leftover)\n", sizeof(thread_states_t)/THREADS_PER_BLOCK, sizeof(thread_states_t) % THREADS_PER_BLOCK);
-	printf("shared state size - flame size - iterators size = %llu\n", sizeof(shared_state_t) - sizeof(shared_state_t::flame) - sizeof(thread_states_t));
+	printf("shared state size - flame size - iterators size = %llu\n", sizeof(shared_state_t) - sizeof(shared_state_t::flame) - sizeof(thread_states_t));*/
 }
 
 __device__ 
@@ -211,6 +221,8 @@ void warmup(
 	interpolate_flame<flame_size_reals>(t, segments + (seg_offset) * seg, state.flame.as_array());
 	interpolate_palette<256>(t, segments + flame_size_reals + (seg_offset) * seg, state.palette);
 	
+	if(fl::is_block_leader()) state.flame.do_precalc();
+
 	fl::sync_block();
 	for(unsigned int pass = 0; pass < warmup_count; pass++) {
 		flame_pass(pass, shuf_bufs);
@@ -251,11 +263,11 @@ void bin(
 		
 		Real opacity = flame_pass(i, shuf_bufs, xform_counters);
 
-		auto transformed = float3{};
+		auto transformed = vec3{};
 		
-		if constexpr(HAS_FINAL_XFORM) {
-			float3 my_iter_copy = {my_iter(x), my_iter(y), my_iter(color)};
-			state.flame.dispatch(NUM_XFORMS, my_iter_copy.x, my_iter_copy.y, my_iter_copy.z, transformed.x, transformed.y, transformed.z, &my_rand());
+		if constexpr(has_final_xform) {
+			vec3 my_iter_copy = {my_iter(x), my_iter(y), my_iter(color)};
+			state.flame.dispatch(num_xforms, my_iter_copy.x, my_iter_copy.y, my_iter_copy.z, transformed.x, transformed.y, transformed.z, &my_rand());
 		} else transformed = {my_iter(x), my_iter(y), my_iter(color)};
 		
 		state.flame.screen_space.apply(transformed.x, transformed.y);

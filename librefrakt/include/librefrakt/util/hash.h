@@ -2,6 +2,7 @@
 #include <vector>
 #include <string>
 #include <array>
+#include <optional>
 
 #include <librefrakt/traits/noncopyable.h>
 

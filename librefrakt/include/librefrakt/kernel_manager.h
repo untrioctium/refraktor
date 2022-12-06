@@ -3,6 +3,7 @@
 #include <map>
 #include <set>
 #include <memory>
+#include <span>
 
 #include <cuda.h>
 #include <vector_types.h>
@@ -203,6 +204,55 @@ namespace rfkt {
 
 	class kernel_manager {
 	public:
+
+		class cache {
+		public:
+
+			class handle {
+			public:
+				handle(handle&&) = delete;
+				handle(const handle&) = delete;
+
+				handle& operator=(handle&&) = delete;
+				handle& operator=(const handle&) = delete;
+
+				using deleter_t = std::move_only_function<void(void)>;
+
+				handle() = default;
+
+				handle(std::span<const char> memory, deleter_t&& deleter) noexcept :
+					deleter(std::move(deleter)), 
+					memory(memory) {}
+
+				handle(const char* memory, std::size_t size, deleter_t&& deleter) noexcept :
+					deleter(std::move(deleter)),
+					memory(memory, size) {}
+
+				~handle() { if(deleter) deleter(); }
+
+				auto data() const noexcept { return memory.data(); }
+				auto size() const noexcept { return memory.size(); }
+
+				explicit operator bool() const noexcept {
+					return size() > 0;
+				}
+
+			private:
+				std::move_only_function<void()> deleter;
+				std::span<const char> memory;
+			};
+
+			virtual auto has(std::string_view id) -> bool = 0;
+			virtual auto get_signature(std::string_view id)->std::optional<std::string> = 0;
+			virtual auto get_meta(std::string_view id)->handle = 0;
+			virtual auto get_cubin(std::string_view id)->handle = 0;
+			virtual bool remove(std::string_view id) = 0;
+			virtual bool insert(std::string_view id, std::string_view meta, std::span<const char> cubin) = 0;
+
+			virtual ~cache() = default;
+
+		};
+
 		struct compile_result {
 			bool success;
 			std::string log;
@@ -222,13 +272,11 @@ namespace rfkt {
 
 		bool is_cached(const compile_opts& opts) const;
 
-		kernel_manager();
+		kernel_manager(std::unique_ptr<cache> kernel_cache = nullptr);
 		~kernel_manager();
 
 	private:
-
-		class kernel_cache;
-		std::unique_ptr<kernel_cache> k_cache;
+		std::unique_ptr<cache> k_cache;
 
 		cuda_module load_cache(const compile_opts& opts);
 	};

@@ -1,4 +1,4 @@
-using Real = float;
+using Real = double;
 
 namespace catmull {
 

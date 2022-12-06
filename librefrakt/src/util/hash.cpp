@@ -6,6 +6,8 @@
 
 #include <librefrakt/util/hash.h>
 
+using b64_codec = cppcodec::base64_url_unpadded;
+
 rfkt::hash::state_t::state_t()
 {
 	auto state = XXH3_createState();
