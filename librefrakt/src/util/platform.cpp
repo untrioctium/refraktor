@@ -47,8 +47,7 @@ std::string rfkt::platform::show_open_dialog()
 	OPENFILENAMEA open;
 	memset(&open, 0, sizeof(open));
 
-	char filename[256];
-	memset(&filename, 0, sizeof(filename));
+	char filename[256] = { '0' };
 	open.lStructSize = sizeof(open);
 	open.lpstrFile = filename;
 	std::string path = (std::filesystem::current_path() / "assets" / "flames").string();

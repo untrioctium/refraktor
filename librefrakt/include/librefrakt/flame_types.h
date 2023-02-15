@@ -212,7 +212,7 @@ namespace rfkt
 			auto list = std::vector<std::uint16_t>(variations.size());
 			hs.update(std::uint32_t{ 0xFEED });
 			for (const auto& [id, val] : variations) list.push_back(id);
-			hs.update(list);
+			hs.update(std::span{ list });
 		}
 
 		rfkt::animated_double* seek(std::string_view path);
@@ -359,7 +359,10 @@ namespace rfkt
 
 				for (const auto& vl : xf.vchain) {
 
-					auto affine = vl.affine.scale(vl.aff_mod_scale.sample(t)).rotate(vl.aff_mod_rotate.sample(t)).translate(vl.aff_mod_translate.first.sample(t), vl.aff_mod_translate.second.sample(t));
+					auto affine = vl.affine
+						.scale(vl.aff_mod_scale.sample(t))
+						.rotate(vl.aff_mod_rotate.sample(t))
+						.translate(vl.aff_mod_translate.first.sample(t), vl.aff_mod_translate.second.sample(t));
 
 					packer(affine.a.sample(t));
 					packer(affine.d.sample(t));
@@ -379,9 +382,9 @@ namespace rfkt
 			if (final_xform.has_value()) pack_xform(*final_xform);
 
 			for (const auto& hsv : palette()) {
-				packer(hsv[0].sample(t));
-				packer(hsv[1].sample(t));
-				packer(hsv[2].sample(t));
+				packer(hsv.at(0).sample(t));
+				packer(hsv.at(1).sample(t));
+				packer(hsv.at(2).sample(t));
 			}
 		}
 

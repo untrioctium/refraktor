@@ -27,7 +27,8 @@ namespace hammersley {
 		}
 	}
 	
-	__device__ vec2 sample( unsigned int idx, unsigned int total ) {
+	template<typename Real>
+	__device__ vec2<Real> sample( unsigned int idx, unsigned int total ) {
 		Real inv_max;
 		
 		unsigned radix = 0;

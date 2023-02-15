@@ -23,7 +23,6 @@
       font-family: 'Roboto', sans-serif;
       font-size: 13;
       color: #CCCCCC;
-	  background-color: #000000;
       user-select: none;
     }
 
@@ -90,10 +89,10 @@
             overflow: hidden;
         }*/
 
-    /*video {
+    video {
       object-fit: cover;
       object-position: center center;
-    }*/
+    }
 
     .statusbar {
       background-color: var(--highlight-color);
@@ -112,19 +111,34 @@
 </head>
 
 <body>
-  <video autoplay muted poster="images/loader-thumb.jpg" id="player" width="1920" height="1080"></video>
+  <flex-container class="v" style="height: 100vh">
+    <flex-item style="flex: 1 1 0%;">
+      <flex-container class="h">
+        <flex-item style="width: 10%; min-width: min-content;" class="bg-medium">
+          <div style="padding: 5px">Supercalafragilisticexpialadocious</div>
+        </flex-item>
+        <flex-resizer></flex-resizer>
+        <flex-item style="flex: 1 1 0%;" class="bg-dark">
+          <video autoplay muted poster="images/loader-thumb.jpg" id="player"></video>
+        </flex-item>
+      </flex-container>
+    </flex-item>
+    <flex-item style="flex: 0 0 22px;" class="highlight statusbar">
+      <div>Status: <span style="color: red">GPU on fire</span></div>
+    </flex-item>
+  </flex-container>
   <script>
 
     var ws;
 
     document.addEventListener('DOMContentLoaded', function () {
       var socketURL = "ws://" + location.host + "/stream";
-      var fps = 25
+      var fps = 30;
       var jmuxer = new JMuxer({
         node: 'player',
         mode: "video",
         debug: false,
-        flushingTime: 1000.0/fps, // we need 1000 for the demo as server provides a chunk data of 1000ms at a time
+        flushingTime: 1000 / fps, // we need 1000 for the demo as server provides a chunk data of 1000ms at a time
         fps: fps,
         onError: function (data) {
           console.log('Buffer error encountered', data);
@@ -145,38 +159,21 @@
         console.log('Socket Error');
       });
 
-	  var vwidth =  2560;
-	  var vheight = 1440;
-	  
-	  var beats_per_minute = 100;
-	  var beats_per_measure = 4;
-	  var measures_per_loop = 4;
-	  
-	  var seconds_per_beat = 60 / beats_per_minute;
-	  
-	  var beats_per_loop = beats_per_measure * measures_per_loop;
-	  
-	  var loop_length = seconds_per_beat * beats_per_loop;
-	  
-
       ws.addEventListener('open', function (event) {
         var payload = JSON.stringify({
           cmd: "begin",
           fps: fps,
-          width: vwidth,
-          height: vheight,
-          loop_length: loop_length,
-		      flame: "247.31464",
-		      upscale: false,
-          embellish: false
+          width: 1920,
+          height: 1080,
+          loop_length: 20,
         });
 
         console.log(payload)
         ws.send(payload);
       });
 
-      document.getElementById("player").width = vwidth;
-      document.getElementById("player").height = vheight;
+      document.getElementById("player").width = 1920;
+      document.getElementById("player").height = 1080;
     });
 
     document.addEventListener('DOMContentLoaded', function () {

@@ -47,3 +47,11 @@ assets/fonts
 .vscode/
 .bin/
 *.swp
+
+assets/kernels/flame_*
+prof.*
+render*
+imgui.ini
+*.sqlite3
+src/
+scripts/

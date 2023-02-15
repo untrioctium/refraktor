@@ -1,0 +1,43 @@
+#include <cuda_fp16.h>
+
+// the long awaited sequel to half1 and half2
+struct half3 {
+    __half x, y, z;
+};
+
+template<bool Planar>
+consteval auto image_type() {
+    if constexpr (Planar) {
+        return (unsigned char*)(nullptr);
+    } else {
+        return (uchar4*)(nullptr);
+    }
+}
+
+unsigned char half2uchar(__half v) {
+    return static_cast<unsigned char>(min(__half2float(v) * 255.0, 255.0f));
+}
+
+template<bool Planar>
+__global__ void convert(const half3* const __restrict__ in, decltype(image_type<Planar>()) __restrict__ out, unsigned int dims_x, unsigned int dims_y) {
+
+    const uint2 pos = {
+		threadIdx.x + blockIdx.x * blockDim.x,
+		threadIdx.y + blockIdx.y * blockDim.y
+	};
+
+	if (pos.x >= dims_x || pos.y >= dims_y) return;
+
+    const unsigned int bin_idx = (pos.y) * dims_x + pos.x;
+
+    const half3& in_val = in[bin_idx];
+
+    if constexpr (Planar) {
+        out[bin_idx] = half2uchar(in_val.x);
+        out[bin_idx + dims_x * dims_y] = half2uchar(in_val.y);
+        out[bin_idx + 2 * dims_x * dims_y] = half2uchar(in_val.z);
+        out[bin_idx + 3 * dims_x * dims_y] = 255;
+    } else {
+        out[bin_idx] = uchar4{half2uchar(in_val.x), half2uchar(in_val.y), half2uchar(in_val.z), 255};
+    }
+}

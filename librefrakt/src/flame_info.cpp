@@ -93,8 +93,8 @@ void rfkt::flame_info::initialize(std::string_view config_path)
 			for (auto it = flags.begin(); it != flags.end(); it++)
 				def.flags.insert(it->as<std::string>());
 		}
-		for (const auto& name : find_xcommon_calls(def.source)) {
-			def.dependencies.push_back(ft().common[name]);
+		for (const auto& xname : find_xcommon_calls(def.source)) {
+			def.dependencies.push_back(ft().common[xname]);
 		}
 
 		ft().variations.push_back(def);

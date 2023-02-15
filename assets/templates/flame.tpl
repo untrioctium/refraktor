@@ -14,14 +14,14 @@ struct affine {
     FloatT a, d, b, e, c, f;
 
     __device__ void apply(FloatT& px, FloatT& py) const {
-        auto tmp = a * px + b * py + c;
-        py = d * px + e * py + f;
+        auto tmp = __fma(a, px, __fma(b, py, c));
+        py = __fma(d, px, __fma(e, py, f));
         px = tmp;
     }
 };
 
 <# for xform in xform_definitions #>
-template<typename FloatT>
+template<typename FloatT, typename RandCtx>
 struct xform_@xform.hash@_t {
 
     FloatT weight;
@@ -50,7 +50,7 @@ struct xform_@xform.hash@_t {
         FloatT @parameter@;
         <# endfor #> 
 
-        __device__ void apply(FloatT& px, FloatT& py, FloatT& nx, FloatT& ny, randctx* rs) const {
+        __device__ void apply(FloatT& px, FloatT& py, FloatT& nx, FloatT& ny, RandCtx* rs) const {
             nx = 0; ny = 0;
             aff.apply(px, py);
 
@@ -60,7 +60,7 @@ struct xform_@xform.hash@_t {
 
             <# for variation in vlink.variations #>
             // @variation.name@
-            if(@variation.name@ != FloatT(0.0)) {
+            {
                 FloatT weight = @variation.name@;
                 @-get_variation_source(variation.id, "                ")@
             }
@@ -78,7 +78,7 @@ struct xform_@xform.hash@_t {
     } vlink_@loop.index@;
 
     <# endfor #>
-    __device__ void apply(FloatT& px, FloatT& py, FloatT& nx, FloatT& ny, randctx* rs) const {
+    __device__ void apply(FloatT& px, FloatT& py, FloatT& nx, FloatT& ny, RandCtx* rs) const {
         <# for vlink in xform.vchain #>
         vlink_@loop.index@.apply(px, py, nx, ny, rs);
             <# if not loop.is_last #>
@@ -96,14 +96,14 @@ struct xform_@xform.hash@_t {
 };
 
 <# endfor #>
-template<typename FloatT>
+template<typename FloatT, typename RandCtx>
 struct flame_t {
 
     affine<FloatT> screen_space;
     FloatT weight_sum;
 
     <# for xform in xforms #>
-    xform_@xform.hash@_t<FloatT> xform_@xform.id@;
+    xform_@xform.hash@_t<FloatT, RandCtx> xform_@xform.id@;
     <# endfor #>
 
     __device__ unsigned int select_xform(FloatT ratio) const {
@@ -121,7 +121,7 @@ struct flame_t {
         <# endfor #>
     }
 
-    __device__ FloatT dispatch(int idx, Real& px, Real& py, Real& pc, Real& nx, Real& ny, Real& nc, randctx* rs) const {
+    __device__ FloatT dispatch(int idx, Real& px, Real& py, Real& pc, Real& nx, Real& ny, Real& nc, RandCtx* rs) const {
         switch(idx) {
             default: __builtin_unreachable();
 
@@ -150,4 +150,4 @@ struct flame_t {
     }
 };
 
-static_assert(sizeof(flame_t<Real>) == flame_size_bytes);
+//static_assert(sizeof(flame_t<Real>) == flame_size_bytes);

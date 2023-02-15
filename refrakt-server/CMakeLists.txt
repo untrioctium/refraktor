@@ -43,3 +43,11 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(inja)
 target_link_libraries(refrakt-server PRIVATE inja)
+
+FetchContent_Declare(
+  readerwriterqueue
+  GIT_REPOSITORY    https://github.com/cameron314/readerwriterqueue
+  GIT_TAG           master
+)
+FetchContent_MakeAvailable(readerwriterqueue)
+target_link_libraries(refrakt-server PRIVATE readerwriterqueue)

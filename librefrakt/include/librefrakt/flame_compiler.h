@@ -3,13 +3,44 @@
 #include <typeinfo>
 #include <future>
 
-#include <librefrakt/kernel_manager.h>	
+#include <ezrtc.h>
+
 #include <librefrakt/flame_types.h>
 #include <librefrakt/cuda_buffer.h>
 #include <librefrakt/util/cuda.h>
 #include <librefrakt/util/hash.h>
 
 namespace rfkt {
+
+	template<typename T>
+	struct pinned_allocator {
+		using value_type = T;
+
+		pinned_allocator() = default;
+
+		template<class U>
+		constexpr pinned_allocator(const pinned_allocator<U>&) noexcept {}
+
+		[[nodiscard]] T* allocate(std::size_t n) {
+			if (n > std::numeric_limits<std::size_t>::max() / sizeof(T))
+				throw std::bad_array_new_length();
+
+			T* ret = nullptr;
+			auto result = cuMemAllocHost(&ret, sizeof(T) * n);
+			if (ret == nullptr or result != CUDA_SUCCESS) {
+				throw std::bad_alloc();
+			}
+
+			return ret;
+		}
+
+		void deallocate(T* p, std::size_t n) noexcept {
+			cuMemFreeHost(p);
+		}
+	};
+
+	template<typename T>
+	using pinned_vector = std::vector<T, pinned_allocator<T>>;
 
 	class flame_compiler;
 
@@ -19,8 +50,8 @@ namespace rfkt {
 		friend class flame_compiler;
 
 		struct bin_result {
-			float quality;
-			float elapsed_ms;
+			double quality;
+			double elapsed_ms;
 			std::size_t total_passes;
 			std::size_t total_draws;
 			std::size_t total_bins;
@@ -30,11 +61,13 @@ namespace rfkt {
 
 		struct saved_state: public traits::noncopyable {
 			cuda_buffer<float4> bins = {};
+			cuda_buffer<ushort4> accumulator = {};
 			uint2 bin_dims = {};
+			double quality = 0.0;
 			std::vector<double> norm_xform_weights;
 			cuda_buffer<> shared = {};
 
-			double warmup_ms = 0.0;
+			std::shared_future<double> warmup_ms;
 
 			saved_state() = delete;
 			saved_state(saved_state&& o) noexcept {
@@ -42,6 +75,7 @@ namespace rfkt {
 			}
 			saved_state& operator=(saved_state&& o) noexcept {
 				std::swap(bins, o.bins);
+				std::swap(accumulator, o.accumulator);
 				std::swap(bin_dims, o.bin_dims);
 				std::swap(shared, o.shared);
 				std::swap(norm_xform_weights, o.norm_xform_weights);
@@ -49,29 +83,31 @@ namespace rfkt {
 			}
 
 			saved_state(uint2 dims, std::size_t nbytes, CUstream stream, std::vector<double>&& norm_xform_weights) :
-				bins(cuda::make_buffer_async<float4>(dims.x* dims.y, stream)),
+				bins(dims.x* dims.y, stream),
+				accumulator(dims.x * dims.y, stream),
 				bin_dims(dims),
-				shared(cuda::make_buffer_async<unsigned char>(nbytes, stream)),
-				norm_xform_weights(std::move(norm_xform_weights))
-				/*samples(cuda::make_buffer_async<std::uint64_t>(sample_buffer_size, stream))*/ {}
+				shared(nbytes, stream),
+				norm_xform_weights(std::move(norm_xform_weights)) {
+				bins.clear(stream);
+				accumulator.clear(stream);
+			}
 		};
 
 		auto bin(CUstream stream, flame_kernel::saved_state& state, float target_quality, std::uint32_t ms_bailout, std::uint32_t iter_bailout) const-> std::future<bin_result>;
 		auto warmup(CUstream stream, const flame& f, uint2 dims, double t, std::uint32_t nseg, double loops_per_frame, std::uint32_t seed, std::uint32_t count) const->flame_kernel::saved_state;
+		auto warmup(CUstream stream, std::span<const double> samples, uint2 dims, std::uint32_t seed, std::uint32_t count) const->flame_kernel::saved_state;
 
-		flame_kernel(flame_kernel&& o) {
+		flame_kernel(flame_kernel&& o) noexcept {
 			*this = std::move(o);
 		}
 
-		flame_kernel& operator=(flame_kernel&& o) {
-			this->prec = o.prec;
+		flame_kernel& operator=(flame_kernel&& o) noexcept {
 			this->flame_hash = o.flame_hash;
-			this->device_mhz = o.device_mhz;
 			this->exec = o.exec;
-
 			this->mod = std::move(o.mod);
 			this->catmull = std::move(o.catmull);
-			this->shuf_bufs = std::move(o.shuf_bufs);
+			this->device_hz = o.device_hz;
+			this->flame_size_reals = o.flame_size_reals;
 
 			return *this;
 		}
@@ -82,17 +118,16 @@ namespace rfkt {
 
 		std::size_t saved_state_size() const { return mod("bin").shared_bytes() * exec.first; }
 
-		flame_kernel(const rfkt::hash_t& flame_hash, cuda_module&& mod, precision prec, std::shared_ptr<cuda_buffer<unsigned short>> shuf, long long mhz, std::pair<int,int> exec, std::shared_ptr<cuda_module> catmull) :
-			mod(std::move(mod)), flame_hash(flame_hash), prec(prec), shuf_bufs(shuf), device_mhz(mhz), exec(exec), catmull(catmull) {
+		flame_kernel(const rfkt::hash_t& flame_hash, std::size_t flame_size_reals, ezrtc::module&& mod, std::pair<int,int> exec, std::shared_ptr<ezrtc::module>& catmull, std::size_t device_hz) :
+			mod(std::move(mod)), flame_hash(flame_hash), exec(exec), catmull(catmull), device_hz(device_hz) {
 		}
 
-		std::shared_ptr<cuda_module> catmull = nullptr;
-		std::shared_ptr<cuda_buffer<unsigned short>> shuf_bufs = nullptr;
+		std::shared_ptr<ezrtc::module> catmull = nullptr;
+		std::size_t flame_size_reals = 0;
 		rfkt::hash_t flame_hash = {};
-		long long device_mhz = 0;
-		cuda_module mod = {};
+		ezrtc::module mod = {};
 		std::pair<std::uint32_t, std::uint32_t> exec = {};
-		precision prec = rfkt::precision::f32;
+		std::size_t device_hz;
 	};
 
 	static_assert(std::move_constructible<flame_kernel>);
@@ -105,14 +140,14 @@ namespace rfkt {
 			std::string source = {};
 			std::string log = {};
 
-			result(std::string&& src, std::string&& log) : source(std::move(src)), log(std::move(log)), kernel(std::nullopt) {}
+			result(std::string&& src, std::string&& log) noexcept : source(std::move(src)), log(std::move(log)), kernel(std::nullopt) {}
 
-			result(result&& o) {
+			result(result&& o) noexcept {
 				kernel = std::move(o.kernel);
 				std::swap(source, o.source);
 				std::swap(log, o.log);
 			}
-			result& operator=(result&& o) {
+			result& operator=(result&& o) noexcept {
 				kernel = std::move(o.kernel);
 				std::swap(source, o.source);
 				std::swap(log, o.log);
@@ -126,7 +161,7 @@ namespace rfkt {
 		auto get_flame_kernel(precision prec, const flame& f)-> result;
 		bool is_cached(precision prec, const flame& f);
 
-		flame_compiler(kernel_manager& k_manager);
+		flame_compiler(ezrtc::compiler& k_manager);
 	private:
 
 		auto smem_per_block(precision prec, int flame_real_bytes, int threads_per_block) {
@@ -134,14 +169,13 @@ namespace rfkt {
 			return per_thread_size * threads_per_block + flame_real_bytes + 820;
 		}
 
-		std::pair<cuda::execution_config, compile_opts> make_opts(precision prec, const flame& f);
+		std::pair<cuda::execution_config, ezrtc::spec> make_opts(precision prec, const flame& f);
 
-		kernel_manager& km;
-		std::map<std::size_t, std::shared_ptr<cuda_buffer<unsigned short>>> shuf_bufs;
+		ezrtc::compiler& km;
+		std::map<std::size_t, cuda_buffer<unsigned short>> shuf_bufs;
 		decltype(std::declval<cuda::device_t>().concurrent_block_configurations()) exec_configs;
 		std::size_t num_shufs = 4096;
-		long long device_mhz;
 
-		std::shared_ptr<cuda_module> catmull;
+		std::shared_ptr<ezrtc::module> catmull;
 	};
 }

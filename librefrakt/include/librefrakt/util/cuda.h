@@ -2,9 +2,11 @@
 
 #include <cuda.h>
 #include <vector_types.h>
+#include <functional>
 #include <vector>
 #include <string>
 #include <map>
+#include <optional>
 
 #define CUDA_SAFE_CALL(x)                                         \
   do {                                                            \
@@ -13,9 +15,14 @@
       const char *msg;                                            \
       cuGetErrorName(result, &msg);                               \
       printf("`%s` failed with result: %s", #x, msg);             \
+      __debugbreak();                                             \
       exit(1);                                                    \
     }                                                             \
   } while(0)
+
+class half3 {
+    unsigned short data[3];
+};
 
 namespace rfkt::cuda {
 
@@ -24,8 +31,6 @@ namespace rfkt::cuda {
         int block;
         int shared_per_block;
     };
-
-    CUstream thread_local_stream();
 
     class device_t {
     public:
@@ -87,7 +92,7 @@ namespace rfkt::cuda {
         context(CUcontext ctx, CUdevice dev) : ctx_(ctx), dev_(dev), valid(true) {}
         context() : valid(false) {}
 
-        operator CUcontext () { return ctx_; }
+        operator CUcontext () const { return ctx_; }
         CUcontext* ptr() { return &ctx_; }
 
         device_t device() const {
@@ -126,4 +131,66 @@ namespace rfkt::cuda {
 
     auto init()->context;
 
+}
+
+namespace rfkt {
+    class cuda_stream {
+    public:
+
+        cuda_stream() noexcept {
+            CUstream stream;
+            int least, most;
+            CUDA_SAFE_CALL(cuCtxGetStreamPriorityRange(&least, &most));
+            CUDA_SAFE_CALL(cuStreamCreateWithPriority(&stream, CU_STREAM_NON_BLOCKING, most));
+
+            this->stream = stream;
+        }
+
+        ~cuda_stream() {
+            if (not stream) return;
+            sync();
+            cuStreamDestroy(stream);
+        }
+
+        cuda_stream(const cuda_stream&) noexcept = delete;
+        cuda_stream& operator=(const cuda_stream&) noexcept = delete;
+
+        cuda_stream(cuda_stream&& o) noexcept {
+            std::swap(stream, o.stream);
+        }
+
+        cuda_stream& operator=(cuda_stream&& o) noexcept {
+            std::swap(stream, o.stream);
+            return *this;
+        }
+
+        [[nodiscard]] operator CUstream() const noexcept {
+            return stream;
+        }
+
+        void sync() {
+            if (not stream) return;
+            cuStreamSynchronize(stream);
+        }
+
+        using host_func_t = std::move_only_function<void(void)>;
+        void host_func(host_func_t&& cb) noexcept {
+            auto func = new host_func_t{ std::move(cb) };
+
+            auto res = cuLaunchHostFunc(stream, [](void* ud) {
+                auto func_p = (host_func_t*)ud;
+                (*func_p)();
+                delete func_p;
+                }, func);
+
+            if (res != CUDA_SUCCESS) {
+                delete func;
+            }
+
+            CUDA_SAFE_CALL(res);
+        }
+
+    private:
+        CUstream stream = 0;
+    };
 }

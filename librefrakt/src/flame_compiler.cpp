@@ -1,3 +1,5 @@
+#define EZRTC_IMPLEMENTATION_UNIT
+
 #include <stack>
 #include <fstream>
 #include <iostream>
@@ -13,6 +15,7 @@
 #include <librefrakt/flame_info.h>
 #include <librefrakt/flame_compiler.h>
 #include <librefrakt/util/cuda.h>
+#include <librefrakt/util/gpuinfo.h>
 
 #include <inja/inja.hpp>
 
@@ -117,7 +120,7 @@ auto make_struct(const rfkt::flame& f) -> std::string {
                 );
 
                 for (const auto& common : vdef.dependencies) {
-                    auto& name = common.get().name;
+                    const auto& name = common.get().name;
                     if (required_common.count(name) > 0) continue;
 
                     required_common[name] = {};
@@ -163,8 +166,6 @@ auto make_struct(const rfkt::flame& f) -> std::string {
             }));
     }
 
-    SPDLOG_INFO("json: \n{}", info.dump(2));
-
     auto environment = []() -> inja::Environment {
         auto env = inja::Environment{};
 
@@ -188,7 +189,7 @@ auto make_struct(const rfkt::flame& f) -> std::string {
 
         return env;
     }();
-
+    SPDLOG_INFO("{}", info.dump(1));
     return environment.render_file("./assets/templates/flame.tpl", info);
 
 }
@@ -207,22 +208,25 @@ std::string annotate_source(std::string src) {
 
 auto rfkt::flame_compiler::get_flame_kernel(precision prec, const flame& f) -> result
 {
+    auto src = make_struct(f);
     auto [most_blocks, opts] = make_opts(prec, f);
-    auto [compile_result, handle] = km.compile_file("assets/kernels/refactor.cu", opts);
+    opts.header("flame_generated.h", src);
+    auto compile_result = km.compile(opts);
 
 
     auto r = result(
-        annotate_source(opts.get_header("flame_generated.h")),
+        annotate_source(src),
         std::move(compile_result.log)
     );
 
+    //SPDLOG_INFO("{}", r.source);
 
-    if (!compile_result.success) {
+    if (not compile_result.module.has_value()) {
         return r;
     }
 
-    auto func = handle();
-    //handle.kernel("print_debug_info").launch(1, 1)();
+    auto func = compile_result.module->kernel("bin");
+    compile_result.module->kernel("print_debug_info").launch(1, 1)();
 
     auto max_blocks = func.max_blocks_per_mp(most_blocks.block) * cuda::context::current().device().mp_count();
     if (max_blocks < most_blocks.grid) {
@@ -231,21 +235,18 @@ auto rfkt::flame_compiler::get_flame_kernel(precision prec, const flame& f) -> r
     }
     SPDLOG_INFO("Loaded flame kernel: {} temp. samples, {} flame params, {} regs, {} shared, {} local.", max_blocks, f.real_count(), func.register_count(), func.shared_bytes(), func.local_bytes());
 
-    r.kernel = flame_kernel{ f.hash(), std::move(handle), prec, shuf_bufs[most_blocks.block], device_mhz, std::pair<int, int>{most_blocks.grid, most_blocks.block}, catmull };
+    auto shuf_dev = compile_result.module.value()["shuf_bufs"];
+    cuMemcpyDtoD(shuf_dev.ptr(), shuf_bufs[most_blocks.block].ptr(), shuf_dev.size());
+
+    r.kernel = flame_kernel{ f.hash(), f.real_count(), std::move(compile_result.module.value()), std::pair<int, int>{most_blocks.grid, most_blocks.block}, catmull, gpuinfo::device::by_index(0).clock() };
 
     return r;
 }
 
-bool rfkt::flame_compiler::is_cached(precision prec, const flame& f)
-{
-    auto [blocks, opts] = make_opts(prec, f);
-    return km.is_cached(opts);
-}
-
-std::shared_ptr<rfkt::cuda_buffer<unsigned short>> make_shuffle_buffers(std::size_t particles_per_temporal_sample, std::size_t num_shuf_buf) {
+rfkt::cuda_buffer<unsigned short> make_shuffle_buffers(std::size_t particles_per_temporal_sample, std::size_t num_shuf_buf) {
     using shuf_t = unsigned short;
 
-    auto buf = std::make_shared<rfkt::cuda_buffer<unsigned short>>( particles_per_temporal_sample * num_shuf_buf);
+    auto buf = rfkt::cuda_buffer<unsigned short>( particles_per_temporal_sample * num_shuf_buf);
 
     shuf_t* shuf_bufs_local = (shuf_t*)malloc(sizeof(shuf_t) * particles_per_temporal_sample * num_shuf_buf);
 
@@ -277,16 +278,44 @@ std::shared_ptr<rfkt::cuda_buffer<unsigned short>> make_shuffle_buffers(std::siz
 
     for (auto& t : gen_threads) t.join();
 
-    cuMemcpyHtoD(buf->ptr(), shuf_bufs_local, sizeof(shuf_t) * particles_per_temporal_sample * num_shuf_buf);
+    cuMemcpyHtoD(buf.ptr(), shuf_bufs_local, sizeof(shuf_t) * particles_per_temporal_sample * num_shuf_buf);
     free(shuf_bufs_local);
-    return std::move(buf);
+    return buf;
 }
 
-rfkt::flame_compiler::flame_compiler(kernel_manager& k_manager): km(k_manager)
+rfkt::flame_compiler::flame_compiler(ezrtc::compiler& k_manager): km(k_manager)
 {
     num_shufs = 4096;
 
     exec_configs = cuda::context::current().device().concurrent_block_configurations();
+
+    std::string check_kernel_name = "get_sizes<";
+    for (const auto& conf : exec_configs) {
+        check_kernel_name += std::format("{},", conf.block);
+    }
+
+    check_kernel_name[check_kernel_name.size() - 1] = '>';
+  
+    auto check_kernel_result_name = std::format("required_shared<{}>", exec_configs.size());
+
+    auto check_result = km.compile(
+        ezrtc::spec::source_file("sizing", "assets/kernels/size_info.cu")
+        .variable(check_kernel_result_name)
+        .kernel(check_kernel_name)
+        .flag(ezrtc::compile_flag::default_device)
+    );
+
+    if (not check_result.module.has_value()) {
+        SPDLOG_ERROR(check_result.log);
+        exit(1);
+    }
+
+    check_result.module->kernel(check_kernel_name).launch(1, 1)();
+    auto var = check_result.module.value()[check_kernel_result_name];
+    std::vector<unsigned long long> shared_sizes{};
+    shared_sizes.resize(exec_configs.size() * 2);
+    cuMemcpyDtoH(shared_sizes.data(), var.ptr(), var.size());
+
 
     for (auto& exec : exec_configs) {
         shuf_bufs[exec.block] = make_shuffle_buffers(exec.block, num_shufs);
@@ -305,35 +334,34 @@ rfkt::flame_compiler::flame_compiler(kernel_manager& k_manager): km(k_manager)
         }
     }
 
-    device_mhz = 1'965'000;
+    const auto catmull_spec = ezrtc::spec::source_file("catmull", "assets/kernels/catmull.cu");
 
-    auto [res, result] = km.compile_file("assets/kernels/catmull.cu", 
-        compile_opts("catmull")
-        .flag(compile_flag::extra_vectorization)
-        .function("generate_sample_coefficients")
+    auto result = km.compile(
+        ezrtc::spec::
+         source_file("catmull", "assets/kernels/catmull.cu")
+        .kernel("generate_sample_coefficients")
+        .flag(ezrtc::compile_flag::default_device)
+        .flag(ezrtc::compile_flag::extra_device_vectorization)
     );
 
-    if (!res.success) {
-        SPDLOG_ERROR(res.log);
+    if (not result.module.has_value()) {
+        SPDLOG_ERROR(result.log);
         exit(1);
     }
-    this->catmull = std::make_shared<cuda_module>(std::move(result));
+    this->catmull = std::make_shared<ezrtc::module>(std::move(result.module.value()));
     auto func = (*catmull)();
     auto [s_grid, s_block] = func.suggested_dims();
     SPDLOG_INFO("Loaded catmull kernel: {} regs, {} shared, {} local, {}x{} suggested dims", func.register_count(), func.shared_bytes(), func.local_bytes(), s_grid, s_block);
 }
 
-auto rfkt::flame_compiler::make_opts(precision prec, const flame& f)->std::pair<cuda::execution_config, compile_opts>
+auto rfkt::flame_compiler::make_opts(precision prec, const flame& f)->std::pair<cuda::execution_config, ezrtc::spec>
 {
-    std::string flame_generated = make_struct(f);
-
-    SPDLOG_INFO("source: \n{}", flame_generated);
-
     auto flame_real_count = f.real_count();
     auto flame_size_bytes = ((prec == precision::f32) ? sizeof(float) : sizeof(double)) * flame_real_count;
     auto flame_hash = f.hash();
 
     auto most_blocks_idx = 0;
+
     for (int i = exec_configs.size() - 1; i >= 0; i--) {
         auto& ec = exec_configs[i];
         if (smem_per_block(prec, flame_size_bytes, ec.block) <= ec.shared_per_block) {
@@ -341,6 +369,10 @@ auto rfkt::flame_compiler::make_opts(precision prec, const flame& f)->std::pair<
             break;
         }
     }
+
+    //while (exec_configs[most_blocks_idx].grid > 500) {
+    //    most_blocks_idx--;
+    //}
 
     //if (most_blocks_idx > 0) most_blocks_idx--;
     auto& most_blocks = exec_configs[most_blocks_idx];
@@ -350,24 +382,27 @@ auto rfkt::flame_compiler::make_opts(precision prec, const flame& f)->std::pair<
 
     auto name = fmt::format("flame_{}_f{}_t{}_s{}", flame_hash.str64(), (prec == precision::f32) ? "32" : "64", most_blocks.grid, flame_real_count);
 
-    auto opts = compile_opts(name)
-        .flag(compile_flag::extra_vectorization)
-        //.flag(compile_flag::use_fast_math)
-        //.flag(compile_flag::relocatable_device_code)
-        //.flag(compile_flag::line_info)
+    auto opts = ezrtc::spec::source_file(name, "assets/kernels/refactor.cu");
+
+    opts
+        .flag(ezrtc::compile_flag::extra_device_vectorization)
+        .flag(ezrtc::compile_flag::default_device)
+        .flag(ezrtc::compile_flag::generate_line_info)
         .define("NUM_SHUF_BUFS", num_shufs)
         .define("THREADS_PER_BLOCK", most_blocks.block)
         .define("BLOCKS_PER_MP", most_blocks.grid / cuda::context::current().device().mp_count())
         .define("FLAME_SIZE_REALS", flame_real_count)
         .define("FLAME_SIZE_BYTES", flame_size_bytes)
-        .header("flame_generated.h", flame_generated)
-        //.link(flamelib.get())
-        .function("warmup")
-        .function("bin")
-        .function("print_debug_info");
+        .kernel("warmup")
+        .kernel("bin")
+        .kernel("print_debug_info")
+        .variable("shuf_bufs")
+        
+        ;
 
     if (prec == precision::f64) opts.define("DOUBLE_PRECISION");
-    opts.flag(compile_flag::use_fast_math);
+    else opts.flag(ezrtc::compile_flag::warn_double_usage);
+    opts.flag(ezrtc::compile_flag::use_fast_math);
 
     return { most_blocks, opts };
 }
@@ -375,7 +410,7 @@ auto rfkt::flame_compiler::make_opts(precision prec, const flame& f)->std::pair<
 template<std::size_t Size>
 class pinned_ring_allocator_t {
 public:
-    pinned_ring_allocator_t() {
+    pinned_ring_allocator_t() noexcept {
         cuMemAllocHost(&memory, Size);
     }
 
@@ -402,12 +437,17 @@ public:
         return (T*)reserve<sizeof(T)>();
     }
 
-    template<typename T, std::size_t Amount>
-    auto reserve()->std::array<T, Amount>* {
-        return reserve<std::array<T, Amount>>();
+    template<typename T>
+    std::span<T> reserve(std::size_t amount) {
+        return { (T*)reserve(amount * sizeof(T)), amount };
     }
 
-    void* reserve(std::size_t amount) {
+    template<typename T, std::size_t Amount>
+    auto reserve()-> std::span<T> {
+        return std::span{ (T*)reserve<sizeof(T)* Amount>(), Amount };
+    }
+
+    void* reserve(std::size_t amount) noexcept {
         assert(amount < Size);
 
         if (amount + offset >= Size) {
@@ -438,10 +478,10 @@ auto rfkt::flame_kernel::bin(CUstream stream, flame_kernel::saved_state & state,
         std::size_t num_threads;
         std::size_t num_xforms;
 
-        CUdeviceptr qpx_dev;
+        cuda_buffer<std::size_t> qpx_dev;
 
         std::promise<flame_kernel::bin_result> promise{};
-        std::size_t* qpx_host;
+        std::span<std::size_t> qpx_host;
 
     };
 
@@ -450,39 +490,39 @@ auto rfkt::flame_kernel::bin(CUstream stream, flame_kernel::saved_state & state,
     const auto num_counters = 2 + state.norm_xform_weights.size();
     const auto alloc_size = counter_size * num_counters;
 
-    stream_state->qpx_host = (std::size_t*) pra.reserve(counter_size * num_counters);
+    stream_state->qpx_host = pra.reserve<std::size_t>(num_counters);
 
     stream_state->total_bins = state.bin_dims.x * state.bin_dims.y;
     stream_state->num_threads = exec.first * exec.second;
     stream_state->num_xforms = state.norm_xform_weights.size();
 
-    cuMemAllocAsync(&stream_state->qpx_dev, alloc_size, stream);
-    cuMemsetD32Async(stream_state->qpx_dev, 0, alloc_size / sizeof(unsigned int), stream);
+    stream_state->qpx_dev = rfkt::cuda_buffer<std::size_t>{ num_counters, stream };
+    stream_state->qpx_dev.clear(stream);
 
     auto klauncher = [&mod = this->mod, stream, &exec = this->exec]<typename ...Ts>(Ts&&... args) {
-        return mod("bin").launch(exec.first, exec.second, stream, cuda::context::current().device().cooperative_supported())(std::forward<Ts>(args)...);
+        return mod("bin").launch(exec.first, exec.second, stream, true)(std::forward<Ts>(args)...);
     };
 
-    cuLaunchHostFunc(stream, [](void* ptr) {
+    CUDA_SAFE_CALL(cuLaunchHostFunc(stream, [](void* ptr) {
         auto* ss = (stream_state_t*)ptr;
         ss->start = std::chrono::high_resolution_clock::now();
-        }, stream_state);
+        }, stream_state));
 
     CUDA_SAFE_CALL(klauncher(
         state.shared.ptr(),
-        shuf_bufs->ptr(),
         (std::size_t)(target_quality * stream_state->total_bins * 255.0),
         iter_bailout,
-        (long long)(ms_bailout)*device_mhz,
-        state.bins.ptr(), state.bin_dims.x, state.bin_dims.y,
-        stream_state->qpx_dev,
-        stream_state->qpx_dev + counter_size,
-        stream_state->qpx_dev + 2 * counter_size
+        static_cast<std::uint64_t>(ms_bailout) * 1'000'000,
+        state.bins.ptr(), std::size_t{ 0 }, state.bin_dims.x, state.bin_dims.y,
+        stream_state->qpx_dev.ptr(),
+        stream_state->qpx_dev.ptr() + counter_size,
+        stream_state->qpx_dev.ptr() + 2 * counter_size
     ));
-    CUDA_SAFE_CALL(cuMemcpyDtoHAsync(stream_state->qpx_host, stream_state->qpx_dev, alloc_size, stream));
-    CUDA_SAFE_CALL(cuMemFreeAsync(stream_state->qpx_dev, stream));
 
-    cuLaunchHostFunc(stream, [](void* ptr) {
+    stream_state->qpx_dev.to_host(stream_state->qpx_host, stream);
+    stream_state->qpx_dev.free_async(stream);
+
+    CUDA_SAFE_CALL(cuLaunchHostFunc(stream, [](void* ptr) {
         auto* ss = (stream_state_t*)ptr;
         ss->end = std::chrono::high_resolution_clock::now();
 
@@ -495,8 +535,8 @@ auto rfkt::flame_kernel::bin(CUstream stream, flame_kernel::saved_state & state,
         }
 
         ss->promise.set_value(flame_kernel::bin_result{
-            ss->qpx_host[0] / (ss->total_bins * 255.0f),
-            std::chrono::duration_cast<std::chrono::nanoseconds>(ss->end - ss->start).count() / 1'000'000.0f,
+            ss->qpx_host[0] / (ss->total_bins * 255.0),
+            std::chrono::duration_cast<std::chrono::nanoseconds>(ss->end - ss->start).count() / 1'000'000.0,
             ss->qpx_host[1],
             ss->qpx_host[0] / 255,
             ss->total_bins,
@@ -506,78 +546,122 @@ auto rfkt::flame_kernel::bin(CUstream stream, flame_kernel::saved_state & state,
 
         delete ss;
 
-    }, stream_state);
+    }, stream_state));
 
     return future;
 }
 
 auto rfkt::flame_kernel::warmup(CUstream stream, const flame& f, uint2 dims, double t, std::uint32_t nseg, double loops_per_frame, std::uint32_t seed, std::uint32_t count) const -> flame_kernel::saved_state
 {
-    auto warmup_impl = [&]<typename Real>() -> flame_kernel::saved_state {
+    const auto nreals = f.real_count() + 256ull * 3ull;
+    const auto pack_size_reals = nreals * (nseg + 3ull);
+    const auto pack_size_bytes = sizeof(double) * pack_size_reals;
 
-        const auto nreals = f.real_count() + 256 * 3;
-        const auto pack_size_reals = nreals * (nseg + 3);
-        const auto pack_size_bytes = sizeof(Real) * pack_size_reals;
-
-        std::vector<double> norm_weights;
-        norm_weights.resize(f.xforms.size());
+    std::vector<double> norm_weights;
+    norm_weights.resize(f.xforms.size());
         
-        auto weight_sum = [](const flame& f, double t) -> double {
-            double ret = 0;
-            for (const auto& xf : f.xforms) ret += xf.weight.sample(t);
-            return ret;
-        }(f, t);
+    auto weight_sum = [](const flame& f, double t) -> double {
+        double ret = 0;
+        for (const auto& xf : f.xforms) ret += xf.weight.sample(t);
+        return ret;
+    }(f, t);
 
-        for (int i = 0; i < f.xforms.size(); i++) {
-            norm_weights[i] = f.xforms[i].weight.sample(t) / weight_sum;
-        }
+    for (int i = 0; i < f.xforms.size(); i++) {
+        norm_weights.at(i) = f.xforms.at(i).weight.sample(t) / weight_sum;
+    }
 
-        CUdeviceptr samples_dev;
-        cuMemAllocAsync(&samples_dev, pack_size_bytes, stream);
+    auto samples_dev = rfkt::cuda_buffer<double>{ pack_size_reals, stream };
+    auto segments_dev = rfkt::cuda_buffer<double>{ pack_size_reals * 4 * nseg, stream };
 
-        CUdeviceptr segments_dev;
-        cuMemAllocAsync(&segments_dev, pack_size_bytes * 4 * nseg, stream);
-        auto state = flame_kernel::saved_state{ dims, this->saved_state_size(), stream, std::move(norm_weights)};
-        cuMemsetD32Async(state.bins.ptr(), 0, state.bin_dims.x * state.bin_dims.y * 4, stream);
+    auto state = flame_kernel::saved_state{ dims, this->saved_state_size(), stream, std::move(norm_weights)};
 
-        thread_local pinned_ring_allocator_t<1024 * 1024 * 4> pra{};
-        auto pack = std::span<Real>{ (Real*)pra.reserve(pack_size_bytes), pack_size_reals };
-        auto packer = [pack, counter = 0](double v) mutable {
-            pack[counter] = static_cast<Real>(v);
-            counter++;
-        };
-
-        const auto seg_length = loops_per_frame / nseg * 1.2;
-        for (int pos = -1; pos < static_cast<int>(nseg) + 2; pos++) {
-           f.pack(packer, dims, t + pos * seg_length);
-        }
-
-        cuMemcpyHtoDAsync(samples_dev, pack.data(), pack_size_bytes, stream);
-
-        auto [grid, block] = this->catmull->kernel().suggested_dims();
-        auto nblocks = (nseg * pack_size_reals) / block;
-        if ((nseg * pack_size_reals) % block > 0) nblocks++;
-        this->catmull->kernel().launch(nblocks, block, stream, false)(
-            samples_dev, static_cast<std::uint32_t>(nreals), std::uint32_t{ nseg }, segments_dev
-            );
-        cuMemFreeAsync(samples_dev, stream);
-
-        this->mod.kernel("warmup")
-            .launch(this->exec.first, this->exec.second, stream, true)
-            (
-                std::uint32_t{ nseg },
-                segments_dev,
-                this->shuf_bufs->ptr(),
-                seed, count,
-                state.shared.ptr()
-                );
-
-        cuMemFreeAsync(segments_dev, stream);
-        return state;
+    thread_local pinned_ring_allocator_t<1024 * 1024 * 8> pra{};
+    const auto pack = pra.reserve<double>(pack_size_reals);
+    auto packer = [pack, counter = 0](double v) mutable {
+        pack[counter] = v;
+        counter++;
     };
 
-    //if (this->prec == precision::f32)
-    //    return warmup_impl.operator()<float>();
-    //else
-        return warmup_impl.operator()<double>();
+    const auto seg_length = (loops_per_frame * 1.2) / (nseg);
+    for (int pos = -1; pos < static_cast<int>(nseg) + 2; pos++) {
+        f.pack(packer, dims, t + pos * seg_length);
+    }
+
+    samples_dev.from_host(pack, stream);
+
+    const auto [grid, block] = this->catmull->kernel().suggested_dims();
+    auto nblocks = (nseg * pack_size_reals) / block;
+    if ((nseg * pack_size_reals) % block > 0) nblocks++;
+    CUDA_SAFE_CALL(
+        this->catmull->kernel().launch(nblocks, block, stream, false)
+        (
+            samples_dev.ptr(),
+            static_cast<std::uint32_t>(nreals), 
+            std::uint32_t{ nseg }, 
+            segments_dev.ptr()
+        ));
+
+
+
+    CUDA_SAFE_CALL(this->mod.kernel("warmup")
+        .launch(this->exec.first, this->exec.second, stream, true)
+        (
+            std::uint32_t{ nseg },
+            segments_dev.ptr(),
+            seed, count,
+            state.shared.ptr()
+            ));
+
+    segments_dev.free_async(stream);
+    samples_dev.free_async(stream);
+
+    return state;
+}
+
+auto rfkt::flame_kernel::warmup(CUstream stream, std::span<const double> samples, uint2 dims, std::uint32_t seed, std::uint32_t count) const -> flame_kernel::saved_state
+{
+    assert(samples.size() % this->flame_size_reals == 0);
+    assert(samples.size() / this->flame_size_reals > 3);
+
+    const auto nseg = static_cast<std::uint32_t>(samples.size() / flame_size_reals - 3);
+
+    thread_local pinned_ring_allocator_t<1024 * 1024 * 8> pra{};
+
+    auto pinned_samples = pra.reserve<double>(samples.size());
+    std::copy(samples.begin(), samples.end(), pinned_samples.begin());
+
+    auto samples_dev = rfkt::cuda_buffer<double>{ samples.size(), stream};
+    samples_dev.from_host(pinned_samples, stream);
+
+    auto segments_dev = rfkt::cuda_buffer<double>{ samples.size() * 4 * nseg, stream};
+
+    const auto [grid, block] = this->catmull->kernel().suggested_dims();
+    auto nblocks = (nseg * samples.size()) / block;
+    if ((nseg * samples.size()) % block > 0) nblocks++;
+   // CUDA_SAFE_CALL(
+        this->catmull->kernel().launch(nblocks, block, stream, false)
+        (
+            samples_dev.ptr(),
+            static_cast<std::uint32_t>(flame_size_reals),
+            nseg ,
+            segments_dev.ptr()
+            );
+
+
+    auto state = flame_kernel::saved_state{ dims, this->saved_state_size(), stream, {} };
+
+   // CUDA_SAFE_CALL(
+        this->mod.kernel("warmup")
+        .launch(this->exec.first, this->exec.second, stream, true)
+        (
+            nseg,
+            segments_dev.ptr(),
+            seed, count,
+            state.shared.ptr()
+            );
+
+    segments_dev.free_async(stream);
+    samples_dev.free_async(stream);
+
+    return state;
 }

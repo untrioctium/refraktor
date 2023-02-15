@@ -9,17 +9,17 @@ xcommon:
     phi: atan2(py, px)
     sina: px / xcommon(sqrt)
     cosa: py / xcommon(sqrt)
-    sinr: sin(xcommon(sqrt))
-    cosr: cos(xcommon(sqrt))
+    sinr: ::sin(xcommon(sqrt))
+    cosr: ::cos(xcommon(sqrt))
     
 variations:
     linear: |-
         nx += weight * px;
         ny += weight * py;
-            
+
     sinusoidal: |-
-        nx += weight * sin(px);
-        ny += weight * sin(py);
+        nx += weight * ::sin(px);
+        ny += weight * ::sin(py);
         
     spherical: |-
         FloatT r2 = weight / ( xcommon(sumsq) + M_EPS);
@@ -27,24 +27,24 @@ variations:
         ny += r2 * py;
         
     swirl: |-
-        FloatT c1 = sin(xcommon(sumsq));
-        FloatT c2 = cos(xcommon(sumsq));
+        FloatT c1 = ::sin(xcommon(sumsq));
+        FloatT c2 = ::cos(xcommon(sumsq));
         nx += weight * (c1 * px - c2 * py);
         ny += weight * (c2 * px + c1 * py);
         
     horseshoe: |-
         weight /= (xcommon(sqrt) + M_EPS);
         nx += weight * (px + py) * (px - py);
-        ny += weight * FloatT(2.0) * px * py;
+        ny += weight * 2.0_r * px * py;
         
     polar: |-
         nx += weight * xcommon(atan) / M_PI;
-        ny += weight * (xcommon(sqrt) - FloatT(1.0));
+        ny += weight * (xcommon(sqrt) - 1.0_r);
         
     handkerchief: |-
         weight *= xcommon(sqrt);
-        nx += weight * sin(xcommon(atan) + xcommon(sqrt));
-        ny += weight * cos(xcommon(atan) - xcommon(sqrt));
+        nx += weight * ::sin(xcommon(atan) + xcommon(sqrt));
+        ny += weight * ::cos(xcommon(atan) - xcommon(sqrt));
         
     heart: |-
         FloatT a = xcommon(sqrt) * xcommon(atan);
@@ -85,8 +85,8 @@ variations:
         ny += weight * xcommon(cosa) * sr;
         
     ex: |-
-        FloatT n0 = sin(xcommon(atan) + xcommon(sqrt));
-        FloatT n1 = cos(xcommon(atan) - xcommon(sqrt));
+        FloatT n0 = ::sin(xcommon(atan) + xcommon(sqrt));
+        FloatT n1 = ::cos(xcommon(atan) - xcommon(sqrt));
         FloatT m0 = n0 * n0 * n0 * xcommon(sqrt);
         FloatT m1 = n1 * n1 * n1 * xcommon(sqrt);
         nx += weight * (m0 + m1);
@@ -94,7 +94,7 @@ variations:
 
     julia: |-
         FloatT r;
-        FloatT a = 0.5 * xcommon(atan);
+        FloatT a = 0.5_r * xcommon(atan);
         FloatT sa,ca;
 
         a += M_PI * ((rs->rand() >> 24) & 1);
@@ -107,12 +107,12 @@ variations:
         ny += r * sa;
         
     bent: |-
-        FloatT nx = px;
-        FloatT ny = py;
-        if(nx < FloatT(0.0)) nx *= FloatT(2.0);
-        if(ny < FloatT(0.0)) ny /= FloatT(2.0);
-        nx += weight * nx;
-        ny += weight * ny;
+        FloatT bx = px;
+        FloatT by = py;
+        if(bx < 0.0_r) bx *= 2.0_r;
+        if(by < 0.0_r) by /= 2.0_r;
+        nx += weight * bx;
+        ny += weight * by;
         
     waves:
         param:
@@ -121,11 +121,11 @@ variations:
             waves_dy2:
                 is_precalc: true
         precalc: |-
-            waves_dx2 = 1.0/(xaffine_c * xaffine_c + M_EPS);
-            waves_dy2 = 1.0/(xaffine_f * xaffine_f + M_EPS);
+            waves_dx2 = 1.0_r/(xaffine_c * xaffine_c + M_EPS);
+            waves_dy2 = 1.0_r/(xaffine_f * xaffine_f + M_EPS);
         src: |-
-            nx += weight * (px + xaffine_b * sin( py * waves_dx2));
-            ny += weight * (py + xaffine_e * sin( px * waves_dy2));
+            nx += weight * (px + xaffine_b * ::sin( py * waves_dx2));
+            ny += weight * (py + xaffine_e * ::sin( px * waves_dy2));
         
     fisheye: |-
         weight *= 2 / (xcommon(sqrt) + 1);
@@ -133,11 +133,11 @@ variations:
         ny += weight * px;
     
     popcorn: |-
-        nx += weight * (px + xaffine_c * sin(tan(3 * py)));
-        ny += weight * (py + xaffine_f * sin(tan(3 * px)));
+        nx += weight * (px + xaffine_c * ::sin(tan(3 * py)));
+        ny += weight * (py + xaffine_f * ::sin(tan(3 * px)));
         
     exponential: |-
-        FloatT dx = weight * exp(px - 1.0);
+        FloatT dx = weight * ::exp(px - 1.0_r);
         FloatT sdy, cdy;
         sincos( M_PI * py, &sdy, &cdy );
         nx += dx * cdy;
@@ -151,8 +151,8 @@ variations:
     cosine: |-
         FloatT sa, ca;
         sincos( px * M_PI, &sa, &ca );
-        nx += weight * (ca * cosh(py));
-        ny += weight * (-sa * sinh(py));
+        nx += weight * (ca * ::cosh(py));
+        ny += weight * (-sa * ::sinh(py));
         
     rings: |-
         FloatT dx = xaffine_c * xaffine_c + M_EPS;
@@ -162,7 +162,7 @@ variations:
         
     fan: |-
         FloatT dx = M_PI * (xaffine_c * xaffine_c + M_EPS);
-        FloatT dx2 = 0.5f * dx;
+        FloatT dx2 = 0.5_r * dx;
         FloatT a = xcommon(atan);
         weight *= xcommon(sqrt);
         FloatT sa, ca;
@@ -180,7 +180,7 @@ variations:
                 default: 1.0
         src: |-
             FloatT bdiff = blob_high - blob_low;
-            weight *= xcommon(sqrt) * (blob_low + bdiff * (0.5f + 0.5f * sin(blob_waves * xcommon(atan))));
+            weight *= xcommon(sqrt) * (blob_low + bdiff * (0.5_r + 0.5_r * ::sin(blob_waves * xcommon(atan))));
             nx += weight * xcommon(sina);
             ny += weight * xcommon(cosa);
 
@@ -191,8 +191,8 @@ variations:
             pdj_c: {}
             pdj_d: {}
         src: |-
-            nx += weight * (sin(pdj_a * py) - cos(pdj_b * px));
-            ny += weight * (sin(pdj_c * px) - cos(pdj_d * py));
+            nx += weight * (::sin(pdj_a * py) - ::cos(pdj_b * px));
+            ny += weight * (::sin(pdj_c * px) - ::cos(pdj_d * py));
             
     fan2:
         param:
@@ -201,7 +201,7 @@ variations:
         src: |-
             FloatT dy = fan2_y;
             FloatT dx = M_PI * (fan2_x * fan2_x + M_EPS);
-            FloatT dx2 = 0.5 * dx;
+            FloatT dx2 = 0.5_r * dx;
             FloatT a = xcommon(atan);
             FloatT sa,ca;
             FloatT r = weight * xcommon(sqrt);
@@ -213,14 +213,14 @@ variations:
             sincos(a,&sa,&ca);
             nx += r * sa;
             ny += r * ca;
-            s
+
     rings2: 
         param:
             rings2_val: {}
         src: |-
             FloatT r = xcommon(sqrt);
             FloatT dx = rings2_val * rings2_val + M_EPS;
-            r += -2.0f * dx * (int)((r+dx)/(2.0f * dx)) + r * (1.0f-dx);
+            r += -2.0_r * dx * (int)((r+dx)/(2.0_r * dx)) + r * (1.0_r-dx);
             nx += weight * xcommon(sina) * r;
             ny += weight * xcommon(cosa) * r;
             
@@ -230,12 +230,12 @@ variations:
         ny += coef * py;
 
     bubble: |-
-        FloatT coef = weight / (FloatT(0.25) * xcommon(sumsq) + 1);
+        FloatT coef = weight / (0.25_r * xcommon(sumsq) + 1);
         nx += coef * px;
         ny += coef * py;
 
     cylinder: |-
-        nx += weight * sin(px);
+        nx += weight * ::sin(px);
         ny += weight * py;      
 
     perspective:
@@ -247,16 +247,16 @@ variations:
             perspective_vfcos:
                 is_precalc: true
         precalc: |-
-            sincos(perspective_angle * M_PI/ 2.0, &perspective_vsin, &perspective_vfcos);
+            sincos(perspective_angle * M_PI/ 2.0_r, &perspective_vsin, &perspective_vfcos);
             perspective_vfcos *= perspective_dist;            
         src: |-
-            FloatT t= 1.0 / (perspective_dist - py * perspective_vsin);
+            FloatT t= 1.0_r / (perspective_dist - py * perspective_vsin);
             nx += weight * perspective_dist * px * t;
             ny += weight * perspective_vfcos * py * t;
 
     noise: |-
         FloatT sr, cr, r;
-        sincos(rs->rand_uniform() * 2.0f * M_PI, &sr, &cr);
+        sincos(rs->rand_uniform() * 2.0_r * M_PI, &sr, &cr);
         r = weight * rs->rand_uniform();
         nx += px * r * sr;
         ny += py * r * cr;
@@ -273,7 +273,7 @@ variations:
                 is_precalc: true
         precalc: |-
             julian_rN = abs(julian_power);
-            julian_cn = julian_dist / julian_power / FloatT(2.0);
+            julian_cn = julian_dist / julian_power / 2.0_r;
         src: |-
             int t_rnd = trunc(julian_rN * rs->rand_uniform());
             FloatT tmpr = (xcommon(phi) + 2 * M_PI * t_rnd) / julian_power;
@@ -317,11 +317,9 @@ variations:
         ny += r * sinang;  
 
     gaussian_blur: |-
-        FloatT r, sinang,cosang;
-        sincos( rs->rand_uniform() * 2 * M_PI, &sinang, &cosang );
-        r = weight * (rs->rand_uniform() + rs->rand_uniform() + rs->rand_uniform() + rs->rand_uniform() - 2.0);
-        nx += r * cosang;
-        ny += r * sinang;     
+        auto gauss = rs->rand_gaussian(weight);
+        nx += gauss.x;
+        ny += gauss.y;     
 
     radial_blur:
         param:
@@ -331,10 +329,10 @@ variations:
             radial_blur_zoomvar: 
                 is_precalc: true
         precalc: |-
-                sincos(radial_blur_angle * M_PI / FloatT(2.0), &radial_blur_spinvar, &radial_blur_zoomvar);
+                sincos(radial_blur_angle * M_PI / 2.0_r, &radial_blur_spinvar, &radial_blur_zoomvar);
         src: |-
             FloatT rnd_g, rz, tmpa, sa, ca;
-            rnd_g = weight *(rs->rand_uniform() + rs->rand_uniform() +rs->rand_uniform() +rs->rand_uniform() - 2.0);
+            rnd_g = weight *(rs->rand_uniform() + rs->rand_uniform() +rs->rand_uniform() +rs->rand_uniform() - 2.0_r);
             tmpa = xcommon(phi) + radial_blur_spinvar * rnd_g;
             sincos(tmpa, &sa, &ca);
             rz = radial_blur_zoomvar * rnd_g - 1;
@@ -350,8 +348,8 @@ variations:
         src: |-
             FloatT a, r, sa, ca;
             int sl;
-            sl = (int) (rs->rand_uniform() * pie_slices + 0.5f);
-            a = pie_rotation + 2.0f * M_PI * (sl + rs->rand_uniform() * pie_thickness)/pie_slices;
+            sl = (int) (rs->rand_uniform() * pie_slices + 0.5_r);
+            a = pie_rotation + 2.0_r * M_PI * (sl + rs->rand_uniform() * pie_thickness)/pie_slices;
             r = weight * rs->rand_uniform();
             sincos(a, &sa, &ca);
             nx += r * ca;
@@ -365,13 +363,13 @@ variations:
             ngon_corners: {}
         src: |-
             FloatT r_factor,theta,phi,b, amp;
-            r_factor = pow(xcommon(sumsq), FloatT(ngon_power/2.0));
+            r_factor = pow(xcommon(sumsq), ngon_power/2.0_r);
             theta = xcommon(phi);
             b = 2*M_PI/ngon_sides;
             phi = theta - (b*floor(theta/b));
             if (phi > b/2)
                 phi -= b;
-            amp = ngon_corners * (1.0 / (cos(phi) + M_EPS) - 1.0) + ngon_circle;
+            amp = ngon_corners * (1.0_r / (::cos(phi) + M_EPS) - 1.0_r) + ngon_circle;
             amp /= (r_factor + M_EPS);
             nx += weight * px * amp;
             ny += weight * py * amp;
@@ -382,8 +380,8 @@ variations:
                 default: 1.0
             curl_c2: {}
         src: |-
-            FloatT re = 1.0 + curl_c1 * px + curl_c2 * (px * px - py * py);
-            FloatT im = curl_c1 * py + 2.0 * curl_c2 * px * py;
+            FloatT re = 1.0_r + curl_c1 * px + curl_c2 * (px * px - py * py);
+            FloatT im = curl_c1 * py + 2.0_r * curl_c2 * px * py;
             FloatT r = weight / (re * re + im * im);
             nx += (px * re + py * im) * r;
             ny += (py * re - px * im) * r;
@@ -395,11 +393,11 @@ variations:
             rectangles_y: 
                 default: 1.0
         src: |-
-            if(rectangles_x == FloatT(0.0))
+            if(rectangles_x == 0.0_r)
                 nx += weight * px;
             else
                 nx += weight * ((2 * floor(px / rectangles_x) + 1) * rectangles_x - px);
-            if(rectangles_y == FloatT(0.0))
+            if(rectangles_y == 0.0_r)
                 ny += weight * py;
             else
                 ny += weight * ((2 * floor(py / rectangles_y) + 1) * rectangles_y - py);
@@ -413,19 +411,19 @@ variations:
         ny += weight * (sinr*sinr)/cosr;
         
     tangent: |-
-        nx += weight * sin(px)/cos(py);
+        nx += weight * ::sin(px)/::cos(py);
         ny += weight * tan(py);
         
     square: |-
-        nx += weight * (rs->rand_uniform() - 0.5);
-        ny += weight * (rs->rand_uniform() - 0.5);
+        nx += weight * (rs->rand_uniform() - 0.5_r);
+        ny += weight * (rs->rand_uniform() - 0.5_r);
         
     rays: |-
         FloatT ang = weight * rs->rand_uniform() * M_PI;
         FloatT r = weight / (xcommon(sumsq) + M_EPS);
         FloatT tanr = weight * tan(ang) * r;
-        nx += tanr * cos(px);
-        ny += tanr * sin(py);
+        nx += tanr * ::cos(px);
+        ny += tanr * ::sin(py);
         
     blade: |-
         FloatT r = rs->rand_uniform() * weight * xcommon(sqrt);
@@ -436,8 +434,8 @@ variations:
         
     secant2: |-
         FloatT r = weight * xcommon(sqrt);
-        FloatT cr = cos(r);
-        FloatT icr = 1.0/cr;
+        FloatT cr = ::cos(r);
+        FloatT icr = 1.0_r/cr;
         nx += weight * px;
         if (cr<0)
           ny += weight*(icr + 1);
@@ -450,13 +448,13 @@ variations:
         sincos(r,&sinr,&cosr);
         diff = log10(sinr*sinr)+cosr;
         if (badvalue(diff))
-            diff = -30.0;
+            diff = -30.0_r;
         nx += weight * px * diff;
         ny += weight * px * (diff - sinr*M_PI);
         
     cross: |-
         FloatT s = px * px - py * py;
-        weight *= sqrt(1.0f/(s * s + M_EPS));
+        weight *= sqrt(1.0_r/(s * s + M_EPS));
         nx += px * weight;
         ny += py * weight;
 
@@ -518,15 +516,15 @@ variations:
             super_shape_pneg1_n1:
                 is_precalc: true
         precalc: |-
-            super_shape_pm_4 = super_shape_m / FloatT(4.0);
-            super_shape_pneg1_n1 = -1.0/super_shape_n1;
+            super_shape_pm_4 = super_shape_m / 4.0_r;
+            super_shape_pneg1_n1 = -1.0_r/super_shape_n1;
         src: |-
             FloatT st, ct;
-            sincos(super_shape_pm_4 * xcommon(phi) + M_PI/FloatT(4.0), &st, &ct);
+            sincos(super_shape_pm_4 * xcommon(phi) + M_PI/4.0_r, &st, &ct);
             FloatT r = weight * (
                    (
                     super_shape_rnd * rs->rand_uniform() 
-                    + (1.0f - super_shape_rnd) * xcommon(sqrt)
+                    + (1.0_r - super_shape_rnd) * xcommon(sqrt)
                     ) - super_shape_holes
                    ) * pow(
                     pow(abs(ct), super_shape_n2) +
@@ -541,7 +539,7 @@ variations:
             flower_holes: {}
             flower_petals: {}
         src: |-
-            FloatT coef = weight * (rs->rand_uniform() - flower_holes) * cos(flower_petals * xcommon(atan)) / xcommon(sqrt);
+            FloatT coef = weight * (rs->rand_uniform() - flower_holes) * ::cos(flower_petals * xcommon(atan)) / xcommon(sqrt);
             nx += coef * px;
             ny += coef * py;
     
@@ -574,14 +572,14 @@ variations:
             bent2_y:
                 default: 1.0
         src: |-
-           FloatT nx = px;
-           FloatT ny = py;
-           if (nx < 0.0)
-              nx = nx * bent2_x;
-           if (ny < 0.0)
-              ny = ny * bent2_y;
-           nx += weight * nx;
-           ny += weight * ny;
+           FloatT bx = px;
+           FloatT by = py;
+           if (bx < 0.0_r)
+              bx = bx * bent2_x;
+           if (by < 0.0_r)
+              by = by * bent2_y;
+           nx += weight * bx;
+           ny += weight * by;
            
     bipolar:
         param:
@@ -591,12 +589,12 @@ variations:
             FloatT t = x2y2+1;
             FloatT x2 = 2*px;
             FloatT ps = -M_PI_2 * bipolar_shift;
-            FloatT y = 0.5 * atan2(2.0 * py, x2y2 - 1.0) + ps;
+            FloatT y = 0.5_r * atan2(2.0_r * py, x2y2 - 1.0_r) + ps;
             if (y > M_PI_2)
                y = -M_PI_2 + fmod(y + M_PI_2, M_PI);
             else if (y < -M_PI_2)
                y = M_PI_2 - fmod(M_PI_2 - y, M_PI);
-            nx += weight * 0.25 * M_2_PI * log ( (t+x2) / (t-x2) );
+            nx += weight * 0.25_r * M_2_PI * log ( (t+x2) / (t-x2) );
             ny += weight * M_2_PI * y;
             
     boarders: |-
@@ -605,32 +603,32 @@ variations:
         FloatT offsetX = px - roundX;
         FloatT offsetY = py - roundY;
         
-        if(rs->rand_uniform() >= 0.75f) {
-            nx += weight * (offsetX * 0.5f + roundX);
-            ny += weight * (offsetY * 0.5f + roundY);
+        if(rs->rand_uniform() >= 0.75_r) {
+            nx += weight * (offsetX * 0.5_r + roundX);
+            ny += weight * (offsetY * 0.5_r + roundY);
         } else {
             if(fabs(offsetX) >= fabs(offsetY)) {
-                if(offsetX >= 0.0) {
-                    nx += weight * (offsetX * 0.5f + roundX + 0.25f);
-                    ny += weight * (offsetY * 0.5f + roundY + 0.25f * offsetY/offsetX);
+                if(offsetX >= 0.0_r) {
+                    nx += weight * (offsetX * 0.5_r + roundX + 0.25_r);
+                    ny += weight * (offsetY * 0.5_r + roundY + 0.25_r * offsetY/offsetX);
                 } else {
-                    nx += weight * (offsetX * 0.5f + roundX - 0.25f);
-                    ny += weight * (offsetY * 0.5f + roundY - 0.25f * offsetY/offsetX);                
+                    nx += weight * (offsetX * 0.5_r + roundX - 0.25_r);
+                    ny += weight * (offsetY * 0.5_r + roundY - 0.25_r * offsetY/offsetX);                
                 }
             } else {
-                if(offsetY >= 0.0) {
-                    ny += weight * (offsetY * 0.5f + roundY + 0.25f);
-                    nx += weight * (offsetX * 0.5f + roundX + 0.25f * offsetX/offsetY);
+                if(offsetY >= 0.0_r) {
+                    ny += weight * (offsetY * 0.5_r + roundY + 0.25_r);
+                    nx += weight * (offsetX * 0.5_r + roundX + 0.25_r * offsetX/offsetY);
                 } else {
-                    ny += weight * (offsetY * 0.5f + roundY - 0.25f);
-                    nx += weight * (offsetX * 0.5f + roundX - 0.25f * offsetX/offsetY);                
+                    ny += weight * (offsetY * 0.5_r + roundY - 0.25_r);
+                    nx += weight * (offsetX * 0.5_r + roundX - 0.25_r * offsetX/offsetY);                
                 }                  
             }
         }
 
     butterfly: |-
-        FloatT wx = weight*1.3029400317411197908970256609023;
-        FloatT y2 = py*2.0;
+        FloatT wx = weight*1.3029400317411197908970256609023_r;
+        FloatT y2 = py*2.0_r;
         FloatT r = wx*sqrt(fabs(py * px)/(M_EPS + px*px + y2*y2));
         nx += r * px;
         ny += r * y2;
@@ -640,7 +638,7 @@ variations:
             cell_size:
                 default: 1.0
         src: |-
-            FloatT inv_cell_size = 1.0/cell_size;
+            FloatT inv_cell_size = 1.0_r/cell_size;
             /* calculate input cell */
             int x = floor(px*inv_cell_size);
             int y = floor(py*inv_cell_size);
@@ -677,13 +675,13 @@ variations:
             cpow_i: {}
         src: |-
             FloatT a = xcommon(phi);
-            FloatT lnr = 0.5 * log(xcommon(sumsq));
-            FloatT va = 2.0 * M_PI / cpow_power;
+            FloatT lnr = 0.5_r * ::log(xcommon(sumsq));
+            FloatT va = 2.0_r * M_PI / cpow_power;
             FloatT vc = cpow_r / cpow_power;
             FloatT vd = cpow_i / cpow_power;
             FloatT ang = vc*a + vd*lnr + va*floor(cpow_power*rs->rand_uniform());
             FloatT sa,ca;
-            FloatT m = weight * exp(vc * lnr - vd * a);
+            FloatT m = weight * ::exp(vc * lnr - vd * a);
             sincos(ang,&sa,&ca);
             nx += m * ca;
             ny += m * sa;     
@@ -704,37 +702,37 @@ variations:
 
             if (pc_ylen<1E-20) pc_ylen = 1E-20;
 
-            nx += weight * (px + curve_xamp * exp(-py*py/pc_xlen));
-            ny += weight * (py + curve_yamp * exp(-px*px/pc_ylen));
+            nx += weight * (px + curve_xamp * ::exp(-py*py/pc_xlen));
+            ny += weight * (py + curve_yamp * ::exp(-px*px/pc_ylen));
             
     edisc: |-
-        FloatT tmp = xcommon(sumsq) + 1.0;
-        FloatT tmp2 = 2.0 * px;
+        FloatT tmp = xcommon(sumsq) + 1.0_r;
+        FloatT tmp2 = 2.0_r * px;
         FloatT r1 = sqrt(tmp+tmp2);
         FloatT r2 = sqrt(tmp-tmp2);
-        FloatT xmax = (r1+r2) * 0.5;
-        FloatT a1 = log(xmax + sqrt(xmax - 1.0));
+        FloatT xmax = (r1+r2) * 0.5_r;
+        FloatT a1 = ::log(xmax + sqrt(xmax - 1.0_r));
         FloatT a2 = -acos(px/xmax);
-        FloatT w = weight / 11.57034632;
+        FloatT w = weight / 11.57034632_r;
         FloatT snv,csv,snhu,cshu;
 
         sincos(a1,&snv,&csv);
 
-        snhu = sinh(a2);
-        cshu = cosh(a2);
+        snhu = ::sinh(a2);
+        cshu = ::cosh(a2);
 
-        if (py > 0.0) snv = -snv;
+        if (py > 0.0_r) snv = -snv;
 
         nx += w * cshu * csv;
         ny += w * snhu * snv;
         
     elliptic: |-
-        FloatT tmp = xcommon(sumsq) + 1.0;
-        FloatT x2 = 2.0 * px;
-        FloatT xmax = 0.5 * (sqrt(tmp+x2) + sqrt(tmp-x2));
+        FloatT tmp = xcommon(sumsq) + 1.0_r;
+        FloatT x2 = 2.0_r * px;
+        FloatT xmax = 0.5_r * (sqrt(tmp+x2) + sqrt(tmp-x2));
         FloatT a = px / xmax;
-        FloatT b = 1.0 - a*a;
-        FloatT ssx = xmax - 1.0;
+        FloatT b = 1.0_r - a*a;
+        FloatT ssx = xmax - 1.0_r;
         FloatT w = weight / M_PI_2;
 
         if (b<0)
@@ -750,9 +748,9 @@ variations:
         nx += w * atan2(a,b);
 
         if (py > 0)
-          ny += w * log(xmax + ssx);
+          ny += w * ::log(xmax + ssx);
         else
-          ny -= w * log(xmax + ssx);    
+          ny -= w * ::log(xmax + ssx);    
           
     escher:
         param:
@@ -764,14 +762,14 @@ variations:
             FloatT sn,cn;
 
             FloatT a = xcommon(phi);
-            FloatT lnr = 0.5 * log(xcommon(sumsq));
+            FloatT lnr = 0.5_r * ::log(xcommon(sumsq));
 
             sincos(escher_beta,&seb,&ceb);
 
-            vc = 0.5 * (1.0 + ceb);
-            vd = 0.5 * seb;
+            vc = 0.5_r * (1.0_r + ceb);
+            vd = 0.5_r * seb;
 
-            m = weight * exp(vc*lnr - vd*a);
+            m = weight * ::exp(vc*lnr - vd*a);
             n = vc*a + vd*lnr;
 
             sincos(n,&sn,&cn);
@@ -780,8 +778,8 @@ variations:
             ny += m * sn;        
             
     foci: |-
-        FloatT expx = exp(px) * 0.5;
-        FloatT expnx = 0.25 / expx;
+        FloatT expx = ::exp(px) * 0.5_r;
+        FloatT expnx = 0.25_r / expx;
         FloatT sn,cn,tmp;
 
         sincos(py,&sn,&cn);
@@ -813,7 +811,7 @@ variations:
               ny += r*sina - lazysusan_y;
             } else {
 
-              r = weight * (1.0 + lazysusan_space / r);
+              r = weight * (1.0_r + lazysusan_space / r);
 
               nx += r*x + lazysusan_x;
               ny += r*y - lazysusan_y;
@@ -825,7 +823,7 @@ variations:
         FloatT w2 = weight*weight;
 
         if (r2 < w2) {
-          FloatT r = weight * sqrt(w2/r2 - 1.0);
+          FloatT r = weight * sqrt(w2/r2 - 1.0_r);
           nx += r * px;
           ny += r * py;
         } else {
@@ -868,11 +866,11 @@ variations:
             FloatT tpf = 2 * M_PI * oscilloscope_frequency;
             FloatT t;
 
-            if (oscilloscope_damping == 0.0)
-              t = oscilloscope_amplitude * cos(tpf*px) + oscilloscope_separation;
+            if (oscilloscope_damping == 0.0_r)
+              t = oscilloscope_amplitude * ::cos(tpf*px) + oscilloscope_separation;
             else {
-              t = oscilloscope_amplitude * exp(-fabs(px)*oscilloscope_damping)
-                  * cos(tpf*px) + oscilloscope_separation;
+              t = oscilloscope_amplitude * ::exp(-fabs(px)*oscilloscope_damping)
+                  * ::cos(tpf*px) + oscilloscope_separation;
             }
 
             if (fabs(py) <= t) {
@@ -887,7 +885,7 @@ variations:
         FloatT p2v = weight / M_PI;
 
         nx += p2v * xcommon(atan);
-        ny += p2v/2.0 * log(xcommon(sumsq));    
+        ny += p2v/2.0_r * ::log(xcommon(sumsq));    
         
     popcorn2:
         param:
@@ -895,12 +893,12 @@ variations:
             popcorn2_y: {}
             popcorn2_c: {}
         src: |-
-            nx += weight * ( px + popcorn2_x * sin(tan(py*popcorn2_c)));
-            ny += weight * ( py + popcorn2_y * sin(tan(px*popcorn2_c)));        
+            nx += weight * ( px + popcorn2_x * ::sin(tan(py*popcorn2_c)));
+            ny += weight * ( py + popcorn2_y * ::sin(tan(px*popcorn2_c)));        
             
     scry: |-
         FloatT t = xcommon(sumsq);
-        FloatT r = 1.0 / (xcommon(sqrt) * (t + 1.0/(weight+M_EPS)));
+        FloatT r = 1.0_r / (xcommon(sqrt) * (t + 1.0_r/(weight+M_EPS)));
 
         nx += px * r;
         ny += py * r;    
@@ -915,12 +913,12 @@ variations:
             FloatT sx2 = separation_x * separation_x;
             FloatT sy2 = separation_y * separation_y;
 
-            if (px > 0.0)
+            if (px > 0.0_r)
               nx += weight * (sqrt(px*px + sx2)- px*separation_xinside);
             else
               nx -= weight * (sqrt(px*px + sx2)+ px*separation_xinside);
 
-            if (py > 0.0)
+            if (py > 0.0_r)
               ny += weight * (sqrt(py*py + sy2)- py*separation_yinside);
             else
               ny -= weight * (sqrt(py*py + sy2)+ py*separation_yinside);        
@@ -930,12 +928,12 @@ variations:
             split_xsize: {}
             split_ysize: {}
         src: |-
-            if (cos(px*split_xsize*M_PI) >= 0)
+            if (::cos(px*split_xsize*M_PI) >= 0)
               ny += weight*py;
             else
               ny -= weight*py;
 
-            if (cos(py*split_ysize*M_PI) >= 0)
+            if (::cos(py*split_ysize*M_PI) >= 0)
               nx += weight * px;
             else
               nx -= weight * px;        
@@ -962,10 +960,10 @@ variations:
         src: |-
             FloatT roundx,offsetx;
 
-            roundx = floor(px + 0.5);
+            roundx = floor(px + 0.5_r);
             offsetx = px - roundx;
 
-            nx += weight * (offsetx*(1.0-stripes_space)+roundx);
+            nx += weight * (offsetx*(1.0_r-stripes_space)+roundx);
             ny += weight * (py + offsetx*offsetx*stripes_warp);  
 
     wedge: 
@@ -978,9 +976,9 @@ variations:
         src: |-
             FloatT r = xcommon(sqrt);
             FloatT a = xcommon(phi) + wedge_swirl * r;
-            FloatT c = floor( (wedge_count * a + M_PI)*M_1_PI*0.5);
+            FloatT c = floor( (wedge_count * a + M_PI)*M_1_PI*0.5_r);
 
-            FloatT comp_fac = 1 - wedge_angle*wedge_count*M_1_PI*0.5;
+            FloatT comp_fac = 1 - wedge_angle*wedge_count*M_1_PI*0.5_r;
             FloatT sa, ca;
 
             a = a * comp_fac + c * wedge_angle;
@@ -1007,14 +1005,14 @@ variations:
             wedge_julia_cn:
                 is_precalc: true
         precalc: |-
-            wedge_julia_cf = 1.0 - wedge_julia_angle * wedge_julia_count * M_1_PI * 0.5;
+            wedge_julia_cf = 1.0_r - wedge_julia_angle * wedge_julia_count * M_1_PI * 0.5_r;
             wedge_julia_rN = fabs(wedge_julia_power);
-            wedge_julia_cn = wedge_julia_dist / wedge_julia_power / 2.0;
+            wedge_julia_cn = wedge_julia_dist / wedge_julia_power / 2.0_r;
         src: |-
             FloatT r = weight * pow(xcommon(sumsq), wedge_julia_cn);
             int t_rnd = (int)((wedge_julia_rN)*rs->rand_uniform());
             FloatT a = (xcommon(phi) + 2 * M_PI * t_rnd) / wedge_julia_power;
-            FloatT c = floor( (wedge_julia_count * a + M_PI)*M_1_PI*0.5 );
+            FloatT c = floor( (wedge_julia_count * a + M_PI)*M_1_PI*0.5_r );
             FloatT sa,ca;
 
             a = a * wedge_julia_cf + c * wedge_julia_angle;
@@ -1032,11 +1030,11 @@ variations:
             wedge_sph_angle: {}
             wedge_sph_hole: {}
         src: |-
-            FloatT r = 1.0/(xcommon(sqrt)+M_EPS);
+            FloatT r = 1.0_r/(xcommon(sqrt)+M_EPS);
             FloatT a = xcommon(phi) + wedge_sph_swirl * r;
-            FloatT c = floor( (wedge_sph_count * a + M_PI)*M_1_PI*0.5);
+            FloatT c = floor( (wedge_sph_count * a + M_PI)*M_1_PI*0.5_r);
 
-            FloatT comp_fac = 1 - wedge_sph_angle*wedge_sph_count*M_1_PI*0.5;
+            FloatT comp_fac = 1 - wedge_sph_angle*wedge_sph_count*M_1_PI*0.5_r;
             FloatT sa, ca;
 
             a = a * comp_fac + c * wedge_sph_angle;
@@ -1072,33 +1070,33 @@ variations:
             waves2_freqy: {}
             waves2_scaley: {}
         src: |-
-            nx += weight * (px + waves2_scalex * sin(py * waves2_freqx));
-            ny += weight * (py + waves2_scaley * sin(px * waves2_freqy));
+            nx += weight * (px + waves2_scalex * ::sin(py * waves2_freqx));
+            ny += weight * (py + waves2_scaley * ::sin(px * waves2_freqy));
 
     exp: |-
-        FloatT expe = exp(px);
+        FloatT expe = ::exp(px);
         FloatT expcos,expsin;
         sincos(py,&expsin,&expcos);
         nx += weight * expe * expcos;
         ny += weight * expe * expsin;
         
     log: |-
-        nx += weight * 0.5 * log(xcommon(sumsq));
+        nx += weight * 0.5_r * ::log(xcommon(sumsq));
         ny += weight * xcommon(phi);
         
     sin: |-
         FloatT sinsin,sinacos,sinsinh,sincosh;
         sincos(px,&sinsin,&sinacos);
-        sinsinh = sinh(py);
-        sincosh = cosh(py);
+        sinsinh = ::sinh(py);
+        sincosh = ::cosh(py);
         nx += weight * sinsin * sincosh;
         ny += weight * sinacos * sinsinh;    
 
     cos: |-
         FloatT cossin,coscos,cossinh,coscosh;
         sincos(px,&cossin,&coscos);
-        cossinh = sinh(py);
-        coscosh = cosh(py);
+        cossinh = ::sinh(py);
+        coscosh = ::cosh(py);
         nx += weight * coscos * coscosh;
         ny -= weight * cossin * cossinh;
         
@@ -1106,9 +1104,9 @@ variations:
         FloatT tansin,tancos,tansinh,tancosh;
         FloatT tanden;
         sincos(2*px,&tansin,&tancos);
-        tansinh = sinh(2.0*py);
-        tancosh = cosh(2.0*py);
-        tanden = 1.0/(tancos + tancosh);
+        tansinh = ::sinh(2.0_r*py);
+        tancosh = ::cosh(2.0_r*py);
+        tanden = 1.0_r/(tancos + tancosh);
         nx += weight * tanden * tansin;
         ny += weight * tanden * tansinh;
         
@@ -1116,9 +1114,9 @@ variations:
         FloatT secsin,seccos,secsinh,seccosh;
         FloatT secden;
         sincos(px,&secsin,&seccos);
-        secsinh = sinh(py);
-        seccosh = cosh(py);
-        secden = 2.0/(cos(2*px) + cosh(2*py));
+        secsinh = ::sinh(py);
+        seccosh = ::cosh(py);
+        secden = 2.0_r/(::cos(2*px) + ::cosh(2*py));
         nx += weight * secden * seccos * seccosh;
         ny += weight * secden * secsin * secsinh;    
     
@@ -1126,45 +1124,45 @@ variations:
         FloatT cscsin,csccos,cscsinh,csccosh;
         FloatT cscden;
         sincos(px,&cscsin,&csccos);
-        cscsinh = sinh(py);
-        csccosh = cosh(py);
-        cscden = 2.0/(cosh(2.0*py) - cos(2.0*px));
+        cscsinh = ::sinh(py);
+        csccosh = ::cosh(py);
+        cscden = 2.0_r/(::cosh(2.0_r*py) - ::cos(2.0_r*px));
         nx += weight * cscden * cscsin * csccosh;
         ny -= weight * cscden * csccos * cscsinh;
         
     cot: |-
         FloatT cotsin,cotcos,cotsinh,cotcosh;
         FloatT cotden;
-        sincos(2.0*px,&cotsin,&cotcos);
-        cotsinh = sinh(2.0*py);
-        cotcosh = cosh(2.0*py);
-        cotden = 1.0/(cotcosh - cotcos);
+        sincos(2.0_r*px,&cotsin,&cotcos);
+        cotsinh = ::sinh(2.0_r*py);
+        cotcosh = ::cosh(2.0_r*py);
+        cotden = 1.0_r/(cotcosh - cotcos);
         nx += weight * cotden * cotsin;
         ny += weight * cotden * -1 * cotsinh;    
 
     sinh: |-
         FloatT sinhsin,sinhcos,sinhsinh,sinhcosh;
         sincos(py,&sinhsin,&sinhcos);
-        sinhsinh = sinh(px);
-        sinhcosh = cosh(px);
+        sinhsinh = ::sinh(px);
+        sinhcosh = ::cosh(px);
         nx += weight * sinhsinh * sinhcos;
         ny += weight * sinhcosh * sinhsin;
         
     cosh: |-
         FloatT coshsin,coshcos,coshsinh,coshcosh;
         sincos(py,&coshsin,&coshcos);
-        coshsinh = sinh(px);
-        coshcosh = cosh(px);
+        coshsinh = ::sinh(px);
+        coshcosh = ::cosh(px);
         nx += weight * coshcosh * coshcos;
         ny += weight * coshsinh * coshsin;
         
     tanh: |-
         FloatT tanhsin,tanhcos,tanhsinh,tanhcosh;
         FloatT tanhden;
-        sincos(2.0*py,&tanhsin,&tanhcos);
-        tanhsinh = sinh(2.0*px);
-        tanhcosh = cosh(2.0*px);
-        tanhden = 1.0/(tanhcos + tanhcosh);
+        sincos(2.0_r*py,&tanhsin,&tanhcos);
+        tanhsinh = ::sinh(2.0_r*px);
+        tanhcosh = ::cosh(2.0_r*px);
+        tanhden = 1.0_r/(tanhcos + tanhcosh);
         nx += weight * tanhden * tanhsinh;
         ny += weight * tanhden * tanhsin;
 
@@ -1172,9 +1170,9 @@ variations:
         FloatT sechsin,sechcos,sechsinh,sechcosh;
         FloatT sechden;
         sincos(py,&sechsin,&sechcos);
-        sechsinh = sinh(px);
-        sechcosh = cosh(px);
-        sechden = 2.0/(cos(2.0*py) + cosh(2.0*px));
+        sechsinh = ::sinh(px);
+        sechcosh = ::cosh(px);
+        sechden = 2.0_r/(::cos(2.0_r*py) + ::cosh(2.0_r*px));
         nx += weight * sechden * sechcos * sechcosh;
         ny -= weight * sechden * sechsin * sechsinh;
         
@@ -1182,19 +1180,19 @@ variations:
         FloatT cschsin,cschcos,cschsinh,cschcosh;
         FloatT cschden;
         sincos(py,&cschsin,&cschcos);
-        cschsinh = sinh(px);
-        cschcosh = cosh(px);
-        cschden = 2.0/(cosh(2.0*px) - cos(2.0*py));
+        cschsinh = ::sinh(px);
+        cschcosh = ::cosh(px);
+        cschden = 2.0_r/(::cosh(2.0_r*px) - ::cos(2.0_r*py));
         nx += weight * cschden * cschsinh * cschcos;
         ny -= weight * cschden * cschcosh * cschsin;    
 
     coth: |-
         FloatT cothsin,cothcos,cothsinh,cothcosh;
         FloatT cothden;
-        sincos(2.0*py,&cothsin,&cothcos);
-        cothsinh = sinh(2.0*px);
-        cothcosh = cosh(2.0*px);
-        cothden = 1.0/(cothcosh - cothcos);
+        sincos(2.0_r*py,&cothsin,&cothcos);
+        cothsinh = ::sinh(2.0_r*px);
+        cothcosh = ::cosh(2.0_r*px);
+        cothden = 1.0_r/(cothcosh - cothcos);
         nx += weight * cothden * cothsinh;
         ny += weight * cothden * cothsin;
 
@@ -1207,10 +1205,10 @@ variations:
                 default: 1.0
             auger_sym: {}
         src: |-
-            FloatT s = sin(auger_freq * px);
-            FloatT t = sin(auger_freq * py);
-            FloatT dy = py + auger_weight*(auger_scale*s/2.0 + fabs(py)*s);
-            FloatT dx = px + auger_weight*(auger_scale*t/2.0 + fabs(px)*t);
+            FloatT s = ::sin(auger_freq * px);
+            FloatT t = ::sin(auger_freq * py);
+            FloatT dy = py + auger_weight*(auger_scale*s/2.0_r + fabs(py)*s);
+            FloatT dx = px + auger_weight*(auger_scale*t/2.0_r + fabs(px)*t);
 
             nx += weight * (px + auger_sym*(dx-px));
             ny += weight * dy;        
@@ -1222,10 +1220,10 @@ variations:
             FloatT xpw = px + weight;
             FloatT xmw = px - weight;
             FloatT avgr = weight * (2 + flux_spread) * sqrt( sqrt(py*py + xpw*xpw) / sqrt(py*py + xmw*xmw));
-            FloatT avga = ( atan2(py, xmw) - atan2(py,xpw) ) * 0.5;
+            FloatT avga = ( atan2(py, xmw) - atan2(py,xpw) ) * 0.5_r;
 
-            nx += avgr * cos(avga);
-            ny += avgr * sin(avga);        
+            nx += avgr * ::cos(avga);
+            ny += avgr * ::sin(avga);        
 
     mobius:
         param:

@@ -124,6 +124,7 @@ auto rfkt::flame::import_flam3(const std::string& path) -> std::optional<flame>
 
 			auto vlinks = std::array<vlink, 3>{};
 			bool has_post_affine = false;
+			bool has_pre_blur = false;
 
 			for (auto& attr : node.attributes()) {
 				std::string aname = attr.name();
@@ -134,7 +135,10 @@ auto rfkt::flame::import_flam3(const std::string& path) -> std::optional<flame>
 					// flam3 treats pre_blur like pre_gaussian_blur
 					// so we make the swap here
 					aname = aname.substr(4);
-					if (aname == "blur") aname = "gaussian_blur";
+					if (aname == "blur") {
+						aname = "gaussian_blur";
+						has_pre_blur = true;
+					}
 				}
 				else if (aname.starts_with("post_")) {
 					which_vl = 2;
@@ -171,6 +175,14 @@ auto rfkt::flame::import_flam3(const std::string& path) -> std::optional<flame>
 					else cur_vl.variation(vdef.index) = attr.as_double();
 				}
 				else if (aname != "chaos") { SPDLOG_ERROR("Unknown attribute {} in flame {}", aname, path); is_bad = true; }
+			}
+
+			if (has_pre_blur) {
+				vlinks[0].affine = vlinks[1].affine;
+				vlinks[0].aff_mod_rotate = std::move(vlinks[1].aff_mod_rotate);
+				vlinks[0].add_variation(flame_info::variation("linear").index, 1.0);
+				vlinks[1].aff_mod_rotate.ani.reset();
+				vlinks[1].affine = rfkt::affine_matrix::identity();
 			}
 
 			if (vlinks[0].variation_count() > 0) {

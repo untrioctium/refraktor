@@ -1,8 +1,6 @@
 #pragma once
-#include <vector>
-#include <string>
-#include <array>
-#include <optional>
+#include <string_view>
+#include <span>
 
 #include <librefrakt/traits/noncopyable.h>
 
@@ -41,13 +39,14 @@ namespace rfkt::hash {
 	
 		auto digest() const -> hash_t;
 		void update(const void*, std::size_t);
-		void update(const std::string& s) {
-			update(s.data(), s.size());
-		}
 
 		template<typename Contained>
-		void update(const std::vector<Contained>& vec) {
-			update(vec.data(), vec.size() * sizeof(Contained));
+		void update(std::span<Contained> sp) {
+			update(sp.data(), sp.size_bytes());
+		}
+
+		void update(std::string_view s) {
+			update(s.data(), s.size());
 		}
 
 		void update(std::integral auto value) {
@@ -60,17 +59,12 @@ namespace rfkt::hash {
 
 	auto calc( const void*, std::size_t ) -> hash_t;
 
-	inline auto calc( const std::string& str ) {
-		return calc(str.c_str(), str.size());
-	}
-
-	template<typename Contained, std::size_t Size>
-	auto calc( const std::array<Contained, Size>& arr ) {
-		return calc(arr.data(), Size * sizeof(Contained));
+	inline auto calc( std::string_view str ) {
+		return calc(str.data(), str.size());
 	}
 
 	template<typename Contained>
-	auto calc( const std::vector<Contained>& vec ) {
-		return calc(vec.data(), vec.size() * sizeof(Contained));
+	auto calc( const std::span<Contained> sp ) {
+		return calc(sp.data(), sp.size_bytes());
 	}
 }

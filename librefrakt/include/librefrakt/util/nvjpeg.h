@@ -27,5 +27,7 @@ namespace rfkt::nvjpeg {
 		int max_states = 8;
 
 		nvjpegHandle_t nv_handle;
+		nvjpegDevAllocator_t dev_alloc;
+		nvjpegPinnedAllocator_t p_alloc;
 	};
 }

@@ -15,11 +15,15 @@ set(HEADER_LIST
 	"include/librefrakt/util/nvjpeg.h"
 	"include/librefrakt/util.h"
 	"include/librefrakt/animators.h"
-	"include/librefrakt/kernel_manager.h"
 	"include/librefrakt/flame_types.h"
 	"include/librefrakt/flame_info.h"
 	"include/librefrakt/flame_compiler.h"
 	"include/librefrakt/cuda_buffer.h"
+	"include/librefrakt/image/tonemapper.h"
+	"include/librefrakt/image/denoiser.h"
+	"include/librefrakt/image/converter.h"
+	"include/ezrtc.h"
+	"include/eznve.hpp"
 )
 
 add_library(librefrakt STATIC
@@ -34,21 +38,25 @@ add_library(librefrakt STATIC
 	"src/util/stb.cpp"
 	"src/util/nvenc.cpp"
 	"src/util/nvjpeg.cpp"
-	"src/kernel_manager.cpp"
 	"src/animators.cpp"
 	"src/flame_types.cpp"
 	"src/flame_info.cpp"
 	"src/flame_compiler.cpp"
+	"src/image/tonemapper.cpp"
+	"src/image/denoiser.cpp"
+	"src/image/converter.cpp"
+	"src/eznve.cpp"
 	${HEADER_LIST}
 )
 
 #set_property(TARGET librefrakt PROPERTY INTERPROCEDURAL_OPTIMIZATION TRUE)
 
 target_include_directories(librefrakt PUBLIC include)
+target_include_directories(librefrakt PRIVATE "C:/ProgramData/NVIDIA Corporation/OptiX SDK 7.6.0/include")
 
 # yaml-cpp
-set(YAML_CPP_BUILD_TESTS OFF CACHE BOOL "" FORCE)
-set(YAML_CPP_BUILD_TOOLS OFF CACHE BOOL "" FORCE)
+set(YAML_CPP_BUILD_TESTS OFF)
+set(YAML_CPP_BUILD_TOOLS OFF)
 FetchContent_Declare(
   yaml_cpp
   GIT_REPOSITORY https://github.com/jbeder/yaml-cpp.git
@@ -69,7 +77,8 @@ list(REMOVE_ITEM XXHASH_SOURCES ${xxhash_SOURCE_DIR}/xxh_x86dispatch.c)
 add_library(xxhash STATIC ${XXHASH_SOURCES})
 target_include_directories(xxhash PUBLIC ${xxhash_SOURCE_DIR})
 
-set(ZLIB_ENABLE_TESTS OFF CACHE BOOL "" FORCE)
+set(ZLIB_ENABLE_TESTS OFF)
+set(ZLIB_COMPAT ON)
 # zlib
 FetchContent_Declare(
   zlib
@@ -79,14 +88,13 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(zlib)
 target_include_directories(zlib PUBLIC ${zlib_SOURCE_DIR} ${zlib_BINARY_DIR})
 
-# sqlitecpp
-set(SQLITECPP_RUN_CPPLINT OFF CACHE BOOL "" FORCE)
-set(SQLITECPP_RUN_CPPCHECK OFF CACHE BOOL "" FORCE)
+# sqlite
 FetchContent_Declare(
-  sqlitecpp
-  GIT_REPOSITORY https://github.com/cuberite/SQLiteCpp.git
+  sqlite3
+  GIT_REPOSITORY https://github.com/azadkuh/sqlite-amalgamation
 )
-FetchContent_MakeAvailable(sqlitecpp)
+FetchContent_MakeAvailable(sqlite3)
+target_include_directories(librefrakt PUBLIC ${sqlite3_SOURCE_DIR})
 
 # concurrencpp
 FetchContent_Declare(
@@ -147,6 +155,14 @@ FetchContent_MakeAvailable(nv-codec-headers)
 target_include_directories(librefrakt PRIVATE ${nv-codec-headers_SOURCE_DIR}/include)
 
 FetchContent_Declare(
+    dylib
+    GIT_REPOSITORY "https://github.com/martin-olivier/dylib"
+    GIT_TAG        "v2.1.0"
+)
+FetchContent_MakeAvailable(dylib)
+
+
+FetchContent_Declare(
   lua
   GIT_REPOSITORY https://github.com/walterschell/Lua.git
   GIT_TAG master
@@ -161,18 +177,19 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(sol2)
 
+target_compile_definitions(librefrakt PUBLIC EZRTC_USE_ZLIB EZRTC_USE_SQLITE)
 
 target_link_libraries(librefrakt PRIVATE 
 	xxhash 
 	CUDA::nvrtc
-	CUDA::nvml
 	CUDA::nvjpeg
-	zlibstatic
 	stb
+	dylib
 )
 
 target_link_libraries(librefrakt PUBLIC 
 	spdlog 
+	CUDA::nvml
 	CUDA::cuda_driver
 	fmt::fmt
 	concurrencpp
@@ -180,6 +197,7 @@ target_link_libraries(librefrakt PUBLIC
 	lua_static
 	sol2
 	yaml-cpp
-	SQLiteCpp
+	SQLite3
+	zlibstatic
 	pugixml
 )

@@ -1,19 +1,16 @@
+#include <cuda_fp16.h>
+
 #define DEBUG(...) if(threadIdx.x == 0 && blockIdx.x == 0) {printf(__VA_ARGS__);}
 
-template<bool Planar>
-constexpr auto image_type() {
-	if constexpr(Planar) 
-		return static_cast<unsigned char>(0);
-	else 
-		return uchar4{0};
-}
+struct half3 {
+	__half x, y, z;
+};
 
-template<bool Planar>
-__global__ void tonemap(const float4* __restrict__ bins, decltype(image_type<Planar>())*  __restrict__ image, unsigned int dims_x, unsigned int dims_y, float gamma, float scale_constant, float brightness, float vibrancy) {
+__global__ void tonemap(const float4* __restrict__ bins, const ushort4* __restrict__ accumulator, half3* __restrict__ image, unsigned int dims_x, unsigned int dims_y, float gamma, float scale_constant, float brightness, float vibrancy) {
 
 	//DEBUG("%dx%d (%f,%f,%f,%f)\n", dims_x, dims_y, gamma, scale_constant, brightness, vibrancy);
 
-	const uchar4 background = { 0, 0, 0, 255 };
+	const half3 background = { 0, 0, 0 };
 	const uint2 pos = {
 		threadIdx.x + blockIdx.x * blockDim.x,
 		threadIdx.y + blockIdx.y * blockDim.y
@@ -24,17 +21,16 @@ __global__ void tonemap(const float4* __restrict__ bins, decltype(image_type<Pla
 	const unsigned int bin_idx = (pos.y) * dims_x + pos.x;
 	float4 col = bins[bin_idx];
 
-	if(col.w == 0.0) {
-		if constexpr(Planar) {
-			const auto channel_stride = dims_x * dims_y;
-			image[bin_idx] = background.x;
-			image[channel_stride + bin_idx] = background.y;
-			image[2 * channel_stride + bin_idx] = background.z;
-			image[3 * channel_stride + bin_idx] = background.w;
+	if(accumulator != nullptr) {
+		ushort4 accum = accumulator[bin_idx];
+		col.x += accum.x / 255.0f;
+		col.y += accum.y / 255.0f;
+		col.z += accum.z / 255.0f;
+		col.w += accum.w / 255.0f;
+	}
 
-		} else {
-			image[bin_idx] = background;
-		}
+	if(col.w == 0.0) {
+		image[bin_idx] = background;
 		return;
 	}
 
@@ -53,19 +49,5 @@ __global__ void tonemap(const float4* __restrict__ bins, decltype(image_type<Pla
 
 	#define interp(left, right, mix) ((left) * (1.0f - (mix)) + (right) * (mix))
 
-	if constexpr(Planar) {
-		const auto channel_stride = dims_x * dims_y;
-		image[bin_idx] = min(255.0f, col.x * 255.0f);
-		image[channel_stride + bin_idx] = min(255.0f, col.y * 255.0f);
-		image[2 * channel_stride + bin_idx] = min(255.0f, col.z * 255.0f);
-		image[3 * channel_stride + bin_idx] = 255;
-	}
-	else {
-		image[bin_idx] = {
-			(unsigned char) min(255.0f, col.x * 255.0f),
-			(unsigned char) min(255.0f, col.y * 255.0f),
-			(unsigned char) min(255.0f, col.z * 255.0f),
-			255//(unsigned char) min(255.0f, col.w * 255.0f)
-		};
-	}
+	image[bin_idx] = { __float2half(col.x), __float2half(col.y), __float2half(col.z) };
 }

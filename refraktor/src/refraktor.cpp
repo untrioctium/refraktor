@@ -15,6 +15,11 @@
 #include <sol/sol.hpp>
 #include <librefrakt/util/nvjpeg.h>
 
+#include <librefrakt/util/gpuinfo.h>
+#include <librefrakt/image/denoiser.h>
+#include <librefrakt/image/tonemapper.h>
+#include <librefrakt/image/converter.h>
+
 bool break_loop = false;
 
 int mux(const rfkt::fs::path& in, const rfkt::fs::path& out, double fps) {
@@ -25,46 +30,6 @@ int mux(const rfkt::fs::path& in, const rfkt::fs::path& out, double fps) {
 	auto ret = p.wait_for_exit();
 	SPDLOG_INFO("Muxer returned {}", ret);
 	return ret;
-}
-
-namespace rfkt {
-	class tonemapper {
-	public:
-		tonemapper(kernel_manager& km) {
-			auto [tm_result, mod] = km.compile_file("assets/kernels/tonemap.cu",
-				rfkt::compile_opts("tonemap")
-				.function("tonemap<false>")
-				.function("tonemap<true>")
-				.flag(rfkt::compile_flag::extra_vectorization)
-				.flag(rfkt::compile_flag::use_fast_math)
-			);
-
-			if (!tm_result.success) {
-				SPDLOG_ERROR("{}", tm_result.log);
-				exit(1);
-			}
-
-			tm = std::move(mod);
-		}
-
-		void run(CUdeviceptr bins, CUdeviceptr out, uint2 dims, double quality, bool planar, double gamma, double brightness, double vibrancy, CUstream stream) const {
-
-			auto kernel = tm.kernel(planar ? "tonemap<true>" : "tonemap<false>");
-
-			CUDA_SAFE_CALL(kernel.launch({ dims.x / 8 + 1, dims.y / 8 + 1, 1 }, { 8, 8, 1 }, stream)(
-				bins,
-				out,
-				dims.x, dims.y,
-				static_cast<float>(gamma),
-				std::powf(10.0f, -log10f(quality) - 0.5f),
-				static_cast<float>(brightness),
-				static_cast<float>(vibrancy)
-				));
-
-		}
-	private:
-		cuda_module tm;
-	};
 }
 
 rfkt::flame interpolate_dumb(const rfkt::flame& fl, const rfkt::flame& fr) {
@@ -170,7 +135,31 @@ rfkt::flame interpolate_dumb(const rfkt::flame& fl, const rfkt::flame& fr) {
 	return ret;
 }
 
+class pipeline {
+public:
+
+
+
+private:
+
+	//rfkt::cuda_buffer
+
+	rfkt::flame_compiler& fc;
+	rfkt::tonemapper& tm;
+	rfkt::denoiser& dn;
+	ezrtc::module converter;
+};
+
 int main() {
+	auto ctx = rfkt::cuda::init();
+
+	rfkt::gpuinfo::init();
+
+	auto dev = rfkt::gpuinfo::device::by_index(0);
+
+	SPDLOG_INFO("clock: {}", dev.clock());
+	SPDLOG_INFO("max clock: {}", dev.max_clock());
+
 	rfkt::flame_info::initialize("config/variations.yml");
 
 	sol::state lua;
@@ -178,18 +167,27 @@ int main() {
 
 	using namespace rfkt;
 
-	auto ctx = rfkt::cuda::init();
-	auto km = rfkt::kernel_manager{};
+
+	rfkt::denoiser::init(ctx);
+	auto dn = rfkt::denoiser{ { 1920, 1080 }, false };
+
+	auto km = ezrtc::compiler{std::make_shared<ezrtc::cache_adaptors::zlib>(std::make_shared<ezrtc::sqlite_cache>("k2.sqlite3"))};
+	km.find_system_cuda();
+	km.add_include_path("assets/kernels/include");
+
+	auto jpeg_stream = rfkt::cuda_stream{};
+
 	auto fc = rfkt::flame_compiler{ km };
-	auto jpeg = rfkt::nvjpeg::encoder{ rfkt::cuda::thread_local_stream() };
+	auto jpeg = rfkt::nvjpeg::encoder{ jpeg_stream };
 	auto tm = rfkt::tonemapper{ km };
+	auto conv = rfkt::converter{ km };
+
 
 	lua["use_logging"] = [](bool log) {
 		spdlog::set_level((log) ? spdlog::level::info: spdlog::level::off);
 	};
 
-	lua["render_jpeg"] = [&fc, &tm, &jpeg](sol::table args) -> bool {
-		auto tls = rfkt::cuda::thread_local_stream();
+	lua["render_jpeg"] = [&fc, &tm, &jpeg, &dn, &conv, &tls = jpeg_stream](sol::table args) -> bool {
 
 		if (!args["flame"].valid()) return false;
 
@@ -203,38 +201,66 @@ int main() {
 		unsigned int fps = args.get_or("fps", 30u);
 		unsigned int loop_speed = args.get_or("loop_speed", 5000);
 		unsigned int bin_time = args.get_or("bin_time", 2000);
+		bool denoise = args.get_or("denoise", true);
 
 		if (width > 3840) width = 3840;
 		if (height > 2160) height = 2160;
-		if (quality > 2000) quality = 2000;
-		if (bin_time > 2000) bin_time = 2000;
-		if (jpeg_quality <= 0) jpeg_quality = 100;
+		if (quality > 200000) quality = 200000;
+		if (bin_time > 60000) bin_time = 60000;
+		if (jpeg_quality <= 0) jpeg_quality = 1;
 		if (jpeg_quality > 100) jpeg_quality = 100;
 
 		auto k_result = fc.get_flame_kernel(rfkt::precision::f32, f);
+
 		if (!k_result.kernel.has_value()) {
-			SPDLOG_INFO("{}", k_result.source);
+			SPDLOG_INFO("\n{}", k_result.source);
 			SPDLOG_INFO("{}", k_result.log);
+
 			return false;
 		}
 
 		auto kernel = rfkt::flame_kernel{ std::move(k_result.kernel.value()) };
 
-		auto render = rfkt::cuda::make_buffer_async<uchar4>(width * height, tls);
+
+		auto render = rfkt::cuda_buffer<half3>{ width * height, tls };
+		rfkt::timer t;
 		auto state = kernel.warmup(tls, f, { width, height }, time, 1, double(fps) / loop_speed, 0xdeadbeef, 100);
+		cuStreamSynchronize(tls);
+		auto warmup_time = t.count();
+		t.reset();
 
 		auto result = kernel.bin(tls, state, quality, bin_time, 1'000'000'000).get();
+		auto rbin_time = t.count();
+
+		double mdraws_per_ms = result.total_draws / result.elapsed_ms / 1'000'000;
+		SPDLOG_INFO("mdraws per ms: {}", mdraws_per_ms);
 
 		auto max_error = 0.0f;
 		for (int i = 0; i < f.xforms.size(); i++) {
-			auto diff = std::abs(state.norm_xform_weights[i] - result.xform_selections[i]) / state.norm_xform_weights[i] * 100.0;
+			auto diff = std::abs(state.norm_xform_weights[i] - result.xform_selections[i]) * 100.0;
 			if (diff > max_error) max_error = diff;
 		}
 
 		SPDLOG_INFO("max xform error: {:.5}%", max_error);
 
-		tm.run(state.bins.ptr(), render.ptr(), { width, height }, quality, true, f.gamma.sample(time), f.brightness.sample(time), f.vibrancy.sample(time), tls);
-		auto data = jpeg.encode_image(render.ptr(), width, height, jpeg_quality, tls).get();
+		t.reset();
+		tm.run(state.bins, render, {width, height}, result.quality, f.gamma.sample(time), f.brightness.sample(time), f.vibrancy.sample(time), tls);
+		cuStreamSynchronize(tls);
+		auto tm_time = t.count();
+
+		auto out = rfkt::cuda_buffer<uchar4>(width * height, tls);
+		auto smooth = rfkt::cuda_buffer<half3>(width * height, tls);
+
+		auto dn_time = (denoise) ? dn.denoise({ width, height }, render, smooth, tls).get() : 0.0;
+
+		t.reset();
+		conv.to_24bit((denoise) ? smooth : render, out, { width, height }, true, tls);
+		cuStreamSynchronize(tls);
+		auto conv_time = t.count();
+
+		SPDLOG_INFO("warmup: {} bin: {} tonemap: {} denoise: {} convert: {}", warmup_time, rbin_time, tm_time, dn_time, conv_time);
+
+		auto data = jpeg.encode_image(out.ptr(), width, height, jpeg_quality, tls).get();
 
 		fs::write(output_file, (const char *) data.data(), data.size(), false);
 		return true;
