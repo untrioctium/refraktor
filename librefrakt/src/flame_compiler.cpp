@@ -638,19 +638,19 @@ auto rfkt::flame_kernel::warmup(CUstream stream, std::span<const double> samples
     const auto [grid, block] = this->catmull->kernel().suggested_dims();
     auto nblocks = (nseg * samples.size()) / block;
     if ((nseg * samples.size()) % block > 0) nblocks++;
-   // CUDA_SAFE_CALL(
+    CUDA_SAFE_CALL(
         this->catmull->kernel().launch(nblocks, block, stream, false)
         (
             samples_dev.ptr(),
             static_cast<std::uint32_t>(flame_size_reals),
             nseg ,
             segments_dev.ptr()
-            );
+            ));
 
 
     auto state = flame_kernel::saved_state{ dims, this->saved_state_size(), stream, {} };
 
-   // CUDA_SAFE_CALL(
+    CUDA_SAFE_CALL(
         this->mod.kernel("warmup")
         .launch(this->exec.first, this->exec.second, stream, true)
         (
@@ -658,7 +658,7 @@ auto rfkt::flame_kernel::warmup(CUstream stream, std::span<const double> samples
             segments_dev.ptr(),
             seed, count,
             state.shared.ptr()
-            );
+            ));
 
     segments_dev.free_async(stream);
     samples_dev.free_async(stream);

@@ -53,5 +53,4 @@ prof.*
 render*
 imgui.ini
 *.sqlite3
-src/
 scripts/
