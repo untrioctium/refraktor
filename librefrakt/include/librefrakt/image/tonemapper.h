@@ -31,7 +31,6 @@ namespace rfkt {
 
 			CUDA_SAFE_CALL(tm.kernel("tonemap").launch({ dims.x / 8 + 1, dims.y / 8 + 1, 1 }, { 8, 8, 1 }, stream)(
 				bins.ptr(),
-				0,
 				out,
 				dims.x, dims.y,
 				static_cast<float>(gamma),
@@ -42,20 +41,6 @@ namespace rfkt {
 
 		}
 
-		void run(cuda_view<float4> bins, cuda_view<ushort4> accumulator, cuda_view<half3> out, uint2 dims, double quality, double gamma, double brightness, double vibrancy, cuda_stream& stream) const {
-
-			CUDA_SAFE_CALL(tm.kernel("tonemap").launch({ dims.x / 8 + 1, dims.y / 8 + 1, 1 }, { 8, 8, 1 }, stream)(
-				bins.ptr(),
-				accumulator.ptr(),
-				out,
-				dims.x, dims.y,
-				static_cast<float>(gamma),
-				std::powf(10.0f, -log10f(quality) - 0.5f),
-				static_cast<float>(brightness),
-				static_cast<float>(vibrancy)
-				));
-
-		}
 	private:
 		ezrtc::module tm;
 	};

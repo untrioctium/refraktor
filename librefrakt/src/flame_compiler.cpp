@@ -513,7 +513,7 @@ auto rfkt::flame_kernel::bin(CUstream stream, flame_kernel::saved_state & state,
         (std::size_t)(target_quality * stream_state->total_bins * 255.0),
         iter_bailout,
         static_cast<std::uint64_t>(ms_bailout) * 1'000'000,
-        state.bins.ptr(), std::size_t{ 0 }, state.bin_dims.x, state.bin_dims.y,
+        state.bins.ptr(), state.bin_dims.x, state.bin_dims.y,
         stream_state->qpx_dev.ptr(),
         stream_state->qpx_dev.ptr() + counter_size,
         stream_state->qpx_dev.ptr() + 2 * counter_size

@@ -61,7 +61,6 @@ namespace rfkt {
 
 		struct saved_state: public traits::noncopyable {
 			cuda_buffer<float4> bins = {};
-			cuda_buffer<ushort4> accumulator = {};
 			uint2 bin_dims = {};
 			double quality = 0.0;
 			std::vector<double> norm_xform_weights;
@@ -75,7 +74,6 @@ namespace rfkt {
 			}
 			saved_state& operator=(saved_state&& o) noexcept {
 				std::swap(bins, o.bins);
-				std::swap(accumulator, o.accumulator);
 				std::swap(bin_dims, o.bin_dims);
 				std::swap(shared, o.shared);
 				std::swap(norm_xform_weights, o.norm_xform_weights);
@@ -84,12 +82,10 @@ namespace rfkt {
 
 			saved_state(uint2 dims, std::size_t nbytes, CUstream stream, std::vector<double>&& norm_xform_weights) :
 				bins(dims.x* dims.y, stream),
-				accumulator(dims.x * dims.y, stream),
 				bin_dims(dims),
 				shared(nbytes, stream),
 				norm_xform_weights(std::move(norm_xform_weights)) {
 				bins.clear(stream);
-				accumulator.clear(stream);
 			}
 		};
 

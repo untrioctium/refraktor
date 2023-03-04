@@ -6,7 +6,7 @@ struct half3 {
 	__half x, y, z;
 };
 
-__global__ void tonemap(const float4* __restrict__ bins, const ushort4* __restrict__ accumulator, half3* __restrict__ image, unsigned int dims_x, unsigned int dims_y, float gamma, float scale_constant, float brightness, float vibrancy) {
+__global__ void tonemap(const float4* __restrict__ bins, half3* __restrict__ image, unsigned int dims_x, unsigned int dims_y, float gamma, float scale_constant, float brightness, float vibrancy) {
 
 	//DEBUG("%dx%d (%f,%f,%f,%f)\n", dims_x, dims_y, gamma, scale_constant, brightness, vibrancy);
 
@@ -20,14 +20,6 @@ __global__ void tonemap(const float4* __restrict__ bins, const ushort4* __restri
 
 	const unsigned int bin_idx = (pos.y) * dims_x + pos.x;
 	float4 col = bins[bin_idx];
-
-	if(accumulator != nullptr) {
-		ushort4 accum = accumulator[bin_idx];
-		col.x += accum.x / 255.0f;
-		col.y += accum.y / 255.0f;
-		col.z += accum.z / 255.0f;
-		col.w += accum.w / 255.0f;
-	}
 
 	if(col.w == 0.0) {
 		image[bin_idx] = background;

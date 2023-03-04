@@ -119,7 +119,7 @@
 
     document.addEventListener('DOMContentLoaded', function () {
       var socketURL = "ws://" + location.host + "/stream";
-      var fps = 25
+      var fps = 30
       var jmuxer = new JMuxer({
         node: 'player',
         mode: "video",
@@ -145,8 +145,8 @@
         console.log('Socket Error');
       });
 
-	  var vwidth =  2560;
-	  var vheight = 1440;
+	  var vwidth =  1280;
+	  var vheight = 720;
 	  
 	  var beats_per_minute = 100;
 	  var beats_per_measure = 4;
@@ -166,9 +166,9 @@
           width: vwidth,
           height: vheight,
           loop_length: loop_length,
-		      flame: "247.31464",
-		      upscale: false,
-          embellish: false
+		      flame: "247.50467",
+		      upscale: true,
+          embellish: true
         });
 
         console.log(payload)

@@ -214,7 +214,7 @@ void bin(
 	const uint64 quality_target,
 	const uint32 iter_bailout,
 	const uint64 time_bailout,
-	float4* const __restrict__ bins, ushort4* const __restrict__ accumulator, const uint32 bins_w, const uint32 bins_h,
+	float4* const __restrict__ bins, const uint32 bins_w, const uint32 bins_h,
 	uint64* const __restrict__ quality_counter, uint64* const __restrict__ pass_counter,
 	uint64* const __restrict__ xform_counters )
 {
@@ -269,37 +269,14 @@ void bin(
 			};
 
 //			DEBUG_BLOCK("%d %d %d %d", result.x, result.y, result.z, result.w);
-			if(false or accumulator != nullptr) {
-				ushort4 accum = accumulator[bin_idx];
-				// if we would overflow 
-				if(65535 - accum.w < result.w) {
-					float4& bin = bins[bin_idx];
-					accumulator[bin_idx] = {0, 0, 0, 0};
+			float4& bin = bins[bin_idx];
 
-					float4 new_bin = bins[bin_idx];
-					new_bin.x += accum.x/255.0f + result.x/255.0f;
-					new_bin.y += accum.y/255.0f + result.y/255.0f;
-					new_bin.z += accum.z/255.0f + result.z/255.0f;
-					new_bin.w += accum.w/255.0f + result.w/255.0f;
-					bins[bin_idx] = new_bin;
-				} else {
-					accumulator[bin_idx] = {
-						accum.x + result.x,
-						accum.y + result.y,
-						accum.z + result.z,
-						accum.w + result.w
-					};
-				}
-			} else {
-				float4& bin = bins[bin_idx];
-
-				float4 new_bin = bin;
-				new_bin.x += result.x/255.0f;
-				new_bin.y += result.y/255.0f;
-				new_bin.z += result.z/255.0f;
-				new_bin.w += result.w/255.0f;
-				bin = new_bin;
-			}
+			float4 new_bin = bin;
+			new_bin.x += result.x/255.0f;
+			new_bin.y += result.y/255.0f;
+			new_bin.z += result.z/255.0f;
+			new_bin.w += result.w/255.0f;
+			bin = new_bin;
 			
 			hit = (unsigned int)(result.w);
 		}

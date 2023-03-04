@@ -557,7 +557,6 @@ namespace rfkt {
 			}
 
 			lf->bins = std::move(state.bins);
-			lf->accumulator = std::move(state.accumulator);
 			lf->quality = frame_quality;
 			lf->gamma = self->flame->gamma.sample(t);
 			lf->brightness = self->flame->brightness.sample(t);
