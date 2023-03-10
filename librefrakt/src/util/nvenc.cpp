@@ -127,7 +127,6 @@ namespace rfkt::nvenc::detail {
 	}
 }
 
-
 auto rfkt::nvenc::session::make() -> std::unique_ptr<session> {
 	std::unique_ptr<session> sesh{ new session{} };
 

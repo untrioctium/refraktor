@@ -42,6 +42,6 @@ namespace rfkt {
 		}
 
 	private:
-		ezrtc::module tm;
+		ezrtc::cuda_module tm;
 	};
 }

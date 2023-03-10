@@ -348,7 +348,7 @@ rfkt::flame_compiler::flame_compiler(ezrtc::compiler& k_manager): km(k_manager)
         SPDLOG_ERROR(result.log);
         exit(1);
     }
-    this->catmull = std::make_shared<ezrtc::module>(std::move(result.module.value()));
+    this->catmull = std::make_shared<ezrtc::cuda_module>(std::move(result.module.value()));
     auto func = (*catmull)();
     auto [s_grid, s_block] = func.suggested_dims();
     SPDLOG_INFO("Loaded catmull kernel: {} regs, {} shared, {} local, {}x{} suggested dims", func.register_count(), func.shared_bytes(), func.local_bytes(), s_grid, s_block);
@@ -370,9 +370,9 @@ auto rfkt::flame_compiler::make_opts(precision prec, const flame& f)->std::pair<
         }
     }
 
-    //while (exec_configs[most_blocks_idx].grid > 500) {
-    //    most_blocks_idx--;
-    //}
+    while (exec_configs[most_blocks_idx].grid > 500) {
+        most_blocks_idx--;
+    }
 
     //if (most_blocks_idx > 0) most_blocks_idx--;
     auto& most_blocks = exec_configs[most_blocks_idx];
@@ -476,7 +476,6 @@ auto rfkt::flame_kernel::bin(CUstream stream, flame_kernel::saved_state & state,
         decltype(start) end;
         std::size_t total_bins;
         std::size_t num_threads;
-        std::size_t num_xforms;
 
         cuda_buffer<std::size_t> qpx_dev;
 
@@ -487,14 +486,13 @@ auto rfkt::flame_kernel::bin(CUstream stream, flame_kernel::saved_state & state,
 
     auto stream_state = new stream_state_t{};
     auto future = stream_state->promise.get_future();
-    const auto num_counters = 2 + state.norm_xform_weights.size();
+    const auto num_counters = 2;
     const auto alloc_size = counter_size * num_counters;
 
     stream_state->qpx_host = pra.reserve<std::size_t>(num_counters);
 
     stream_state->total_bins = state.bin_dims.x * state.bin_dims.y;
     stream_state->num_threads = exec.first * exec.second;
-    stream_state->num_xforms = state.norm_xform_weights.size();
 
     stream_state->qpx_dev = rfkt::cuda_buffer<std::size_t>{ num_counters, stream };
     stream_state->qpx_dev.clear(stream);
@@ -526,22 +524,13 @@ auto rfkt::flame_kernel::bin(CUstream stream, flame_kernel::saved_state & state,
         auto* ss = (stream_state_t*)ptr;
         ss->end = std::chrono::high_resolution_clock::now();
 
-        auto actual_weights = std::vector<double>{};
-        actual_weights.resize(ss->num_xforms);
-
-        const auto& total_passes = ss->qpx_host[1];
-        for (int i = 0; i < ss->num_xforms; i++) {
-            actual_weights[i] = double(ss->qpx_host[i + 2]) / total_passes;
-        }
-
         ss->promise.set_value(flame_kernel::bin_result{
             ss->qpx_host[0] / (ss->total_bins * 255.0),
             std::chrono::duration_cast<std::chrono::nanoseconds>(ss->end - ss->start).count() / 1'000'000.0,
             ss->qpx_host[1],
             ss->qpx_host[0] / 255,
             ss->total_bins,
-            double(ss->qpx_host[1]) / (ss->num_threads),
-            std::move(actual_weights)
+            double(ss->qpx_host[1]) / (ss->num_threads)
         });
 
         delete ss;
@@ -555,25 +544,11 @@ auto rfkt::flame_kernel::warmup(CUstream stream, const flame& f, uint2 dims, dou
 {
     const auto nreals = f.real_count() + 256ull * 3ull;
     const auto pack_size_reals = nreals * (nseg + 3ull);
-    const auto pack_size_bytes = sizeof(double) * pack_size_reals;
-
-    std::vector<double> norm_weights;
-    norm_weights.resize(f.xforms.size());
-        
-    auto weight_sum = [](const flame& f, double t) -> double {
-        double ret = 0;
-        for (const auto& xf : f.xforms) ret += xf.weight.sample(t);
-        return ret;
-    }(f, t);
-
-    for (int i = 0; i < f.xforms.size(); i++) {
-        norm_weights.at(i) = f.xforms.at(i).weight.sample(t) / weight_sum;
-    }
 
     auto samples_dev = rfkt::cuda_buffer<double>{ pack_size_reals, stream };
     auto segments_dev = rfkt::cuda_buffer<double>{ pack_size_reals * 4 * nseg, stream };
 
-    auto state = flame_kernel::saved_state{ dims, this->saved_state_size(), stream, std::move(norm_weights)};
+    auto state = flame_kernel::saved_state{ dims, this->saved_state_size(), stream};
 
     thread_local pinned_ring_allocator_t<1024 * 1024 * 8> pra{};
     const auto pack = pra.reserve<double>(pack_size_reals);
@@ -628,8 +603,7 @@ auto rfkt::flame_kernel::warmup(CUstream stream, std::span<const double> samples
     thread_local pinned_ring_allocator_t<1024 * 1024 * 8> pra{};
 
     auto pinned_samples = pra.reserve<double>(samples.size());
-    std::copy(samples.begin(), samples.end(), pinned_samples.begin());
-
+    std::ranges::copy(samples, std::begin(pinned_samples));
     auto samples_dev = rfkt::cuda_buffer<double>{ samples.size(), stream};
     samples_dev.from_host(pinned_samples, stream);
 
@@ -648,7 +622,7 @@ auto rfkt::flame_kernel::warmup(CUstream stream, std::span<const double> samples
             ));
 
 
-    auto state = flame_kernel::saved_state{ dims, this->saved_state_size(), stream, {} };
+    auto state = flame_kernel::saved_state{ dims, this->saved_state_size(), stream };
 
     CUDA_SAFE_CALL(
         this->mod.kernel("warmup")

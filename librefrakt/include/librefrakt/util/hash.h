@@ -11,13 +11,8 @@ namespace rfkt {
 		hash_t() = default;
 		hash_t(std::size_t low, std::size_t high) : bytes(low, high) {}
 
-		bool operator == (const rfkt::hash_t& o) const noexcept {
-			return bytes.first == o.bytes.first && bytes.second == o.bytes.second;
-		}
-
-		auto operator <=> (const rfkt::hash_t& o) const noexcept {
-			return bytes <=> o.bytes;
-		}
+		bool operator == (const rfkt::hash_t& o) const noexcept = default;
+		auto operator <=> (const rfkt::hash_t& o) const noexcept = default;
 
 		auto str16() const->std::string;
 		auto str32() const->std::string;

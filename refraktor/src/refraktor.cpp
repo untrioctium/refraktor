@@ -147,7 +147,7 @@ private:
 	rfkt::flame_compiler& fc;
 	rfkt::tonemapper& tm;
 	rfkt::denoiser& dn;
-	ezrtc::module converter;
+	ezrtc::cuda_module converter;
 };
 
 int main() {
@@ -234,14 +234,6 @@ int main() {
 
 		double mdraws_per_ms = result.total_draws / result.elapsed_ms / 1'000'000;
 		SPDLOG_INFO("mdraws per ms: {}", mdraws_per_ms);
-
-		auto max_error = 0.0f;
-		for (int i = 0; i < f.xforms.size(); i++) {
-			auto diff = std::abs(state.norm_xform_weights[i] - result.xform_selections[i]) * 100.0;
-			if (diff > max_error) max_error = diff;
-		}
-
-		SPDLOG_INFO("max xform error: {:.5}%", max_error);
 
 		t.reset();
 		tm.run(state.bins, render, {width, height}, result.quality, f.gamma.sample(time), f.brightness.sample(time), f.vibrancy.sample(time), tls);

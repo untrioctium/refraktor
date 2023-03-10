@@ -12,36 +12,6 @@
 
 namespace rfkt {
 
-	template<typename T>
-	struct pinned_allocator {
-		using value_type = T;
-
-		pinned_allocator() = default;
-
-		template<class U>
-		constexpr pinned_allocator(const pinned_allocator<U>&) noexcept {}
-
-		[[nodiscard]] T* allocate(std::size_t n) {
-			if (n > std::numeric_limits<std::size_t>::max() / sizeof(T))
-				throw std::bad_array_new_length();
-
-			T* ret = nullptr;
-			auto result = cuMemAllocHost(&ret, sizeof(T) * n);
-			if (ret == nullptr or result != CUDA_SUCCESS) {
-				throw std::bad_alloc();
-			}
-
-			return ret;
-		}
-
-		void deallocate(T* p, std::size_t n) noexcept {
-			cuMemFreeHost(p);
-		}
-	};
-
-	template<typename T>
-	using pinned_vector = std::vector<T, pinned_allocator<T>>;
-
 	class flame_compiler;
 
 	class flame_kernel: public traits::noncopyable {
@@ -63,7 +33,6 @@ namespace rfkt {
 			cuda_buffer<float4> bins = {};
 			uint2 bin_dims = {};
 			double quality = 0.0;
-			std::vector<double> norm_xform_weights;
 			cuda_buffer<> shared = {};
 
 			std::shared_future<double> warmup_ms;
@@ -76,15 +45,13 @@ namespace rfkt {
 				std::swap(bins, o.bins);
 				std::swap(bin_dims, o.bin_dims);
 				std::swap(shared, o.shared);
-				std::swap(norm_xform_weights, o.norm_xform_weights);
 				return *this;
 			}
 
-			saved_state(uint2 dims, std::size_t nbytes, CUstream stream, std::vector<double>&& norm_xform_weights) :
+			saved_state(uint2 dims, std::size_t nbytes, CUstream stream) :
 				bins(dims.x* dims.y, stream),
 				bin_dims(dims),
-				shared(nbytes, stream),
-				norm_xform_weights(std::move(norm_xform_weights)) {
+				shared(nbytes, stream) {
 				bins.clear(stream);
 			}
 		};
@@ -114,14 +81,14 @@ namespace rfkt {
 
 		std::size_t saved_state_size() const { return mod("bin").shared_bytes() * exec.first; }
 
-		flame_kernel(const rfkt::hash_t& flame_hash, std::size_t flame_size_reals, ezrtc::module&& mod, std::pair<int,int> exec, std::shared_ptr<ezrtc::module>& catmull, std::size_t device_hz) :
+		flame_kernel(const rfkt::hash_t& flame_hash, std::size_t flame_size_reals, ezrtc::cuda_module&& mod, std::pair<int,int> exec, std::shared_ptr<ezrtc::cuda_module>& catmull, std::size_t device_hz) :
 			mod(std::move(mod)), flame_hash(flame_hash), exec(exec), catmull(catmull), device_hz(device_hz) {
 		}
 
-		std::shared_ptr<ezrtc::module> catmull = nullptr;
+		std::shared_ptr<ezrtc::cuda_module> catmull = nullptr;
 		std::size_t flame_size_reals = 0;
 		rfkt::hash_t flame_hash = {};
-		ezrtc::module mod = {};
+		ezrtc::cuda_module mod = {};
 		std::pair<std::uint32_t, std::uint32_t> exec = {};
 		std::size_t device_hz;
 	};
@@ -172,6 +139,6 @@ namespace rfkt {
 		decltype(std::declval<cuda::device_t>().concurrent_block_configurations()) exec_configs;
 		std::size_t num_shufs = 4096;
 
-		std::shared_ptr<ezrtc::module> catmull;
+		std::shared_ptr<ezrtc::cuda_module> catmull;
 	};
 }

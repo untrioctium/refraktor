@@ -944,8 +944,8 @@ int main(int argc, char** argv) {
 
 		if (rd.width > 3840) rd.width = 3840;
 		if (rd.height > 2160) rd.height = 2160;
-		if (rd.quality > 2048) rd.quality = 2048;
-		if (rd.bin_time > 2000) rd.bin_time = 2000;
+		if (rd.quality > 20480) rd.quality = 20480;
+		if (rd.bin_time > 20000) rd.bin_time = 20000;
 		if (rd.jpeg_quality <= 0 || rd.jpeg_quality > 100) rd.jpeg_quality = 85;
 
 		auto cd = http_connection_data::make(res);
@@ -988,30 +988,15 @@ int main(int argc, char** argv) {
 			auto state = kernel.warmup(jpeg_stream, fopt.value(), { rd.width, rd.height }, rd.time, rd.segments, double(rd.fps) / rd.loop_speed, 0xdeadbeef, 100);
 
 			timer.reset();
+			auto meter = rfkt::gpuinfo::power_meter{ rfkt::gpuinfo::device::by_index(0) };
 			auto result = kernel.bin(jpeg_stream, state, rd.quality, rd.bin_time, 1'000'000'000).get();
+			auto joules = meter.joules();
 			auto t_bin = result.elapsed_ms;
 
-			auto max_error = 0.0f;
-			for (int i = 0; i < fopt->xforms.size(); i++) {
-				auto diff = std::abs(state.norm_xform_weights[i] - result.xform_selections[i])/state.norm_xform_weights[i] * 100.0;
-				if (diff > max_error) max_error = diff;
-			}
+			auto power = joules / (t_bin / 1000.0);
+			auto power_per_pass = joules / (result.total_passes / 1'000'000'000.0);
 
-			SPDLOG_INFO("max xform error: {:.5}%", max_error);
-
-			/*auto smoothed = rfkt::cuda::make_buffer_async<float4>(rd.width * rd.height, tls);
-			cuMemsetD32Async(smoothed.ptr(), 0, rd.width* rd.height * 4, tls);
-
-			sm().launch({ rd.width / 8 + 1, rd.height / 8 + 1, 1 }, { 8,8,1 }, tls)(
-				state.bins.ptr(),
-				smoothed.ptr(),
-				rd.width, rd.height,
-				(int) 11,
-				(int) 0,
-				0.6f
-				);
-			*/
-			SPDLOG_INFO("load {}, kernel {}, bin {}, quality {}", t_load, t_kernel, t_bin, result.quality);
+			SPDLOG_INFO("load {:.4}, kernel {:.4}, bin {:.4}, quality {:.4}, {:.4} watts, {:.4} joules per billion passes", t_load, t_kernel, t_bin, result.quality, power, power_per_pass);
 
 			tm.run(state.bins, tonemapped, { rd.width, rd.height }, result.quality, fopt->gamma.sample(rd.time), fopt->brightness.sample(rd.time), fopt->vibrancy.sample(rd.time), jpeg_stream);
 			dn.denoise({ rd.width, rd.height }, tonemapped, smoothed, jpeg_stream);

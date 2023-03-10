@@ -42,10 +42,10 @@ auto rfkt::hash_t::str16() const -> std::string
 
 auto rfkt::hash_t::str32() const -> std::string
 {
-	return cppcodec::base32_crockford::encode((unsigned char*)&bytes, sizeof(bytes));
+	return cppcodec::base32_crockford::encode((const unsigned char*)&bytes, sizeof(bytes));
 }
 
 auto rfkt::hash_t::str64() const -> std::string
 {
-	return cppcodec::base64_url_unpadded::encode((unsigned char*)&bytes, sizeof(bytes));
+	return cppcodec::base64_url_unpadded::encode((const unsigned char*)&bytes, sizeof(bytes));
 }

@@ -11,8 +11,8 @@ namespace rfkt {
 
 		timer() { reset(); }
 
-		auto count() -> double {
-			return std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::high_resolution_clock::now() - start).count() / 1'000'000.0;
+		auto count() {
+			return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - start).count() / 1000.0;
 		}
 
 		void reset() {

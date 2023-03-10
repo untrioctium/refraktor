@@ -7,6 +7,7 @@
 #include <string>
 #include <map>
 #include <optional>
+#include <array>
 
 #define CUDA_SAFE_CALL(x)                                         \
   do {                                                            \
@@ -21,7 +22,7 @@
   } while(0)
 
 class half3 {
-    unsigned short data[3];
+    std::array<unsigned short, 3> data;
 };
 
 namespace rfkt::cuda {
@@ -34,7 +35,7 @@ namespace rfkt::cuda {
 
     class device_t {
     public:
-        device_t(CUdevice dev) : dev_(dev) {}
+        explicit(false) device_t(CUdevice dev) : dev_(dev) {}
 
         auto max_threads_per_block() const noexcept { return attribute<CU_DEVICE_ATTRIBUTE_MAX_THREADS_PER_BLOCK>(); }
         auto max_shared_per_block() const noexcept { return attribute<CU_DEVICE_ATTRIBUTE_MAX_SHARED_MEMORY_PER_BLOCK>(); }
@@ -67,9 +68,10 @@ namespace rfkt::cuda {
         }
 
         auto name() const noexcept {
-            char buf[128];
-            cuDeviceGetName(buf, sizeof(buf), dev_);
-            return std::string{ buf };
+            std::string ret;
+            ret.resize(128);
+            cuDeviceGetName(ret.data(), static_cast<int>(ret.size()), dev_);
+            return ret;
         }
 
     private:
@@ -89,10 +91,10 @@ namespace rfkt::cuda {
 
     class context {
     public:
-        context(CUcontext ctx, CUdevice dev) : ctx_(ctx), dev_(dev), valid(true) {}
-        context() : valid(false) {}
+        context(CUcontext ctx, CUdevice dev) : ctx_(ctx), dev_(dev) {}
+        context() = default;
 
-        operator CUcontext () const { return ctx_; }
+        explicit(false) operator CUcontext () const { return ctx_; }
         CUcontext* ptr() { return &ctx_; }
 
         device_t device() const {
@@ -126,7 +128,6 @@ namespace rfkt::cuda {
     private:
         CUcontext ctx_ = nullptr;
         CUdevice dev_ = 0;
-        bool valid = false;
     };
 
     auto init()->context;
@@ -164,7 +165,7 @@ namespace rfkt {
             return *this;
         }
 
-        [[nodiscard]] operator CUstream() const noexcept {
+        explicit(false) [[nodiscard]] operator CUstream() const noexcept {
             return stream;
         }
 
@@ -191,6 +192,6 @@ namespace rfkt {
         }
 
     private:
-        CUstream stream = 0;
+        CUstream stream = nullptr;
     };
 }

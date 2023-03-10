@@ -28,7 +28,7 @@ consteval bool is_posix() {
 #endif
 }
 
-const std::string_view get_error(NVENCSTATUS code) {
+std::string_view get_error(NVENCSTATUS code) {
 	static const std::unordered_map<NVENCSTATUS, std::string> codes{
 		{NV_ENC_SUCCESS, "SUCCESS"},
 		{NV_ENC_ERR_NO_ENCODE_DEVICE, "NO_ENCODE_DEVICE"},
@@ -63,7 +63,7 @@ const std::string_view get_error(NVENCSTATUS code) {
 
 class api_t {
 public:
-	api_t(): lib_(is_posix() ? "libnvidia-encode.so" : "nvEncodeAPI64", false) {
+	api_t() {
 		auto create_api = lib_.get_function<nv_create_api>("NvEncodeAPICreateInstance");
 		auto check_version = lib_.get_function<nv_check_version>("NvEncodeAPIGetMaxSupportedVersion");
 
@@ -81,17 +81,14 @@ public:
 	const auto& funcs() const { return funcs_; }
 
 private:
-	dylib lib_;
+	dylib lib_{ is_posix() ? "libnvidia-encode.so" : "nvEncodeAPI64", false };
 	NV_ENCODE_API_FUNCTION_LIST funcs_;
 };
 
-const api_t& api() {
-	static const auto g_api = api_t{};
-	return g_api;
-}
+inline static const auto api = api_t{};
 
 eznve::encoder::encoder(uint2 dims, uint2 fps, codec c, CUcontext ctx) : dims(dims) {
-	const auto& funcs = api().funcs();
+	const auto& funcs = api.funcs();
 
 	cuMemAlloc(&input_buffer, dims.x * dims.y * 4);
 
@@ -150,7 +147,7 @@ eznve::encoder::encoder(uint2 dims, uint2 fps, codec c, CUcontext ctx) : dims(di
 }
 
 eznve::encoder::~encoder() {
-	const auto& funcs = api().funcs();
+	const auto& funcs = api.funcs();
 
 	if(frames_encoded > 0) flush();
 
@@ -165,13 +162,13 @@ public:
 	input_resource_mapper(void* session, void* in_reg, NV_ENC_MAP_INPUT_RESOURCE* in_map) : session(session), in_reg(in_reg) {
 		in_map->version = NV_ENC_MAP_INPUT_RESOURCE_VER;
 		in_map->registeredResource = in_reg;
-		CHECK_NVENC(api().funcs().nvEncMapInputResource(session, in_map));
+		CHECK_NVENC(api.funcs().nvEncMapInputResource(session, in_map));
 
 		mapped = in_map->mappedResource;
 	}
 
 	~input_resource_mapper() {
-		if(session && mapped) api().funcs().nvEncUnmapInputResource(session, mapped);
+		if(session && mapped) api.funcs().nvEncUnmapInputResource(session, mapped);
 	}
 
 	input_resource_mapper(const input_resource_mapper&) = delete;
@@ -202,7 +199,7 @@ public:
 		
 		mapped->version = NV_ENC_LOCK_BITSTREAM_VER;
 		mapped->outputBitstream = out_stream;
-		CHECK_NVENC(api().funcs().nvEncLockBitstream(session, mapped));
+		CHECK_NVENC(api.funcs().nvEncLockBitstream(session, mapped));
 
 		auto chunk_span = std::span<const char>{ (const char*)mapped->bitstreamBufferPtr, mapped->bitstreamSizeInBytes };
 
@@ -215,7 +212,7 @@ public:
 	}
 
 	~output_bitstream_mapper() {
-		if (session && out_stream) api().funcs().nvEncUnlockBitstream(session, out_stream);
+		if (session && out_stream) api.funcs().nvEncUnlockBitstream(session, out_stream);
 	}
 
 	auto& get() {
@@ -229,7 +226,7 @@ private:
 };
 
 std::optional<eznve::chunk> eznve::encoder::submit_frame(frame_flag flag) {
-	const auto& funcs = api().funcs();
+	const auto& funcs = api.funcs();
 
 	input_resource_mapper res_map{ session, in_registration, pbuf_as<NV_ENC_MAP_INPUT_RESOURCE>()};
 
@@ -268,7 +265,7 @@ std::optional<eznve::chunk> eznve::encoder::flush() {
 	pic_params->encodePicFlags = NV_ENC_PIC_FLAG_EOS;
 	pic_params->outputBitstream = out_stream;
 
-	auto frame_status = api().funcs().nvEncEncodePicture(session, pic_params);
+	auto frame_status = api.funcs().nvEncEncodePicture(session, pic_params);
 
 	if (frame_status == NV_ENC_ERR_NEED_MORE_INPUT) return std::nullopt;
 	CHECK_NVENC(frame_status);

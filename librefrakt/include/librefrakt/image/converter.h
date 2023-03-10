@@ -6,7 +6,7 @@
 namespace rfkt {
 	class converter {
 	public:
-		converter(ezrtc::compiler& c) {
+		explicit converter(ezrtc::compiler& c) {
 			auto conv_result = c.compile(
 				ezrtc::spec::source_file("convert", "assets/kernels/convert.cu")
 				.kernel("convert<true>")
@@ -24,7 +24,7 @@ namespace rfkt {
 			conv = std::move(conv_result.module.value());
 		}
 
-		void to_24bit(cuda_view<half3> in, cuda_view<uchar4> out, uint2 dims, bool planar, cuda_stream& stream) {
+		void to_24bit(cuda_view<half3> in, cuda_view<uchar4> out, uint2 dims, bool planar, cuda_stream& stream) const {
 			auto kernel = (planar) ? conv.kernel("convert<true>") : conv.kernel("convert<false>");
 
 			CUDA_SAFE_CALL(kernel
@@ -38,6 +38,6 @@ namespace rfkt {
 		}
 
 	private:
-		ezrtc::module conv;
+		ezrtc::cuda_module conv;
 	};
 }

@@ -107,7 +107,7 @@ namespace rfkt {
 			ptr_(ptr),
 			size_(size_bytes/sizeof(Contained)) {}
 
-		cuda_view(const cuda_buffer<Contained>& buf) noexcept :
+		explicit(false) cuda_view(const cuda_buffer<Contained>& buf) noexcept :
 			ptr_(buf.ptr()),
 			size_(buf.size()) {}
 

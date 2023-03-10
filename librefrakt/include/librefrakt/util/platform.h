@@ -21,7 +21,7 @@ namespace rfkt::platform {
 		void* symbol_impl(const std::string& name);
 	};
 
-	constexpr inline bool is_posix() {
+	constexpr bool is_posix() {
 #ifdef _WIN32
 		return false;
 #else

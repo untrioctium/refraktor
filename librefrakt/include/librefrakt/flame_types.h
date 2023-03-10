@@ -119,6 +119,7 @@ namespace rfkt
 			};
 		}
 
+		
 		static affine_matrix from_strings(const std::vector<std::string>& values) {
 			affine_matrix r{};
 			r.a = std::stod(values[0]);

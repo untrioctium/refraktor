@@ -31,16 +31,16 @@ namespace ezrtc {
 	class kernel {
 	public:
 
-		kernel(CUfunction f) noexcept : f(f) {}
+		explicit kernel(CUfunction f) noexcept : f(f) {}
 
-		auto launch(dim3 grid, dim3 block, CUstream stream = 0, bool cooperative = false) const noexcept {
+		auto launch(dim3 grid, dim3 block, CUstream stream = nullptr, bool cooperative = false) const noexcept {
 			return[f = this->f, grid, block, stream, cooperative](auto... args) noexcept {
 				auto packed_args = std::array<void*, sizeof...(args)>{ &args... };
 				return launch_impl(f, grid, block, stream, cooperative, packed_args.data());
 			};
 		}
 
-		auto launch(std::uint32_t grid, std::uint32_t block, CUstream stream = 0, bool cooperative = false) const noexcept {
+		auto launch(std::uint32_t grid, std::uint32_t block, CUstream stream = nullptr, bool cooperative = false) const noexcept {
 			return this->launch({ grid, 1, 1 }, { block, 1, 1 }, stream, cooperative);
 		}
 
@@ -56,7 +56,7 @@ namespace ezrtc {
 
 		std::pair<int, int> suggested_dims() const noexcept {
 			std::pair<int, int> result;
-			cuOccupancyMaxPotentialBlockSize(&result.first, &result.second, f, 0, 0, 0);
+			cuOccupancyMaxPotentialBlockSize(&result.first, &result.second, f, nullptr, 0, 0);
 			return result;
 		}
 
@@ -91,7 +91,7 @@ namespace ezrtc {
 					grid.x, grid.y, grid.z,
 					block.x, block.y, block.z,
 					0, stream,
-					args, 0
+					args, nullptr
 				);
 			}
 		}
@@ -103,7 +103,7 @@ namespace ezrtc {
 
 		variable(CUdeviceptr ptr, std::size_t size) noexcept : ptr_(ptr), size_(size) {}
 
-		operator CUdeviceptr() const noexcept {
+		explicit(false) operator CUdeviceptr() const noexcept {
 			return ptr_;
 		}
 
@@ -121,7 +121,7 @@ namespace ezrtc {
 
 	class compiler;
 
-	class module {
+	class cuda_module {
 	public:
 		auto operator()() const {
 			return kernel();
@@ -136,37 +136,37 @@ namespace ezrtc {
 		}
 
 		auto kernel(const std::string& name) const -> ezrtc::kernel {
-			return { kernels.at(name) };
+			return ezrtc::kernel{ kernels.at(name) };
 		}
 
 		auto kernel() const -> ezrtc::kernel {
-			return { kernels.begin()->second };
+			return ezrtc::kernel{ kernels.begin()->second };
 		}
 
-		~module() {
+		~cuda_module() {
 			if (handle) cuModuleUnload(handle);
 		}
 
 		explicit operator bool() const noexcept { return handle != nullptr; }
 
-		module(const module&) = delete;
-		module& operator=(const module&) = delete;
+		cuda_module(const cuda_module&) = delete;
+		cuda_module& operator=(const cuda_module&) = delete;
 
-		module(module&& o) noexcept {
+		cuda_module(cuda_module&& o) noexcept {
 			(*this) = std::move(o);
 		}
 
-		module& operator=(module&& o) noexcept {
+		cuda_module& operator=(cuda_module&& o) noexcept {
 			std::swap(handle, o.handle);
 			std::swap(kernels, o.kernels);
 			std::swap(variables, o.variables);
 			return *this;
 		}
 
-		module() = default;
+		cuda_module() = default;
 
 	private:
-		static std::optional<module> from_cubin(std::span<const char> cubin);
+		static std::optional<cuda_module> from_cubin(std::span<const char> cubin);
 
 		bool load_kernel(std::string_view pretty, std::string_view mangled);
 		bool load_variable(std::string_view pretty, std::string_view mangled);
@@ -204,7 +204,7 @@ namespace ezrtc {
 			return ret;
 		}
 
-		static spec source_file(std::string name, std::filesystem::path path) {
+		static spec source_file(std::string name, const std::filesystem::path& path) {
 			namespace fs = std::filesystem;
 
 			auto ret = spec{};
@@ -228,7 +228,7 @@ namespace ezrtc {
 		spec& header(std::string_view name, const std::string& source) {
 			return emplace_and_chain(headers, name, std::string_view{ source.c_str(), source.size() + 1 });
 		}
-		spec& dependency(std::filesystem::path path) { return emplace_and_chain(dependencies, std::filesystem::absolute(path).u8string()); }
+		spec& dependency(const std::filesystem::path& path) { return emplace_and_chain(dependencies, std::filesystem::absolute(path).u8string()); }
 
 	private:
 		std::string_view signature() const;
@@ -245,12 +245,12 @@ namespace ezrtc {
 		}
 
 		std::set<compile_flag> compile_flags;
-		std::set<std::string> kernels;
-		std::set<std::u8string> dependencies;
+		std::set<std::string, std::less<>> kernels;
+		std::set<std::u8string, std::less<>> dependencies;
 
-		std::map<std::string, std::string> defines;
-		std::map<std::string, std::string> variables;
-		std::map<std::string, std::string_view> headers;
+		std::map<std::string, std::string, std::less<>> defines;
+		std::map<std::string, std::string, std::less<>> variables;
+		std::map<std::string, std::string_view, std::less<>> headers;
 
 		std::string name;
 		std::string source;
@@ -284,9 +284,9 @@ namespace ezrtc {
 				return *this;
 			}
 
-			row(destructor_t destructor) : destructor(std::move(destructor)) {}
+			explicit row(destructor_t destructor) : destructor(std::move(destructor)) {}
 
-			~row() {
+			virtual ~row() {
 				if (destructor) destructor();
 			}
 
@@ -306,7 +306,7 @@ namespace ezrtc {
 #ifdef EZRTC_USE_SQLITE
 	class sqlite_cache : public cache {
 	public:
-		sqlite_cache(std::string_view db_path) {
+		explicit sqlite_cache(std::string_view db_path) {
 			sqlite3_open(db_path.data(), &db);
 			sqlite3_exec(db, R"sql(
 				CREATE TABLE IF NOT EXISTS cache(
@@ -536,7 +536,7 @@ namespace ezrtc {
 	public:
 
 		struct result {
-			std::optional<module> module;
+			std::optional<cuda_module> module;
 			std::string log;
 			bool loaded_from_cache = false;
 		};
@@ -567,7 +567,7 @@ namespace ezrtc {
 
 	private:
 
-		std::optional<module> load_cache(const spec& s);
+		std::optional<cuda_module> load_cache(const spec& s);
 		bool cache_header(std::string_view name, const std::filesystem::path&);
 
 		cache::handle k_cache;
@@ -582,7 +582,7 @@ namespace ezrtc {
 			std::size_t cached_ts;
 		};
 
-		std::map<std::string, hcache_info> hcache{};
+		std::map<std::string, hcache_info, std::less<>> hcache{};
 
 		const std::string arch_flag;
 		std::optional<std::vector<std::string>> cuda_include_flags;
@@ -680,7 +680,7 @@ namespace ezrtc::detail::hash {
 		}
 
 		template<typename T>
-		requires std::same_as<char, T> or std::same_as<unsigned char, T>
+		requires std::same_as<char, T> || std::same_as<unsigned char, T>
 		constexpr sha1& process_bytes(const T* start, std::size_t length) noexcept {
 			if (length == 0) return *this;
 			
@@ -692,7 +692,7 @@ namespace ezrtc::detail::hash {
 				const auto to_copy = std::min(length - offset, bytes_left);
 
 				
-				std::transform(start + offset, start + offset + to_copy, block.data() + block_index, std::bit_cast<char, T>);
+				std::transform(start + offset, start + offset + to_copy, block.data() + block_index, [](char v) {return std::bit_cast<char, T>(v); });
 
 				block_index += to_copy;
 				process_if_needed();
@@ -773,9 +773,7 @@ namespace ezrtc::detail::hash {
 
 			process_byte(0x80);
 
-			constexpr auto target_index = block_size - sizeof(std::uint64_t);
-
-			if (block_index < target_index) {
+			if (constexpr auto target_index = block_size - sizeof(std::uint64_t); block_index < target_index) {
 				process_nulls(target_index - block_index);
 			}
 			else {
@@ -879,7 +877,8 @@ namespace ezrtc::detail {
 		CUdevice dev;
 		EZRTC_CHECK_CUDA(cuCtxGetDevice(&dev));
 
-		int major = 0, minor = 0;
+		int major = 0;
+		int minor = 0;
 		EZRTC_CHECK_CUDA(cuDeviceGetAttribute(&major, CU_DEVICE_ATTRIBUTE_COMPUTE_CAPABILITY_MAJOR, dev));
 		EZRTC_CHECK_CUDA(cuDeviceGetAttribute(&minor, CU_DEVICE_ATTRIBUTE_COMPUTE_CAPABILITY_MINOR, dev));
 
@@ -890,10 +889,11 @@ namespace ezrtc::detail {
 		CUdevice dev;
 		EZRTC_CHECK_CUDA(cuCtxGetDevice(&dev));
 
-		char buf[128];
+		std::string buf;
+		buf.resize(128);
 
-		cuDeviceGetName(buf, sizeof(buf), dev);
-		return std::string{ buf };
+		cuDeviceGetName(buf.data(), buf.size(), dev);
+		return buf;
 	}
 
 	constexpr static bool is_windows = []() {
@@ -927,10 +927,10 @@ namespace ezrtc::detail {
 
 	class metadata_iterator {
 	public:
-		metadata_iterator(std::span<const char> bytes) : bytes(bytes) {}
+		explicit metadata_iterator(std::span<const char> bytes) : bytes(bytes) {}
 
 		template<typename T>
-		bool has_a() noexcept {
+		bool has_a() const noexcept {
 			return sizeof(T) <= bytes.size();
 		}
 
@@ -941,13 +941,13 @@ namespace ezrtc::detail {
 			return *reinterpret_cast<const T*>(ptr);
 		}
 
-		bool has_long() { return has_a<std::size_t>(); }
+		bool has_long() const { return has_a<std::size_t>(); }
 		auto pop_long() { return pop_a<std::size_t>(); }
 
-		bool has_len() { return has_a<std::uint16_t>(); }
+		bool has_len() const { return has_a<std::uint16_t>(); }
 		auto pop_len() { return pop_a<std::uint16_t>(); }
 
-		bool has_str(std::size_t size) {
+		bool has_str(std::size_t size) const {
 			return size <= bytes.size();
 		}
 
@@ -959,7 +959,7 @@ namespace ezrtc::detail {
 		}
 
 		explicit operator bool() const noexcept {
-			return bytes.size() > 0;
+			return !bytes.empty();
 		}
 
 	private:
@@ -993,32 +993,31 @@ namespace ezrtc::detail {
 
 			#define MUST_LONG(variable) \
 				if (not iter.has_long()) { return std::nullopt; } \
-			    auto variable = iter.pop_long();
+			    auto variable = iter.pop_long()
 
 			#define MUST_LEN(variable) \
 				if (not iter.has_len()) { return std::nullopt; } \
-			    auto variable = iter.pop_len();
+			    auto variable = iter.pop_len()
 
 			#define MUST_STR(variable, t)           \
 			    auto variable = std## t ## string_view{}; \
-				{                                   \
+				do {                                   \
 					MUST_LEN(s_len);				\
                                                     \
 					if (not iter.has_str(s_len))    \
 						{ return std::nullopt; }    \
 					variable = iter.pop_str<decltype(variable)::value_type>(s_len); \
-                }                                   
+                } while(0)                               
 				
 
 			auto iter = metadata_iterator{ bytes };
 			auto md = metadata{};
 
 			// check serial
-			auto version = iter.pop_long();
-			if (version != serial) { return std::nullopt; }
+			if (auto version = iter.pop_long(); version != serial) { return std::nullopt; }
 
 			// get creation timestamp
-			if (not iter.has_long()) { return std::nullopt; }
+			if (!iter.has_long()) { return std::nullopt; }
 			md.create_ts = iter.pop_long();
 
 			// get count of dependencies
@@ -1168,7 +1167,7 @@ namespace ezrtc::detail {
 			return *this;
 		}
 
-		operator T() {
+		explicit(false) operator T() {
 			return val;
 		}
 	private:
@@ -1177,51 +1176,51 @@ namespace ezrtc::detail {
 
 }
 
-std::optional<ezrtc::module> ezrtc::module::from_cubin(std::span<const char> cubin) {
+std::optional<ezrtc::cuda_module> ezrtc::cuda_module::from_cubin(std::span<const char> cubin) {
 
 	if (cubin.size() < 4
-		or cubin[0] != 0x7F
-		or cubin[1] != 'E'
-		or cubin[2] != 'L'
-		or cubin[3] != 'F'
+		|| cubin[0] != 0x7F
+		|| cubin[1] != 'E'
+		|| cubin[2] != 'L'
+		|| cubin[3] != 'F'
 	) {
 		return std::nullopt;
 	}
 
-	auto mod = module{};
-	const auto status = cuModuleLoadDataEx(&mod.handle, cubin.data(), 0, 0, 0);
-	if (status != CUDA_SUCCESS) {
+	auto mod = cuda_module{};
+	if (const auto status = cuModuleLoadDataEx(&mod.handle, cubin.data(), 0, nullptr, nullptr); 
+		status != CUDA_SUCCESS) {
 		return std::nullopt;
 	}
 	return mod;
 }
 
-bool ezrtc::module::load_kernel(std::string_view pretty, std::string_view mangled) {
+bool ezrtc::cuda_module::load_kernel(std::string_view pretty, std::string_view mangled) {
 	if (mangled.back() != '\0') return false;
 
 	CUfunction f;
-	const auto status = cuModuleGetFunction(&f, handle, mangled.data());
 
-	if (status != CUDA_SUCCESS) {
+	if (const auto status = cuModuleGetFunction(&f, handle, mangled.data()); 
+		status != CUDA_SUCCESS) {
 		return false;
 	}
 
-	const auto [iter, inserted] = kernels.emplace(std::string{ pretty }, f);
+	const auto [iter, inserted] = kernels.try_emplace(std::string{ pretty }, f);
 	return inserted;
 }
 
-bool ezrtc::module::load_variable(std::string_view pretty, std::string_view mangled) {
+bool ezrtc::cuda_module::load_variable(std::string_view pretty, std::string_view mangled) {
 	if (mangled.back() != '\0') return false;
 
 	CUdeviceptr ptr;
 	std::size_t size;
 
-	const auto status = cuModuleGetGlobal(&ptr, &size, handle, mangled.data());
-	if (status != CUDA_SUCCESS) {
+	if (const auto status = cuModuleGetGlobal(&ptr, &size, handle, mangled.data()); 
+		status != CUDA_SUCCESS) {
 		return false;
 	}
 
-	const auto [iter, inserted] = variables.emplace(std::string{ pretty }, variable{ ptr, size });
+	const auto [iter, inserted] = variables.try_emplace(std::string{ pretty }, variable{ ptr, size });
 	return inserted;
 }
 
@@ -1326,18 +1325,18 @@ bool ezrtc::compiler::find_system_cuda(std::filesystem::path hint) {
 	return false;
 }
 
-std::optional<ezrtc::module> ezrtc::compiler::load_cache(const ezrtc::spec& s) {
-	if (not k_cache) {
+std::optional<ezrtc::cuda_module> ezrtc::compiler::load_cache(const ezrtc::spec& s) {
+	if (!k_cache) {
 		return std::nullopt;
 	}
 
 	auto row = k_cache->get(s.name);
-	if (not row.has_value()) {
+	if (!row.has_value()) {
 		return std::nullopt;
 	}
 
 	auto md = detail::metadata::from_bytes(row->meta);
-	if (not md.has_value()) {
+	if (!md.has_value()) {
 		return std::nullopt;
 	}
 
@@ -1352,7 +1351,7 @@ std::optional<ezrtc::module> ezrtc::compiler::load_cache(const ezrtc::spec& s) {
 				return md_kernel.pretty == spec_kernel;
 			});
 
-		if (not all_kernels_are_equal) {
+		if (!all_kernels_are_equal) {
 			return false;
 		}
 
@@ -1362,7 +1361,7 @@ std::optional<ezrtc::module> ezrtc::compiler::load_cache(const ezrtc::spec& s) {
 				return md_variable.pretty == spec_variable.first;
 			});
 
-		if (not all_variables_are_equal) {
+		if (!all_variables_are_equal) {
 			return false;
 		}
 
@@ -1384,21 +1383,21 @@ std::optional<ezrtc::module> ezrtc::compiler::load_cache(const ezrtc::spec& s) {
 
 	}(md.value(), s);
 
-	if (not meta_is_valid) {
+	if (!meta_is_valid) {
 		return std::nullopt;
 	}
 
 	// everything is valid now. do the actual loading
-	auto mod = module::from_cubin( row->data );
+	auto mod = cuda_module::from_cubin( row->data );
 
 	for (const auto& kernel : md->kernels) {
-		if (not mod->load_kernel(kernel.pretty, kernel.mangled)) {
+		if (!mod->load_kernel(kernel.pretty, kernel.mangled)) {
 			return std::nullopt;
 		}
 	}
 
 	for (const auto& variable : md->variables) {
-		if (not mod->load_variable(variable.pretty, variable.mangled)) {
+		if (!mod->load_variable(variable.pretty, variable.mangled)) {
 			return std::nullopt;
 		}
 	}
@@ -1438,7 +1437,7 @@ std::optional<std::filesystem::path> find_header(std::string_view name, const st
 	{
 		auto candidate = cwd / name;
 		auto ec = std::error_code{};
-		if (auto exists = std::filesystem::exists(candidate, ec); not ec and exists) {
+		if (auto exists = std::filesystem::exists(candidate, ec); !ec && exists) {
 			return candidate;
 		}
 	}
@@ -1446,7 +1445,7 @@ std::optional<std::filesystem::path> find_header(std::string_view name, const st
 	for (const auto& path : include_dirs) {
 		auto candidate = path / name;
 		auto ec = std::error_code{};
-		if (auto exists = std::filesystem::exists(candidate, ec); not ec and exists) {
+		if (auto exists = std::filesystem::exists(candidate, ec); !ec && exists) {
 			return candidate;
 		}
 	}
@@ -1498,7 +1497,7 @@ ezrtc::compiler::result ezrtc::compiler::compile(const ezrtc::spec& s) {
 	std::vector<const char*> compile_options{ "--std=c++20" };
 	compile_options.push_back(arch_flag.c_str());
 	if (cuda_include_flags.has_value()) 
-		for(auto& flag: cuda_include_flags.value())
+		for(const auto& flag: cuda_include_flags.value())
 			compile_options.push_back(flag.c_str());
 
 	for (const auto flag : s.compile_flags) {
@@ -1521,7 +1520,6 @@ ezrtc::compiler::result ezrtc::compiler::compile(const ezrtc::spec& s) {
 				)
 			);
 
-			using prog_scope = detail::scoped < nvrtcProgram, [](nvrtcProgram p) { nvrtcDestroyProgram(&p); } > ;
 			auto prog = prog_scope{ prog_handle };
 
 			for (const auto& kernel : s.kernels) {
@@ -1547,13 +1545,13 @@ ezrtc::compiler::result ezrtc::compiler::compile(const ezrtc::spec& s) {
 			}
 			auto missing = find_missing_headers(ret.log);
 
-			if (missing.size() == 0) {
+			if (missing.empty()) {
 				return std::make_pair(std::move(prog), status);
 			}
 
-			for (const auto [name,header] : missing) {
+			for (const auto& [name,header] : missing) {
 
-				auto cwd = [&]() -> std::filesystem::path {
+				auto cwd = [&]() {
 					if (name == s.name) { return std::filesystem::current_path(); }
 					else {
 						auto iter = hcache.find(std::string{ name });
@@ -1599,7 +1597,7 @@ ezrtc::compiler::result ezrtc::compiler::compile(const ezrtc::spec& s) {
 	char* cubin;
 	EZRTC_CHECK_CUDA(cuLinkComplete(ls, (void**)&cubin, &cubin_size));
 
-	auto handle = module::from_cubin({cubin, cubin_size});
+	auto handle = cuda_module::from_cubin({cubin, cubin_size});
 	if (not handle) {
 		ret.log = "invalid cubin";
 		return ret;
@@ -1658,8 +1656,8 @@ ezrtc::compiler::result ezrtc::compiler::compile(const ezrtc::spec& s) {
 EZRTC_ASSERT_COPYABLE(ezrtc::kernel);
 EZRTC_ASSERT_MOVABLE(ezrtc::kernel);
 
-EZRTC_ASSERT_NONCOPYABLE(ezrtc::module);
-EZRTC_ASSERT_MOVABLE(ezrtc::module);
+EZRTC_ASSERT_NONCOPYABLE(ezrtc::cuda_module);
+EZRTC_ASSERT_MOVABLE(ezrtc::cuda_module);
 
 #define EZRTC_CHECK_HASH(ct, ...) static_assert(ezrtc::detail::hash::sha1().process_bytes(ct).get_digest() == ezrtc::detail::hash::sha1::digest_t{__VA_ARGS__});
 
