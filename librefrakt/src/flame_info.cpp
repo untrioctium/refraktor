@@ -5,6 +5,8 @@
 #include <librefrakt/util/string.h>
 #include <librefrakt/animators.h>
 
+#include "flang/grammar.h"
+
 struct flame_table {
 	std::vector<rfkt::flame_info::def::variation> variations;
 	std::vector<rfkt::flame_info::def::parameter> parameters;
@@ -19,15 +21,79 @@ auto& ft() {
 	return instance;
 }
 
+auto validate_variation(const rfkt::flame_info::def::variation& v) {
+
+	auto scopes = flang::scope_stack{};
+	auto& scope = scopes.emplace_back();
+
+	scope.add_vec2("p");
+	scope.add_vec2("result");
+	scope.add_decimal("weight");
+
+	auto common_group = flang::type_desc::group{};
+	for (const auto& [name, def] : ft().common) {
+		common_group.add_decimal(name);
+	}
+
+	scope.members.emplace("common", std::move(common_group));
+
+	auto param_group = flang::type_desc::group{};
+	for (const auto& p : v.parameters) {
+		const auto& name = p.get().name;
+		auto trimmed = name.substr(name.find(v.name) + v.name.size() + 1);
+		param_group.add_decimal(trimmed);
+	}
+
+	scope.members.emplace("param", std::move(param_group));
+
+	auto affine_group = flang::type_desc::group{};
+	affine_group.add_decimal("a");
+	affine_group.add_decimal("b");
+	affine_group.add_decimal("c");
+	affine_group.add_decimal("d");
+	affine_group.add_decimal("e");
+	affine_group.add_decimal("f");
+	scope.members.emplace("aff", std::move(affine_group));
+
+	auto src_result = flang::validate(v.source.head(), flang::stdlib(), scopes);
+
+	if (src_result.has_value()) {
+		SPDLOG_ERROR("Failed to validate variation `{}` source: {}", v.name, src_result->what());
+		exit(1);
+	}
+
+	if (v.precalc_source.has_value()) {
+		auto precalc_result = flang::validate(v.precalc_source->head(), flang::stdlib(), scopes);
+
+		if (precalc_result.has_value()) {
+			SPDLOG_ERROR("Failed to validate variation `{}` precalc: {}", v.name, precalc_result->what());
+			exit(1);
+		}
+	}
+}
+
 void rfkt::flame_info::initialize(std::string_view config_path)
 {
 	rfkt::animator::init_builtins();
 
-	auto find_xcommon_calls = [](const std::string& src) {
-		return str_util::find_unique(src, R"regex(xcommon\(\s*([a-zA-z0-9_]+)\s*\))regex");
+	auto find_xcommon_calls = [](const flang::ast& src) -> std::set<std::string> {
+		using namespace flang::matchers;
+
+		auto predicate = of_type<flang::grammar::member_access>() && with_child(of_type<flang::grammar::variable>() && with_content("common") && of_rank(0));
+
+		std::set<std::string> deps;
+		for (const auto& node : src) {
+			if (predicate(&node)) {
+				const auto& name = node.nth(1)->content();
+				if(!deps.contains(name))
+					deps.emplace(node.nth(1)->content());
+			}
+		}
+		return deps;
 	};
 
-	auto defs = YAML::LoadFile(std::string{ config_path });
+	auto vdefs = YAML::LoadFile(std::string{ config_path } + "/variations_new.yml");
+	auto cdefs = YAML::LoadFile(std::string{ config_path } + "/common.yml");
 
 	std::size_t num_variations = 0;
 	std::size_t num_parameters = 0;
@@ -37,23 +103,24 @@ void rfkt::flame_info::initialize(std::string_view config_path)
 	ft().variations.reserve(256);
 	ft().parameters.reserve(256);
 
-	auto vdefs = defs["variations"];
 	std::vector<std::string> names;
 	for (auto it = vdefs.begin(); it != vdefs.end(); it++) {
 		names.push_back(it->first.as<std::string>());
 	}
 	std::sort(std::begin(names), std::end(names));
 
-	auto common = defs["xcommon"];
-	for (auto it = common.begin(); it != common.end(); it++) {
+	for (auto it = cdefs.begin(); it != cdefs.end(); it++) {
 		auto name = it->first.as<std::string>();
-		auto src = it->second.as<std::string>();
+		auto parsed_src = flang::ast::parse_expression(it->second.as<std::string>());
+		if (!parsed_src) {
+			throw parsed_src.error();
+		}
 
 		auto cdef = flame_info::def::common{};
 		cdef.name = name;
-		cdef.source = src;
-		cdef.dependencies = find_xcommon_calls(src);
-		ft().common[name] = cdef;
+		cdef.source = std::move(parsed_src.value());
+		cdef.dependencies = find_xcommon_calls(cdef.source);
+		ft().common[name] = std::move(cdef);
 	}
 
 	for (auto& name : names) {
@@ -64,22 +131,38 @@ void rfkt::flame_info::initialize(std::string_view config_path)
 		auto yml = vdefs[name];
 
 		if (yml.IsScalar()) {
-			def.source = yml.as<std::string>();
+			auto parsed = flang::ast::parse_statement(yml.as<std::string>());
+			if (!parsed) {
+				throw parsed.error();
+			}
+			def.source = std::move(parsed.value());
 		}
 		else {
 			auto node = yml.as<YAML::Node>();
-			def.source = node["src"].as<std::string>();
+			auto parsed_src = flang::ast::parse_statement(node["src"].as<std::string>());
+			if (!parsed_src) throw parsed_src.error();
+			def.source = std::move(parsed_src.value());
 
-			if (node["precalc"].IsScalar()) def.precalc_source = node["precalc"].as<std::string>();
+			if (node["precalc"].IsScalar()) {
+				auto parsed_precalc = flang::ast::parse_statement(node["precalc"].as<std::string>());
+				if(!parsed_precalc) throw std::runtime_error{ "Failed to parse variation: " + name };
+				def.precalc_source = std::move(parsed_precalc.value());
+			}
 
 			auto param = node["param"];
 
 			for (auto it = param.begin(); it != param.end(); it++) {
 				auto pdef = def::parameter{};
-				pdef.name = it->first.as<std::string>();;
+				pdef.name = std::format("{}_{}", name, it->first.as<std::string>());
 
 				if (it->second["default"].IsScalar()) pdef.default_value = it->second["default"].as<double>();
-				if (it->second["is_precalc"].IsScalar()) pdef.is_precalc = it->second["is_precalc"].as<bool>();
+				if (it->second["tags"].IsSequence()) {
+					for (const auto& tag : it->second["tags"]) {
+						if (tag.as<std::string>() == "precalc") {
+							pdef.is_precalc = true;
+						}
+					}
+				}
 
 				pdef.index = (num_parameters++);
 				pdef.owner = def.index;
@@ -97,8 +180,11 @@ void rfkt::flame_info::initialize(std::string_view config_path)
 			def.dependencies.push_back(ft().common[xname]);
 		}
 
-		ft().variations.push_back(def);
-		ft().variation_names.insert_or_assign(def.name, std::ref(ft().variations.at(def.index)));
+		validate_variation(def);
+
+		auto index = def.index;
+		ft().variations.emplace_back(std::move(def));
+		ft().variation_names.insert_or_assign(name, std::ref(ft().variations.at(index)));
 	}
 
 }

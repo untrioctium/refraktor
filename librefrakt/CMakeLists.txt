@@ -1,3 +1,5 @@
+add_subdirectory(depend/flang)
+
 set(HEADER_LIST 
 	"include/librefrakt/traits/hashable.h"
 	"include/librefrakt/traits/noncopyable.h"
@@ -187,7 +189,8 @@ target_link_libraries(librefrakt PRIVATE
 	dylib
 )
 
-target_link_libraries(librefrakt PUBLIC 
+target_link_libraries(librefrakt PUBLIC
+	flang
 	spdlog 
 	CUDA::nvml
 	CUDA::cuda_driver

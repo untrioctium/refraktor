@@ -1248,7 +1248,58 @@ variations:
             nx += rad_v * (re_u*re_v + im_u*im_v);
             ny += rad_v * (im_u*re_v - re_u*im_v);        
 
+    bwraps:
+        param:
+            bwraps_cellsize: {default: 1.0}
+            bwraps_space: {}
+            bwraps_gain: {default: 1.0}
+            bwraps_inner_twist: {}
+            bwraps_outer_twist: {}
+            bwraps_g2: {is_precalc: true}
+            bwraps_r2: {is_precalc: true}
+            bwraps_rfactor: {is_precalc: true}
+        precalc: |-
+            FloatT radius = 0.5_r * (bwraps_cellsize / (1.0_r + bwraps_space * bwraps_space));
+            bwraps_g2 = bwraps_gain * bwraps_gain + 1.0e-6_r;
+            FloatT max_bubble = bwraps_g2 * radius;
+            if(max_bubble > 2) max_bubble = 1;
+            else max_bubble *= (1 / (max_bubble * max_bubble / 4 + 1));
+            bwraps_r2 = eps(radius * radius);
+            bwraps_rfactor = radius / max_bubble;
+        src: |-
+            if(bwraps_cellsize == 0.0) {
+                nx += weight * px;
+                ny += weight * py;
+            } else {
+                FloatT vx = px;
+                FloatT vy = py;
+                FloatT cx = (floor(vx / bwraps_cellsize) + 0.5_r) * bwraps_cellsize;
+                FloatT cy = (floor(vy / bwraps_cellsize) + 0.5_r) * bwraps_cellsize;
+                FloatT lx = vx - cx;
+                FloatT ly = vy - cy;
 
+                if(lx * lx + ly * ly > bwraps_r2) {
+                    nx += weight * px;
+                    ny += weight * py;
+                } else {
+                    lx *= bwraps_g2;
+                    ly *= bwraps_g2;
+
+                    FloatT r= bwraps_rfactor / eps(fma(lx, lx, ly * ly)/ 4 + 1);
+                    lx *= r;
+                    ly *= r;
+                    r = fma(lx, lx, ly * ly) / bwraps_r2;
+
+                    FloatT theta = fma(bwraps_inner_twist, 1 - r, bwraps_outer_twist * r);
+                    FloatT s, c;
+                    sincos(theta, &s, &c);
+
+                    vx = fma(s, ly, fma(c, lx, cx));
+                    vy = cy - s * lx + c * ly;
+                    nx += weight * vx;
+                    ny += weight * vy;
+                }
+            }
        
 
 

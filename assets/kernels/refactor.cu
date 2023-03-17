@@ -4,8 +4,8 @@
 #define DEBUG_BLOCK(format, ...) if(threadIdx.x == 0) {printf("block %d: " format "\n", blockIdx.x, __VA_ARGS__);}
 
 #include <refrakt/precision.h>
-#include <refrakt/random.h>
 #include <refrakt/flamelib.h>
+#include <refrakt/random.h>
 #include <refrakt/hammersley.h>
 #include <refrakt/color.h>
 
@@ -133,25 +133,22 @@ Real flame_pass(unsigned int pass_idx, uint64* const xform_counters = nullptr) {
 	
 	// every 32 passes, repopulate this warp's xid buffer
 	if(pass_idx % 32 == 0) {
-		my_xform_vote() = state.flame.select_xform(my_rand().rand_uniform());
+		my_xform_vote() = state.flame.select_xform(my_rand().rand01());
 	}
 	fl::sync_warp();
 
+	auto in_local = iterator{my_iter(x), my_iter(y), my_iter(color)};
 	auto out_local = iterator{-666.0, -666.0, -660.0};
-	//DEBUG("xid: %d\n", ts[warp.meta_group_rank() * 32 + pass_idx % 32].xid);
 	auto selected_xform = state.ts.xform_vote[fl::warp_start_in_block() + pass_idx % 32];
-	//if(fl::is_warp_leader() && xform_counters != nullptr) atomicAdd(xform_counters + selected_xform, fl::warp_size());
+
 	Real opacity = state.flame.dispatch( 
 		selected_xform, 
-		my_iter(x), my_iter(y), my_iter(color), out_local.x, out_local.y, out_local.z, &my_rand()
+		in_local, out_local, &my_rand()
 	);
-	//out_local = iterator{{-666.0, -666.0}, -660.0};
-
-	//DEBUG("iter(%f,%f,%f)\n", my_iter(x), my_iter(y), my_iter(color));
 
 	if(badvalue(out_local.x) || badvalue(out_local.y)) {
-		out_local.x = my_rand().rand_uniform() * 2.0 - 1.0;
-		out_local.y = my_rand().rand_uniform() * 2.0 - 1.0;
+		out_local.x = my_rand().rand01() * 2.0 - 1.0;
+		out_local.y = my_rand().rand01() * 2.0 - 1.0;
 		opacity = 0.0;
 	}
 	
@@ -174,12 +171,12 @@ void warmup(
 {	
 	my_rand().init(seed + fl::grid_rank());
 	
-	my_iter(x) = my_rand().rand_uniform();
-	my_iter(y) = my_rand().rand_uniform();
-	my_iter(color) = my_rand().rand_uniform();
+	my_iter(x) = my_rand().rand01();
+	my_iter(y) = my_rand().rand01();
+	my_iter(color) = my_rand().rand01();
 	
 	if(fl::is_block_leader()) {
-		state.antialiasing_offsets = my_rand().rand_gaussian(1/2.0);
+		state.antialiasing_offsets = my_rand().randgauss(1/2.0);
 	}
 	queue_shuffle_load(0);
 	
@@ -238,8 +235,8 @@ void bin(
 		auto transformed = vec3<Real>{};
 		
 		if constexpr(has_final_xform) {
-			vec3 my_iter_copy = {my_iter(x), my_iter(y), my_iter(color)};
-			state.flame.dispatch(num_xforms, my_iter_copy.x, my_iter_copy.y, my_iter_copy.z, transformed.x, transformed.y, transformed.z, &my_rand());
+			vec3<Real> my_iter_copy = {my_iter(x), my_iter(y), my_iter(color)};
+			state.flame.dispatch(num_xforms, my_iter_copy, transformed, &my_rand());
 		} else transformed = {my_iter(x), my_iter(y), my_iter(color)};
 		
 		state.flame.screen_space.apply(transformed.x, transformed.y);
@@ -249,7 +246,7 @@ void bin(
 
 		transformed.x = trunc(transformed.x);
 		transformed.y = trunc(transformed.y);
-		
+	
 		unsigned int hit = 0;
 		if(transformed.x >= 0 && transformed.y >= 0 
 		&& transformed.x < bins_w && transformed.y < bins_h 

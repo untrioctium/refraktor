@@ -1,8 +1,3 @@
-template<typename FloatT>
-struct vec2 {
-	FloatT x, y;
-};
-
 #include <refrakt/flamelib.h>
 #include <refrakt/random.h>
 

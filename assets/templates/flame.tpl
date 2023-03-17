@@ -37,31 +37,30 @@ struct xform_@xform.hash@_t {
 
         // variations
         <# for variation in vlink.variations #>
-        FloatT @variation.name@;
+        FloatT v_@variation.name@;
         <# endfor #>
 
         // parameters
         <# for parameter in vlink.parameters #>
-        FloatT @parameter@;
+        FloatT p_@parameter@;
         <# endfor #> 
 
         // precalc
         <# for parameter in vlink.precalc #>
-        FloatT @parameter@;
+        FloatT p_@parameter@;
         <# endfor #> 
 
-        __device__ void apply(FloatT& px, FloatT& py, FloatT& nx, FloatT& ny, RandCtx* rs) const {
-            nx = 0; ny = 0;
-            aff.apply(px, py);
+        __device__ void apply(vec2<FloatT> inp, vec2<FloatT>& outp, RandCtx* rs) const {
+            outp.x = outp.y = 0;
+            aff.apply(inp.x, inp.y);
 
             <# for common in vlink.common #>
-            FloatT xcommon_@common.name@ = @common.source@;
+            FloatT common_@common.name@ = @common.source@;
             <# endfor #>
 
             <# for variation in vlink.variations #>
             // @variation.name@
             {
-                FloatT weight = @variation.name@;
                 @-get_variation_source(variation.id, "                ")@
             }
             <# endfor #>
@@ -78,12 +77,11 @@ struct xform_@xform.hash@_t {
     } vlink_@loop.index@;
 
     <# endfor #>
-    __device__ void apply(FloatT& px, FloatT& py, FloatT& nx, FloatT& ny, RandCtx* rs) const {
+    __device__ void apply(vec2<FloatT>& inp, vec2<FloatT>& outp, RandCtx* rs) const {
         <# for vlink in xform.vchain #>
-        vlink_@loop.index@.apply(px, py, nx, ny, rs);
+        vlink_@loop.index@.apply(inp, outp, rs);
             <# if not loop.is_last #>
-        px = nx;
-        py = ny;
+        inp = outp;
             <# endif #>
         <# endfor #>
     }
@@ -121,15 +119,15 @@ struct flame_t {
         <# endfor #>
     }
 
-    __device__ FloatT dispatch(int idx, Real& px, Real& py, Real& pc, Real& nx, Real& ny, Real& nc, RandCtx* rs) const {
+    __device__ FloatT dispatch(int idx, vec3<Real>& inp, vec3<Real>& outp, RandCtx* rs) const {
         switch(idx) {
             default: __builtin_unreachable();
 
             <# for xform in xforms #>
             case @loop.index@:
             {
-                xform_@xform.id@.apply(px, py, nx, ny, rs);
-                nc = INTERP(pc, xform_@xform.id@.color, xform_@xform.id@.color_speed);
+                xform_@xform.id@.apply(inp.as_vec2(), outp.as_vec2(), rs);
+                outp.z = INTERP(inp.z, xform_@xform.id@.color, xform_@xform.id@.color_speed);
                 return xform_@xform.id@.opacity;
             }
             <# endfor #>

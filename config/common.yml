@@ -1,0 +1,8 @@
+sumsq: p.x * p.x + p.y * p.y
+sqrt: hypot(p.x, p.y)
+atan: atan2(p.x, p.y)
+phi: atan2(p.y, p.x)
+sina: p.x / common.sqrt
+cosa: p.y / common.sqrt
+sinr: sin(common.sqrt)
+cosr: cos(common.sqrt)

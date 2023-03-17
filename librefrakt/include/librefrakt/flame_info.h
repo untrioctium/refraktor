@@ -5,13 +5,16 @@
 #include <set>
 #include <vector>
 #include <functional>
+#include <optional>
+
+#include <flang/ast.h>
 
 namespace rfkt::flame_info {
 
 	namespace def {
 		struct common {
 			std::string name;
-			std::string source;
+			flang::ast source;
 			std::set<std::string> dependencies;
 		};
 
@@ -26,8 +29,8 @@ namespace rfkt::flame_info {
 		struct variation {
 			std::uint32_t index;
 			std::string name;
-			std::string source;
-			std::string precalc_source;
+			flang::ast source;
+			std::optional<flang::ast> precalc_source;
 			std::vector<std::reference_wrapper<parameter>> parameters;
 			std::vector<std::reference_wrapper<common>> dependencies;
 			std::set<std::string> flags;

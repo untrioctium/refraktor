@@ -19,6 +19,271 @@
 
 #include <inja/inja.hpp>
 
+#include <flang/grammar.h>
+#include <flang/matcher.h>
+
+std::string expand_tabs(const std::string& src, const std::string& tab_str = "    ") {
+    std::string result = src;
+
+    result.insert(0, tab_str);
+
+    for (std::size_t i = 0; i < result.length(); i++) {
+        if (result[i] == '\n' /* && result.find('\n', i + 1) != std::string::npos*/) {
+            result.insert(i + 1, tab_str);
+            i+=tab_str.size();
+        }
+    }
+
+    return result;
+}
+
+std::string create_source(std::string_view name, const flang::ast_node* node) {
+
+    using namespace flang::matchers;
+    using namespace flang::grammar;
+
+    const static std::vector<std::pair<flang::matcher, std::add_pointer_t<std::string(std::string_view, const flang::ast_node*)>>> outputters = []()
+    {
+        auto table = std::vector<std::pair<flang::matcher, std::add_pointer_t<std::string(std::string_view, const flang::ast_node*)>>>{};
+
+        // fma
+        table.emplace_back(
+            of_type<op::plus, op::minus, op::plus_assign, op::minus_assign>()
+            and with_child(of_type<op::times>()),
+            [](std::string_view name, const flang::ast_node* n) {
+                auto multiply_child = (n->first()->is_type<op::times>()) ? 0 : 1;
+                auto mul_lhs = create_source(name, n->nth(multiply_child)->nth(0));
+                auto mul_rhs = create_source(name, n->nth(multiply_child)->nth(1));
+                auto add_lhs = create_source(name, n->nth(1 - multiply_child));
+
+                if (n->is_type<op::plus>()) {
+                    return std::format("fl::fma({}, {}, {})", mul_lhs, mul_rhs, add_lhs);
+                }
+                else if (n->is_type<op::minus>()) {
+                    if (multiply_child == 0)
+                        return std::format("fl::fma({}, {}, -({}))", mul_lhs, mul_rhs, add_lhs);
+                    else 
+                        return std::format("fl::fma({}, -({}), {})", mul_lhs, mul_rhs, add_lhs);
+                }
+                else if (n->is_type<op::plus_assign>()) {
+                    return std::format("{} = fl::fma({}, {}, {})", add_lhs, mul_lhs, mul_rhs, add_lhs);
+                }
+                else {
+                    return std::format("{} = fl::fma({}, -({}), {})", add_lhs, mul_lhs, mul_rhs, add_lhs);
+                }
+            }
+        );
+        // affine/param/common access
+        table.emplace_back(
+            of_type<flang::grammar::member_access>()
+            and with_child(
+                of_type<flang::grammar::variable>()
+                and (
+                    with_content("aff")
+                    or with_content("param")
+                    or with_content("math")
+                    or with_content("common")
+                    )
+            ),
+            [](std::string_view name, const flang::ast_node* n) {
+                auto group = n->nth(0)->content();
+                auto member = n->nth(1)->content();
+                if (group == "aff") {
+                    return std::format("aff.{}", member);
+                }
+                else if (group == "param") {
+                    return std::format("p_{}_{}", name, member);
+                }
+                else if (group == "math") {
+                    return std::format("fl::math::{}", member);
+                }
+                else {
+                    return std::format("common_{}", member);
+                }
+            }
+        );
+
+        // root/scope
+        table.emplace_back(
+            [](const flang::ast_node* n) { return n->type() == "root" || n->type() == demangle<scoped>(); },
+            [](std::string_view name, const flang::ast_node* n) {
+                auto child_statements = std::string{};
+                for (auto i = 0; i < n->size(); ++i) {
+                    child_statements += std::format("{}\n", create_source(name, n->nth(i)));
+                }
+                if (n->type() == "root") return child_statements;
+                return std::format("{{\n{}}}", expand_tabs(child_statements));
+            });
+
+        // assignment
+        table.emplace_back(of_type<assignment_statement>(),
+            [](std::string_view name, const flang::ast_node* n) {
+                return std::format("{};",create_source(name, n->first()));
+            });
+
+        // declaration
+        table.emplace_back(of_type<declaration_statement>(),
+            [](std::string_view name, const flang::ast_node* n) {
+                auto lhs = create_source(name, n->nth(0));
+                auto rhs = create_source(name, n->nth(1));
+                return std::format("auto {} = {};", lhs, rhs);
+            });
+
+        table.emplace_back(of_type<if_statement>(),
+            [](std::string_view name, const flang::ast_node* n) {
+                const auto* condition = n->nth(0);
+                const auto* branch = n->nth(1);
+
+                auto condition_src = create_source(name, condition);
+                auto branch_src = create_source(name, branch);
+
+                if (!branch->is_type<scoped>()) {
+                    branch_src = "\n  " + branch_src;
+                }
+
+                auto str = std::format("if {} {}", condition_src, branch_src);
+                if (n->size() == 3) {
+                    auto else_branch = n->nth(2);
+                    auto else_src = create_source(name, else_branch);
+                    if (!else_branch->is_type<scoped>() && !else_branch->is_type<if_statement>()) {
+                        else_src = "\n    " + else_src;
+                    }
+
+                    str += std::format("else {}", else_src);
+                }
+
+                return str;
+            });
+
+        table.emplace_back(of_type<expr::parenthesized>(),
+            [](std::string_view name, const flang::ast_node* n) {
+                return std::format("({})", create_source(name, n->first()));
+            });
+
+        const static std::map<std::string, std::string, std::less<>> op_map = {
+            {std::string(demangle<op::plus>()), "+"},
+            {std::string(demangle<op::minus>()), "-"},
+            {std::string(demangle<op::times>()), "*"},
+            {std::string(demangle<op::divided>()), "/"},
+            {std::string(demangle<op::equals>()), "=="},
+            {std::string(demangle<op::not_equals>()), "!="},
+            {std::string(demangle<op::less_than>()), "<"},
+            {std::string(demangle<op::less_equal>()), "<="},
+            {std::string(demangle<op::greater_than>()), ">"},
+            {std::string(demangle<op::greater_equal>()), ">="},
+            {std::string(demangle<op::b_and>()), "&&"},
+            {std::string(demangle<op::b_or>()), "||"},
+            {std::string(demangle<op::assignment>()), "="},
+            {std::string(demangle<op::plus_assign>()), "+="},
+            {std::string(demangle<op::minus_assign>()), "-="},
+            {std::string(demangle<op::times_assign>()), "*="},
+            {std::string(demangle<op::divided_assign>()), "/="},
+        };
+
+        // binary ops
+        table.emplace_back(
+            [](const flang::ast_node* node) { return op_map.contains(node->type()); },
+            [](std::string_view name, const flang::ast_node* node) {
+                return std::format("{} {} {}", create_source(name, node->nth(0)), op_map.at(node->type()), create_source(name, node->nth(1)));
+            }
+        );
+
+        // unary
+        table.emplace_back(
+            of_type<op::un_negative, op::un_b_not>(),
+            [](std::string_view name, const flang::ast_node* node) {
+                return std::format("{}{}", (node->is_type<op::un_negative>()) ? "-" : "!", create_source(name, node->first()));
+            }
+        );
+
+        // literals
+        table.emplace_back(
+            of_type<lit::decimal, lit::integer, lit::boolean>(),
+            [](std::string_view name, const flang::ast_node* node) {
+                if (node->is_type<lit::decimal>()) return std::format("{}_r", node->content());
+                return node->content();
+            }
+        );
+
+        // member access
+        table.emplace_back(
+            of_type<member_access>(),
+            [](std::string_view name, const flang::ast_node* node) {
+                return std::format("{}.{}", create_source(name, node->nth(0)), create_source(name, node->nth(1)));
+            }
+        );
+
+        // result, p, and weight
+        table.emplace_back(
+            of_type<variable>() and (with_content("result") or with_content("p") or with_content("weight")),
+            [](std::string_view name, const flang::ast_node* node) -> std::string {
+                if (node->content() == "result") return "outp";
+                if (node->content() == "weight") return std::format("v_{}", name);
+                return "inp";
+            }
+        );
+
+        // any other variable
+        table.emplace_back(
+            of_type<variable>(),
+            [](std::string_view name, const flang::ast_node* node) {
+                return node->content();
+            }
+        );
+
+        // calls to randomness functions
+        table.emplace_back(
+            of_type<expr::call>()
+            and with_child(with_content("rand01") or with_content("randgauss") or with_content("randbit")),
+            [](std::string_view name, const flang::ast_node* node) {
+                return std::format("rs->{}()", node->first()->content());
+            }
+        );
+
+        // vec constructor
+        table.emplace_back(
+            of_type<expr::call>() and with_child(with_content("vec2") and of_rank(0)),
+            [](std::string_view name, const flang::ast_node* node) {
+                auto x = create_source(name, node->nth(1));
+                auto y = create_source(name, node->nth(2));
+                return std::format("vec2{{{}, {}}}", x, y);
+            }
+        );
+
+        // calls
+        table.emplace_back(
+            of_type<expr::call>(),
+            [](std::string_view name, const flang::ast_node* node) {
+                auto func_name = "fl::" + create_source(name, node->nth(0));
+                if (node->size() == 1) {
+                    return func_name + "()";
+                }
+                auto args = std::string{};
+                auto nargs = node->size() - 1;
+                for (int i = 0; i < nargs; i++) {
+                    args += create_source(name, node->nth(i + 1));
+                    if (i + 1 != nargs) {
+                        args += ", ";
+                    }
+                }
+
+                return std::format("{}({})", func_name, args);
+            }
+        );
+
+        return table;
+    }();
+
+    for(const auto& [matcher, outputter] : outputters) {
+        if (matcher(node)) {
+			return outputter(name, node);
+		}
+	}
+
+    SPDLOG_ERROR("no formatter defined for `{}`", node->type());
+    return std::format("@{}@", node->type());
+}
+
 template<typename AdjMap, typename VertexID>
 void order_recurse(const VertexID& vertex, const AdjMap& adj, std::set<VertexID>& visited, std::deque<VertexID>& ordering) {
     visited.insert(vertex);
@@ -40,20 +305,6 @@ auto get_ordering(const AdjMap& adj) -> std::deque<VertexID> {
     return ordering;
 }
 
-std::string expand_tabs(const std::string& src, const std::string& tab_str = "\t") {
-    std::string result = src;
-
-    result.insert(0, tab_str);
-
-    for (std::size_t i = 0; i < result.length(); i++) {
-        if (result[i] == '\n') {
-            result.insert(i + 1, tab_str);
-            i++;
-        }
-    }
-
-    return result;
-}
 std::string strip_tabs(const std::string& src) {
     std::string ret = src;
     ret.erase(std::remove(ret.begin(), ret.end(), '\t'), ret.end());
@@ -77,7 +328,7 @@ auto extract_common(const rfkt::flame& f) -> std::map<rfkt::hash_t, std::set<int
     return shared_xforms;
 }
 
-auto make_struct(const rfkt::flame& f) -> std::string {
+std::string rfkt::flame_compiler::make_struct(const rfkt::flame& f) {
 
     auto info = json::object({
         {"xform_definitions", json::array()},
@@ -89,6 +340,8 @@ auto make_struct(const rfkt::flame& f) -> std::string {
     auto& xfd = info["xform_definitions"];
 
     const auto common = extract_common(f);
+
+    std::set<std::uint32_t> needed_variations;
 
     for (auto& [hash, children] : common) {
         auto xf_def_js = json::object({
@@ -119,6 +372,8 @@ auto make_struct(const rfkt::flame& f) -> std::string {
                         })
                 );
 
+                needed_variations.insert(vdef.index);
+
                 for (const auto& common : vdef.dependencies) {
                     const auto& name = common.get().name;
                     if (required_common.count(name) > 0) continue;
@@ -135,9 +390,14 @@ auto make_struct(const rfkt::flame& f) -> std::string {
 
             while (ordering.size()) {
                 const auto& cdef = rfkt::flame_info::common(ordering.back());
+
+                if (!compiled_common.contains(cdef.name)) {
+                    compiled_common[cdef.name] = create_source(cdef.name, cdef.source.head());
+                }
+
                 vl_def_js["common"].push_back(json::object({
                     {"name", cdef.name},
-                    {"source", cdef.source}
+                    {"source", compiled_common[cdef.name]}
                     }));
                 ordering.pop_back();
             }
@@ -166,22 +426,36 @@ auto make_struct(const rfkt::flame& f) -> std::string {
             }));
     }
 
-    auto environment = []() -> inja::Environment {
+    for (auto& v : needed_variations) {
+        if (compiled_variations.contains(v)) continue;
+
+        const auto& vdef = rfkt::flame_info::variation(v);
+
+        std::pair<std::string, std::string> compiled;
+        compiled.first = create_source(vdef.name, vdef.source.head());
+        if (vdef.precalc_source.has_value()) {
+            compiled.second = create_source(vdef.name, vdef.precalc_source->head());
+        }
+
+        compiled_variations.emplace(vdef.index, std::move(compiled));
+    }
+
+    auto environment = [&compiled_variations=this->compiled_variations, &compiled_common=this->compiled_common]() -> inja::Environment {
         auto env = inja::Environment{};
 
         env.set_expression("@", "@");
         env.set_statement("<#", "#>");
 
-        env.add_callback("get_variation_source", 2, [](inja::Arguments& args) {
-            return expand_tabs(rfkt::flame_info::variation(args.at(0)->get<std::uint32_t>()).source, args.at(1)->get<std::string>());
+        env.add_callback("get_variation_source", 2, [&compiled_variations](inja::Arguments& args) {
+            return expand_tabs(compiled_variations[args.at(0)->get<std::uint32_t>()].first, args.at(1)->get<std::string>());
         });
 
-        env.add_callback("variation_has_precalc", 1, [](inja::Arguments& args) {
-            return rfkt::flame_info::variation(args.at(0)->get<std::uint32_t>()).precalc_source.size() > 0;
+        env.add_callback("variation_has_precalc", 1, [&compiled_variations](inja::Arguments& args) {
+            return !compiled_variations[args.at(0)->get<std::uint32_t>()].second.empty();
         });
 
-        env.add_callback("get_precalc_source", 2, [](inja::Arguments& args) {
-            return expand_tabs(rfkt::flame_info::variation(args.at(0)->get<std::uint32_t>()).precalc_source, args.at(1)->get<std::string>());
+        env.add_callback("get_precalc_source", 2, [&compiled_variations](inja::Arguments& args) {
+            return expand_tabs(compiled_variations[args.at(0)->get<std::uint32_t>()].second, args.at(1)->get<std::string>());
         });
 
         env.set_trim_blocks(true);
@@ -352,6 +626,10 @@ rfkt::flame_compiler::flame_compiler(ezrtc::compiler& k_manager): km(k_manager)
     auto func = (*catmull)();
     auto [s_grid, s_block] = func.suggested_dims();
     SPDLOG_INFO("Loaded catmull kernel: {} regs, {} shared, {} local, {}x{} suggested dims", func.register_count(), func.shared_bytes(), func.local_bytes(), s_grid, s_block);
+
+    for (const auto& v : rfkt::flame_info::variations()) {
+        SPDLOG_INFO("\n//{}\n{}", v.name, create_source(v.name, v.source.head()));
+    }
 }
 
 auto rfkt::flame_compiler::make_opts(precision prec, const flame& f)->std::pair<cuda::execution_config, ezrtc::spec>

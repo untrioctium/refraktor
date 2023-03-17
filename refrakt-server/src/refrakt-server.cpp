@@ -715,7 +715,18 @@ namespace rfkt {
 int main(int argc, char** argv) {
 
 	SPDLOG_INFO("Starting refrakt-server");
-	rfkt::flame_info::initialize("config/variations.yml");
+	try {
+		rfkt::flame_info::initialize("config");
+	}
+	catch(const flang::parse_error& e) {
+		SPDLOG_ERROR("Failed to parse variations file: {}", e.what());
+		return 1;
+	}
+	catch (const std::exception& e) {
+		SPDLOG_ERROR("Failed to initialize flame system: {}", e.what());
+		return 1;
+	}
+
 
 	SPDLOG_INFO("Flame system initialized: {} variations, {} parameters", rfkt::flame_info::num_variations(), rfkt::flame_info::num_parameters());
 
@@ -996,7 +1007,10 @@ int main(int argc, char** argv) {
 			auto power = joules / (t_bin / 1000.0);
 			auto power_per_pass = joules / (result.total_passes / 1'000'000'000.0);
 
-			SPDLOG_INFO("load {:.4}, kernel {:.4}, bin {:.4}, quality {:.4}, {:.4} watts, {:.4} joules per billion passes", t_load, t_kernel, t_bin, result.quality, power, power_per_pass);
+			auto mpass_per_ms = result.total_passes / (1'000'000 * t_bin);
+			auto mdraw_per_ms = result.total_draws / (1'000'000 * t_bin);
+
+			SPDLOG_INFO("load {:.4}, kernel {:.4}, bin {:.4}, quality {:.4}, {:.4} mdraw/ms, {:.4} miter/ms, {:.4} watts, {:.4} joules per billion passes", t_load, t_kernel, t_bin, result.quality, mdraw_per_ms, mpass_per_ms, power, power_per_pass);
 
 			tm.run(state.bins, tonemapped, { rd.width, rd.height }, result.quality, fopt->gamma.sample(rd.time), fopt->brightness.sample(rd.time), fopt->vibrancy.sample(rd.time), jpeg_stream);
 			dn.denoise({ rd.width, rd.height }, tonemapped, smoothed, jpeg_stream);

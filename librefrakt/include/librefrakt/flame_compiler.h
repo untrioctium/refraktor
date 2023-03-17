@@ -132,6 +132,8 @@ namespace rfkt {
 			return per_thread_size * threads_per_block + flame_real_bytes + 820;
 		}
 
+		std::string make_struct(const rfkt::flame& f);
+
 		std::pair<cuda::execution_config, ezrtc::spec> make_opts(precision prec, const flame& f);
 
 		ezrtc::compiler& km;
@@ -140,5 +142,8 @@ namespace rfkt {
 		std::size_t num_shufs = 4096;
 
 		std::shared_ptr<ezrtc::cuda_module> catmull;
+
+		std::map<std::uint32_t, std::pair<std::string, std::string>, std::less<>> compiled_variations;
+		std::map<std::string, std::string, std::less<>> compiled_common;
 	};
 }
