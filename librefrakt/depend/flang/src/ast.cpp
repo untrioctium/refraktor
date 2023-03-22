@@ -74,7 +74,8 @@ using selector = peg::parse_tree::selector <
 	flang::grammar::scoped,
 	flang::grammar::if_statement,
 	flang::grammar::assignment_statement,
-	flang::grammar::declaration_statement
+	flang::grammar::declaration_statement,
+	flang::grammar::break_statement
 	>,
 	rearrange::on<
 	flang::grammar::expr::unary, 

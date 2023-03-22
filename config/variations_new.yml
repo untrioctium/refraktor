@@ -139,9 +139,9 @@ rings2:
     result.x += weight * common.sina * r;
     result.y += weight * common.cosa * r;
 
-eyefish: result += 2 * weight / (common.sqrt + 1) * p;
+eyefish: result += 2 * weight / (common.sqrt + 1.0) * p;
 
-bubble: result += weight / (0.25 * common.sumsq + 1) * p;
+bubble: result += weight / (0.25 * common.sumsq + 1.0) * p;
 
 cylinder: |-
   result.x += weight * sin(p.x);
@@ -202,7 +202,7 @@ juliascope:
 blur: |-
   result += weight * rand01() * cossinpi(rand01() * 2);
 
-gaussian_blur: result += randgauss();
+gaussian_blur: result += weight * randgauss();
 
 radial_blur:
   param:
@@ -253,7 +253,7 @@ curl:
   src: |-
     re := 1.0 + param.c1 * p.x + param.c2 * (p.x * p.x - p.y * p.y);
     im := param.c1 * p.y + 2.0 * param.c2 * p.x * p.y;
-    r := weight / (re * re * im * im);
+    r := weight / (re * re + im * im);
     result.x += (p.x * re + p.y * im) * r;
     result.y += (p.y * re - p.x * im) * r;
 
@@ -316,4 +316,635 @@ twintrian: |-
 
 cross: |-
   s := p.x * p.x - p.y * p.y;
-  result += weight * sqrt(1/eps(s * s)) * p;
+  result += weight * rsqrt(eps(s * s)) * p;
+
+disc2: 
+  param:
+    rot: {}
+    twist: {}
+    sinadd: {tags: [precalc]}
+    cosadd: {tags: [precalc]}
+  precalc: |-
+    sca := sincos(param.twist);
+    sca.y -= 1;
+    if(param.twist >  2 * math.pi) {
+      sca *= (1 + param.twist - 2 * math.pi);
+    } else if(param.twist < -2 * math.pi) {
+      sca *= (1 + param.twist + 2 * math.pi);
+    }
+    param.sinadd = sca.x;
+    param.cosadd = sca.y;
+  src: |-
+    sct := sincospi(param.rot * (p.x + p.y));
+    r := weight * common.atan * math.inv_pi;
+
+    result.x += (sct.x + param.cosadd) * r;
+    result.y += (sct.y + param.sinadd) * r;
+
+super_shape:
+  param:
+    rnd: {}
+    m: {}
+    n1: {default: 1.0}
+    n2: {default: 1.0}
+    n3: {default: 1.0}
+    holes: {}
+    pm_4: {tags: [precalc]}
+    pneg1_n1: {tags: [precalc]}
+  precalc: |-
+    param.pm_4 = param.m / 4;
+    param.pneg1_n1 = -1/param.n1;
+  src: |-
+    sct := sincos(param.pm_4 * common.phi + math.pi/4);
+    result += p * weight * (param.rnd * rand01() + (1 - param.rnd) * common.sqrt - param.holes)
+      * pow(pow(abs(sct.y), param.n2) + pow(abs(sct.x), param.n3), param.pneg1_n1) * common.rsqrt;
+
+flower:
+  param:
+    holes: {}
+    petals: {}
+  src: |-
+    result += weight * p * (rand01() - param.holes) * cos(param.petals * common.atan) * common.rsqrt;
+
+conic:
+  param:
+    holes: {}
+    eccentricity: {default: 1.0}
+  src: |-
+    result += weight * p * (rand01() - param.holes) * param.eccentricity / (1 + param.eccentricity * p.x * common.rsqrt) * common.rsqrt;
+
+parabola:
+  param:
+    width: {}
+    height: {}
+  src: |-
+    scr := sincos(common.sqrt);
+    result.x += param.height * weight * scr.x * scr.x * rand01();
+    result.y += param.width * weight * scr.y * rand01();
+
+bent2:
+  param:
+    x: {default: 1.0}
+    y: {default: 1.0}
+  src: |-
+    b := p;
+    if(b.x < 0) b.x *= param.x;
+    if(b.y < 0) b.y *= param.y;
+    result += weight * b;
+
+bipolar:
+  param:
+    shift: {}
+  src: |-
+    x2y2 := common.sumsq;
+    t := x2y2 + 1;
+    x2 := 2 * p.x;
+    ps := math.pi / 2 * param.shift;
+    y := 0.5 * atan2(2 * p.y, x2y2 - 1) + ps;
+    if(y > math.pi/2)
+      y = -math.pi / 2 + modf(y + math.pi/2, math.pi);
+    else if(y < -math.pi/2)
+      y = math.pi / 2 + modf(math.pi/2 - y, math.pi);
+    result.x += weight * 0.5/math.pi * log((t+x2)/(t-x2));
+    result.y += weight * 2/math.pi * y;
+
+boarders: |-
+  r := vec2(rint(p.x),rint(p.y));
+  o := p - r;
+
+  if(rand01() >= 0.75) {
+    result.x += weight * (o.x * 0.5 + r.x);
+    result.y += weight * (o.y * 0.5 + r.y);
+    break;
+  }
+
+  if(abs(o.x) > abs(o.y)) {
+    if(o.x >= 0) {
+      result.x += weight * (o.x * 0.5 + r.x + 0.25);
+      result.y += weight * (o.y * 0.5 + r.y + 0.25 * o.y/o.x);
+    } else {
+      result.x += weight * (o.x * 0.5 + r.x - 0.25);
+      result.y += weight * (o.y * 0.5 + r.y - 0.25 * o.y/o.x);
+    }
+  } else {
+    if(o.y >= 0) {
+      result.y += weight * (o.y * 0.5 + r.y + 0.25);
+      result.x += weight * (o.x + 0.5 + r.x + 0.25 * o.x/o.y);
+    } else {
+      result.y += weight * (o.y * 0.5 + r.y - 0.25);
+      result.x += weight * (o.x * 0.5 + r.x - 0.25 * o.x/o.y);
+    }
+  }
+
+butterfly: |-
+  wx := weight * 1.3029400317411197908970256609023;
+  y2 := p.y * 2;
+  r := wx * sqrt(abs(p.y * p.x)/eps(p.x * p.x + y2 * y2));
+  result.x += r * p.x;
+  result.y += r * y2;
+
+cell: 
+  param:
+    size: {default: 1.0}
+    inv: {tags: [precalc]}
+  precalc: |-
+    param.inv = 1/param.size;
+  src: |-
+    x := floor(p.x * param.inv);
+    y := floor(p.y * param.inv);
+    dx := p.x - x * param.size;
+    dy := p.y - y * param.size;
+
+    if (y >= 0) {
+      if (x >= 0) {
+          y *= 2;
+          x *= 2;
+      } else {
+          y *= 2;
+          x = -(2*x+1);
+      }
+    } else {
+      if (x >= 0) {
+          y = -(2*y+1);
+          x *= 2;
+      } else {
+          y = -(2*y+1);
+          x = -(2*x+1);
+      }
+    }
+
+    result.x += weight * (dx + x * param.size);
+    result.y += weight * (dy + y * param.size);
+
+cpow:
+  param:
+    power: {default: 1.0}
+    r: {default: 1.0}
+    i: {}
+    va: {tags: [precalc]}
+    vc: {tags: [precalc]}
+    vd: {tags: [precalc]}
+  precalc: |-
+    param.va = 2 * math.pi / param.power;
+    param.vc = param.r / param.power;
+    param.vd = param.i / param.power;
+  src: |-
+    lnr := 0.5 * log(common.sumsq);
+    ang := param.vc * common.phi + param.vd * lnr + param.va * floor(param.power * rand01());
+    m := weight * exp(param.vc * lnr - param.vd * common.phi);
+    result += m * cossin(ang);
+
+curve:
+  param:
+    xlength: {default: 1.0}
+    ylength: {default: 1.0}
+    xamp: {}
+    yamp: {}
+    pcxlen: {tags: [precalc]}
+    pcylen: {tags: [precalc]}
+  precalc: |-
+    param.pcxlen = eps(param.xlength * param.xlength);
+    param.pcylen = eps(param.ylength * param.ylength);
+  src: |-
+    result.x += weight * (p.x + param.xamp * exp(-p.y * p.y/param.pcxlen));
+    result.y += weight * (p.y + param.yamp * exp(-p.x * p.x/param.pcylen));
+
+edisc: |-
+  tmp := common.sumsq + 1;
+  tmp2 := 2 * p.x;
+  r1 := sqrt(tmp + tmp2);
+  r2 := sqrt(tmp - tmp2);
+  xmax := (r1 + r2) * 0.5;
+  a1 := log(xmax + sqrt(xmax - 1));
+  a2 := -acos(p.x/xmax);
+  w := weight / 11.57034632;
+
+  scv := sincos(a1);
+  scvh := vec2(sinh(a2), cosh(a2));
+  if(p.y > 0) scv.x = -scv.x;
+  result.x += w * scvh.y * scv.y;
+  result.y += w * scvh.x * scv.x;
+
+elliptic: |-
+  tmp := common.sumsq + 1;
+  x2 := 2 * p.x;
+  xmax := 0.5 * (sqrt(tmp + x2) + sqrt(tmp - x2));
+  a := p.x / xmax;
+  b := 1.0 - a * a;
+  ssx := xmax - 1;
+  w := weight / (math.pi / 2);
+
+  if(b < 0) b = 0;
+  else b = sqrt(b);
+
+  if(ssx < 0) ssx = 0;
+  else ssx = sqrt(ssx);
+
+  result.x += w * atan2(a, b);
+
+  if(p.y > 0)
+    result.y += w * log(xmax + ssx);
+  else
+    result.y -= w * log(xmax + ssx);
+
+escher:
+  param:
+    beta: {}
+    seb: {tags: [precalc]}
+    ceb: {tags: [precalc]}
+    vc: {tags: [precalc]}
+    vd: {tags: [precalc]}
+  precalc: |-
+    scb := sincos(param.beta);
+    param.seb = scb.x;
+    param.ceb = scb.y;
+    param.vc = 0.5 * (1 + scb.y);
+    param.vd = 0.5 * scb.x;
+  src: |-
+    lnr := 0.5 * log(eps(common.sumsq));
+    m := weight * exp(param.vc * lnr - param.vd * common.phi);
+    n := param.vc * common.phi + param.vd * lnr;
+    result += m * cossin(n);
+
+foci: |-
+  expx := exp(p.x) * 0.5;
+  expnx := 0.25 / expx;
+  scy := sincos(p.y);
+  tmp := weight/(expx + expnx - scy.y);
+  result.x += tmp * (expx - expnx);
+  result.y += tmp * scy.x;
+
+lazysusan:
+  param:
+    x: {}
+    y: {}
+    twist: {}
+    spin: {}
+    space: {}
+  src: |-
+    x := p.x - param.x;
+    y := p.y - param.y;
+    r := hypot(x, y);
+
+    if(r < weight) {
+      a := atan2(y, x) + param.spin + param.twist * (weight - r);
+      r *= weight;
+      sca := sincos(a);
+
+      result.x += r * sca.y + param.x;
+      result.y += r * sca.x - param.y;
+    } else {
+      r = weight * (1 + param.space/r);
+      result.x += r * x + param.x;
+      result.y += r * y - param.y;
+    }
+
+loonie: |-
+  w2 := weight * weight;
+  if(common.sumsq < w2) {
+    r := weight * sqrt(w2/common.sumsq - 1);
+    result += r * p;
+  } else {
+    result += weight * p;
+  }
+
+modulus:
+  param:
+    x: {}
+    y: {}
+  src: |-
+    xr := 2 * param.x;
+    yr := 2 * param.y;
+
+    if(p.x > param.x)
+      result.x += weight * (-param.x + modf(p.x + param.x, xr));
+    else if(p.x < -param.x)
+      result.x += weight * (param.x - modf(param.x - p.x, xr));
+    else
+      result.x += weight * p.x;
+
+    if(p.y > param.y)
+      result.y += weight * (-param.y + modf(p.y + param.y, yr));
+    else if(p.y < -param.y)
+      result.y += weight * (param.y - modf(param.y - p.y, yr));
+    else
+      result.y += weight * p.y; 
+  
+oscilloscope:
+  param:
+    frequency: {default: 3.141592653589793238462643383279}
+    damping: {}
+    amplitude: {default: 1.0}
+    separation: {default: 1.0}
+  src: |-
+    t := param.amplitude * cospi(p.x * 2 * param.frequency);
+    if(param.damping != 0)
+      t *= exp(-abs(p.x) * param.damping);
+
+    if(abs(p.y) <= t + param.separation ) {
+      result.x += weight * p.x;
+      result.y -= weight * p.y;
+    } else {
+      result += weight * p;
+    }
+
+polar2: |-
+  p2v := weight / math.pi;
+  result.x += p2v * common.atan;
+  result.y += p2v / 2 * log(common.sumsq);
+
+popcorn2:
+  param:
+    x: {}
+    y: {}
+    c: {}
+  src: |-
+    result.x += weight * (p.x + param.x * sin(tan(p.y * param.c)));
+    result.y += weight * (p.y + param.y * sin(tan(p.x * param.c)));
+
+scry: |-
+  result += p * 1/(common.sqrt * (common.sumsq + 1/eps(weight)));
+
+separation:
+  param:
+    x: {}
+    y: {}
+    xinside: {}
+    yinside: {}
+    sx2: {tags: [precalc]}
+    sy2: {tags: [precalc]}
+  precalc: |-
+    param.sx2 = param.x * param.x;
+    param.sy2 = param.y * param.y;
+  src: |-
+    if(p.x > 0)
+      result.x += weight * (sqrt(p.x * p.x + param.sx2) - p.x * param.xinside);
+    else
+      result.x -= weight * (sqrt(p.x * p.x + param.sx2) + p.x * param.xinside);
+
+    if(p.y > 0)
+      result.y += weight * (sqrt(p.y * p.y + param.sy2) - p.y * param.yinside);
+    else
+      result.y -= weight * (sqrt(p.y * p.y + param.sy2) + p.y * param.yinside);
+
+split:
+  param:
+    xsize: {}
+    ysize: {}
+  src: |-
+    if(cospi(p.x * param.xsize) >= 0)
+      result.y += weight * p.y;
+    else
+      result.y -= weight * p.y;
+
+    if(cospi(p.y * param.ysize) >= 0)
+      result.x += weight * p.x;
+    else
+      result.x -= weight * p.x;
+
+splits:
+  param:
+    x: {}
+    y: {}
+  src: |-
+    if(p.x >= 0)
+      result.x += weight * (p.x + param.x);
+    else
+      result.x += weight * (p.x - param.x);
+
+    if(p.y >= 0)
+      result.y += weight * (p.y + param.y);
+    else
+      result.y += weight * (p.y - param.y);
+
+stripes:
+  param:
+    space: {}
+    warp: {}
+  src: |-
+    roundx := floor(p.x + 0.5);
+    offsetx := p.x - roundx;
+
+    result.x += weight * (offsetx*(1 - param.space) + roundx);
+    result.y += weight * (p.y + offsetx * offsetx * param.warp);
+
+wedge:
+  param:
+    swirl: {}
+    count: {default: 1.0}
+    angle: {}
+    hole: {}
+    compfac: {tags: [precalc]}
+  precalc: |-
+    param.compfac = 1 - param.angle * param.count * (1/math.pi) * 0.5;
+  src: |-
+    r := common.sqrt;
+    a := common.phi + param.swirl * r;
+    c := floor( (param.count * a + math.pi) * (1/math.pi) * 0.5);
+    a = a * param.compfac + c * param.angle;
+    r = weight * (r + param.hole);
+    result += r * cossin(a);
+    
+wedge_julia:
+  param:
+    power: {default: 1.0}
+    angle: {}
+    count: {default: 1.0}
+    dist: {}
+    cf: {tags: [precalc]}
+    rN: {tags: [precalc]}
+    cn: {tags: [precalc]}
+  precalc: |-
+    param.cf = 1 - param.angle * param.count * (1/math.pi) * 0.5;
+    param.rN = abs(param.power);
+    param.cn = param.dist / param.power / 2;
+  src: |-
+    r := weight * pow(common.sumsq, param.cn);
+    t_rnd := trunc(param.rN * rand01());
+    a := (common.phi + 2 * math.pi * t_rnd) / param.power;
+    c := floor( (param.count * a + math.pi) * (1/math.pi) * 0.5);
+    a = a * param.cf + c * param.angle;
+    result += r * cossin(a);
+
+wedge_sph:
+  param:
+    swirl: {}
+    count: {default: 1.0}
+    angle: {}
+    hole: {}
+    compfac: {tags: [precalc]}
+  precalc: |-
+    param.compfac = 1 - param.angle * param.count * (1/math.pi) * 0.5;
+  src: |-
+    r := 1/eps(common.sqrt);
+    a := common.phi + param.swirl * r;
+    c := floor((param.count * a + math.pi) * (1/math.pi) * 0.5);
+    a = a * param.compfac + c * param.angle;
+    r = weight * (r + param.hole);
+    result += r * cossin(a);
+
+whorl:
+  param:
+    inside: {}
+    outside: {}
+  src: |-
+    a := common.phi;
+    if(common.sqrt < weight)
+      a += param.inside / (weight - common.sqrt);
+    else
+      a += param.outside / (weight - common.sqrt);
+
+    result += weight * common.sqrt * cossin(a);
+
+waves2:
+  param:
+      freqx: {}
+      scalex: {}
+      freqy: {}
+      scaley: {}
+  src: |-
+      result.x += weight * (p.x + param.scalex * sin(p.y * param.freqx));
+      result.y += weight * (p.y + param.scaley * sin(p.x * param.freqy));
+
+exp: |-
+  result += weight * exp(p.x) * cossin(p.y);
+
+log: |-
+  result.x += weight * 0.5 * log(common.sumsq);
+  result.y += weight * common.phi;
+
+sin: |-
+  sinsinh := sinh(p.y);
+  sincosh := cosh(p.y);
+  scp := sincos(p.x);
+  result.x += weight * scp.x * sincosh;
+  result.y += weight * scp.y * sinsinh;
+
+cos: |-
+  cossinh := sinh(p.y);
+  coscosh := cosh(p.y);
+  scp := sincos(p.x);
+  result.x += weight * scp.y * coscosh;
+  result.y += weight * scp.x * cossinh;
+
+tan: |-
+  tansinh := sinh(2 * p.y);
+  tancosh := cosh(2 * p.y);
+  scp := sincos(2 * p.x);
+  tanden := 1/(scp.y + tancosh);
+  result.x += weight * tanden * scp.x;
+  result.y += weight * tanden * tansinh;
+
+sec: |-
+  secsinh := sinh(p.y);
+  seccosh := cosh(p.y);
+  secden := 2/(cos(2 * p.x) + cosh(2 * p.y));
+  scp := sincos(p.x);
+  result.x += weight * secden * scp.y * seccosh;
+  result.y += weight * secden * scp.x * secsinh;
+
+csc: |-
+  cscsinh := sinh(p.y);
+  csccosh := cosh(p.y);
+  cscden := 2/(cosh(2 * p.y) - cos(2 * p.x));
+  scp := sincos(p.x);
+  result.x += weight * cscden * scp.x * csccosh;
+  result.y -= weight * cscden * scp.y * cscsinh;
+
+cot: |-
+  cotsinh := sinh(2 * p.y);
+  cotcosh := cosh(2 * p.y);
+  scp := sincos(2 * p.x);
+  cotden := 1/(cotcosh - scp.y);
+  result.x += weight * cotden * scp.x;
+  result.y -= weight * cotden * cotsinh;
+
+sinh: |-
+  sinhsinh := sinh(p.y);
+  sinhcosh := cosh(p.y);
+  scy := sincos(p.y);
+  result.x += weight * sinhsinh * scy.y;
+  result.y += weight * sinhcosh * scy.x;
+
+cosh: |-
+  coshsinh := sinh(p.x);
+  coshcosh := cosh(p.x);
+  scy := sincos(p.y);
+  result.x += weight * coshcosh * scy.y;
+  result.y += weight * coshsinh * scy.x;
+
+tanh: |-
+  tanhsinh := sinh(2 * p.x);
+  tanhcosh := cosh(2 * p.x);
+  scy := sincos(2 * p.y);
+  tanden := 1/(tanhcosh + scy.y);
+  result.x += weight * tanden * tanhsinh;
+  result.y += weight * tanden * scy.x;
+
+sech: |-
+  sechsinh := sinh(p.x);
+  sechcosh := cosh(p.x);
+  sechden := 2/(cos(2.0 * p.y) + cosh(2.0 * p.x));
+  scy := sincos(p.y);
+  result.x += weight * sechden * scy.y * sechcosh;
+  result.y -= weight * sechden * scy.x * sechsinh;
+
+csch: |-
+  cschsinh := sinh(p.x);
+  cschcosh := cosh(p.x);
+  cschden := 2/(cosh(2.0 * p.x) - cos(2.0 * p.y));
+  scy := sincos(p.y);
+  result.x += weight * cschden * cschsinh * scy.y;
+  result.y -= weight * cschden * cschcosh * scy.x;
+
+coth: |-
+  cothsinh := sinh(2 * p.x);
+  cothcosh := cosh(2 * p.x);
+  scy := sincos(2 * p.y);
+  cothden := 1/(cothcosh - scy.y);
+  result.x += weight * cothden * cothsinh;
+  result.y -= weight * cothden * scy.x;
+
+auger:
+  param:
+    freq: {default: 1.0}
+    weight: {}
+    scale: {default: 1.0}
+    sym: {}
+  src: |-
+    s := sin(param.freq * p.x);
+    t := sin(param.freq * p.y);
+    dy := p.y + param.weight * (param.scale * s/2 + abs(p.y) * s);
+    dx := p.x + param.weight * (param.scale * t/2 + abs(p.x) * t);
+    result.x += weight * (p.x + param.sym * (dx - p.x));
+    result.y += weight * dy;
+
+flux:
+  param:
+    spread: {}
+  src: |-
+    xpw := p.x + weight;
+    xmw := p.x - weight;
+    avgr := weight * (2 + param.spread) * sqrt(hypot(p.y, xpw)/sqrt(hypot(p.y, xmw)));
+    avga := (atan2(p.y, xmw) - atan2(p.y, xpw)) * 0.5;
+    result += avgr * cossin(avga);
+
+mobius: 
+  param:
+    re_a: {}
+    im_a: {}
+    re_b: {}
+    im_b: {}
+    re_c: {}
+    im_c: {}
+    re_d: {}
+    im_d: {}
+  src: |-
+    re_u := param.re_a * p.x - param.im_a * p.y + param.re_b;
+    im_u := param.re_a * p.y + param.im_a * p.x + param.im_b;
+    re_v := param.re_c * p.x - param.im_c * p.y + param.re_d;
+    im_v := param.re_c * p.y + param.im_c * p.x + param.im_d;
+    rad_v := weight / hypot(re_v, im_v);
+
+    result.x += rad_v * (re_u * re_v + im_u * im_v);
+    result.y += rad_v * (im_u * re_v - re_u * im_v);

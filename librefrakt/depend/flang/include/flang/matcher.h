@@ -7,95 +7,107 @@
 
 namespace flang {
 
-	class matcher {
-	public:
-		using func_t = std::function<bool(const ast_node*)>;
+	using matcher = std::add_pointer_t<bool(const ast_node* n)>;
 
-		explicit(false) matcher(const func_t& func) :
-			func_(func) {}
+	namespace detail {
 
-		//template<typename Callable>
-		//matcher(Callable func) :
-		//	func_(std::move(func)) {}
+		template<typename T>
+		concept matcher_concept = requires(T) {
+			{ std::declval<T>()(std::declval<const ast_node*>()) } -> std::same_as<bool>;
+		}&& std::is_empty_v<T>;
 
-		bool operator()(const ast_node* node) const noexcept {
-			return func_(node);
-		}
+		template<size_t N>
+		struct StringLiteral {
+			constexpr static std::size_t length = N;
 
-		matcher operator&&(const matcher& o) const noexcept {
-			return { [lhs = func_, rhs = o.func_](const ast_node* node) -> bool {
-				return lhs(node) && rhs(node);
-			} };
-		}
+			constexpr StringLiteral(const char(&str)[N]) {
+				std::copy_n(str, N, value);
+			}
 
-		matcher operator||(const matcher& o) const noexcept {
-			return { [lhs = func_, rhs = o.func_](const ast_node* node) -> bool {
-				return lhs(node) || rhs(node);
-			} };
-		}
-
-		matcher operator!() const noexcept {
-			return { [op = func_](const ast_node* node) -> bool {
-				return !op(node);
-			} };
-		}
-
-	private:
-
-		func_t func_;
-	};
-
-	namespace matchers {
-
-		template<typename... Ts>
-		matcher of_type() {
-			return { [](const ast_node* node) -> bool {
-				return ((node->type() == tao::pegtl::demangle<Ts>()) || ...);
-			} };
-		}
-
-		inline matcher with_content(std::string_view content) {
-			return { [content = std::string{content}](const ast_node* node) {
-				return node->content() == content;
-			} };
-		}
-
-		inline matcher with_child(matcher predicate) {
-			return { [predicate](const ast_node* node) {
-				for (const auto* c : *node) {
-					if (predicate(c)) return true;
-				}
-
-				return false;
-			} };
-		}
-
-		inline matcher with_parent(matcher predicate) {
-			return { [predicate](const ast_node* node) {
-				return node->parent() != nullptr && predicate(node->parent());
-			} };
-		}
-
-		inline matcher with_sibling(matcher predicate) {
-			return { [predicate](const ast_node* node) {
-				if (node->parent() == nullptr) return false;
-
-				for (const auto* s : *node->parent()) {
-					if (s != node && predicate(s)) return true;
-				}
-
-				return false;
-			} };
-		}
-
-		inline matcher of_rank(int rank)
-		{
-			return { [rank](const ast_node* node) {
-				auto p = node->parent();
-				return p && p->size() > rank && p->nth(rank) == node;
-			} };
-		}
-
+			char value[N];
+		};
 	}
 
+}
+
+template<flang::detail::matcher_concept L, flang::detail::matcher_concept R>
+[[nodiscard]] consteval auto operator&&(L, R) noexcept {
+	return [](const flang::ast_node* node) -> bool {
+		return L{}(node) && R {}(node);
+	};
+}
+
+template<flang::detail::matcher_concept L, flang::detail::matcher_concept R>
+[[nodiscard]] consteval auto operator||(L, R) noexcept {
+	return [](const flang::ast_node* node) -> bool {
+		return L{}(node) || R{}(node);
+	};
+}
+
+template<flang::detail::matcher_concept M>
+[[nodiscard]] consteval auto operator!(M) noexcept {
+	return [](const flang::ast_node* node) -> bool {
+		return M{}(node);
+	};
+}
+
+namespace flang::matchers {
+	template<typename... Ts>
+	constexpr static auto of_type = 
+	[](const flang::ast_node* node) -> bool {
+		return ((node->type() == tao::pegtl::demangle<Ts>()) || ...);
+	};
+
+
+	template<flang::detail::StringLiteral... Strs>
+	constexpr static auto with_content =
+	[](const flang::ast_node* node) -> bool {
+		return ((node->content() == Strs.value) || ...);
+	};
+
+	template<int Rank>
+	constexpr static auto of_rank =
+	[](const flang::ast_node* node) -> bool {
+		const auto p = node->parent();
+		return p && p->size() > Rank && p->nth(Rank) == node;
+	};
+
+	template<flang::detail::matcher_concept Pred>
+	[[nodiscard]] consteval auto with_child(Pred) noexcept {
+		return [](const flang::ast_node* node) -> bool {
+			constexpr static auto pred = Pred{};
+			for (const auto* c : *node) {
+				if (pred(c)) {
+					return true;
+				}
+			}
+			return false;
+		};
+	}
+
+	template<flang::detail::matcher_concept Pred>
+	[[nodiscard]] consteval auto with_parent(Pred) noexcept {
+		return [](const flang::ast_node* node) -> bool {
+			constexpr static auto pred = Pred{};
+			return pred(node->parent());
+		};
+	}
+
+	template<flang::detail::matcher_concept Pred>
+	[[nodiscard]] consteval auto with_sibling(Pred) noexcept {
+		return [](const flang::ast_node* node) -> bool {
+			constexpr static auto pred = Pred{};
+			if (node->parent() == nullptr) {
+				return false;
+			}
+
+			for (const auto* s : *node->parent()) {
+				if (s != node && pred(s)) {
+					return true;
+				}
+			}
+
+			return false;
+		};
+	}
 }

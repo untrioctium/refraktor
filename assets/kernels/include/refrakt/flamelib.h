@@ -2,7 +2,7 @@
 	using Real = double;
 	#define M_PI 3.14159265358979323846264338327950288419
 	#define M_1_PI (1.0/3.14159265358979323846264338327950288419)
-	#define M_EPS (1e-10)
+	#define M_EPS (1e-20)
 	#define INTERP(a, b, mix) ((a) * (1.0 - (mix)) + (b) * (mix))
 	#define __sincos sincos
 	#define __pow pow
@@ -14,7 +14,7 @@
 	#define M_1_PI (1.0f/3.14159265358979323846264338327950288419f)
 	#define M_PI_2 (3.14159265358979323846264338327950288419f/2.0f)
 	#define M_2_PI (2.0f/3.14159265358979323846264338327950288419f)
-	#define M_EPS (1e-10f)
+	#define M_EPS (1e-20f)
 	#define INTERP(a, b, mix) ((a) * (1.0f - (mix)) + (b) * (mix))
 	#define __sincos __sincosf
 	#define __pow __powf
@@ -54,6 +54,30 @@ struct vec2 {
         y += other.y;
         return *this;
 	}
+
+	vec2& operator*=(const FloatT s) {
+		x *= s;
+        y *= s;
+        return *this;
+	}
+
+	vec2& operator/=(const FloatT s) {
+        x /= s;
+        y /= s;
+        return *this;
+    }
+
+	vec2& operator*=(const int s) {
+		x *= s;
+        y *= s;
+        return *this;
+	}
+
+	vec2& operator/=(const int s) {
+        x /= s;
+        y /= s;
+        return *this;
+    }
 };
 static_assert(sizeof(vec2<float>) == sizeof(float) * 2);
 
@@ -74,6 +98,25 @@ struct vec4 : public vec3<FloatT> {
 static_assert(sizeof(vec4<float>) == sizeof(float) * 4);
 
 namespace flamelib {
+	namespace detail {
+		template<bool v>
+		struct boolean_constant {
+			static constexpr bool value = v;
+		};
+
+		using true_type = boolean_constant<true>;
+		using false_type = boolean_constant<false>;
+
+		template<class T, class U>
+		struct is_same_t : false_type {};
+		
+		template<class T>
+		struct is_same_t<T, T> : true_type {};
+	}
+
+	template<typename T, typename U>
+	static constexpr bool is_same = detail::is_same_t<T, U>::value;
+
 	__device__ constexpr auto warp_size() { return 32; }
 
 	__device__ inline void sync_warp() { __syncwarp(); }
@@ -120,7 +163,9 @@ namespace flamelib {
 		iterators_t<FloatT, ThreadsPerBlock> iterators;
 		RandCtx rand_states[ThreadsPerBlock];
 		uint16 shuffle_vote[ThreadsPerBlock];
+		#ifdef USE_ASYNC_MEMCPY
 		uint16 shuffle[ThreadsPerBlock];
+		#endif
 		uint8 xform_vote[ThreadsPerBlock];
 	};
 
@@ -162,22 +207,25 @@ __device__ vec3<T> operator-(const vec3<T>& a, const vec3<T>& b) noexcept {
 }
 
 template<typename T>
-__device__ vec2<T> operator*(const vec2<T>& a, T scalar) noexcept {
+concept scalar_value = flamelib::is_same<T, float> || flamelib::is_same<T, double> || flamelib::is_same<T, int>;
+
+template<typename T>
+__device__ vec2<T> operator*(const vec2<T>& a, scalar_value auto const scalar) noexcept {
     return {a.x * scalar, a.y * scalar};
 }
 
 template<typename T>
-__device__ vec2<T> operator*(T scalar, const vec2<T>& a) noexcept {
+__device__ vec2<T> operator*(scalar_value auto const scalar, const vec2<T>& a) noexcept {
     return {scalar * a.x, scalar * a.y};
 }
 
 template<typename T>
-__device__ vec2<T> operator/(const vec2<T>& a, T scalar) noexcept {
+__device__ vec2<T> operator/(const vec2<T>& a, scalar_value auto const scalar) noexcept {
     return {a.x / scalar, a.y / scalar};
 }
 
 template<typename T>
- __device__ vec3<T> operator/(const vec3<T>& a, T scalar) noexcept {
+ __device__ vec3<T> operator/(const vec3<T>& a, scalar_value auto const scalar) noexcept {
     return {a.x / scalar, a.y / scalar, a.z / scalar};
  }
 
@@ -202,26 +250,12 @@ template<typename T>
 namespace flamelib {
 
 	namespace math {
-		Real pi = 3.1415926535897932384626433832795028841971693_r;
-		Real inv_pi = 0.318309886183790671537767526745028724_r;
+		template<typename FloatT>
+		FloatT pi = static_cast<FloatT>(3.1415926535897932384626433832795028841971693);
+
+		template<typename FloatT>
+		FloatT inv_pi = static_cast<FloatT>(0.318309886183790671537767526745028724);
 	}
-
-	template<bool v>
-	struct boolean_constant {
-		static constexpr bool value = v;
-	};
-
-	using true_type = boolean_constant<true>;
-	using false_type = boolean_constant<false>;
-
-	template<class T, class U>
-	struct is_same_t : false_type {};
-	
-	template<class T>
-	struct is_same_t<T, T> : true_type {};
-
-	template<typename T, typename U>
-	static constexpr bool is_same = is_same_t<T, U>::value;
 
 	// trigonometric and hyperbolic functions
 	MAKE_SIMPLE_OVERLOAD(sin, sinf, sin);
@@ -239,6 +273,7 @@ namespace flamelib {
 	MAKE_SIMPLE_OVERLOAD(asinh, asinhf, asinh);
 	MAKE_SIMPLE_OVERLOAD(acosh, acoshf, acosh);
 	MAKE_SIMPLE_OVERLOAD(atanh, atanhf, atanh);
+	MAKE_SIMPLE_OVERLOAD(rsqrt, rsqrtf, rsqrt);
 
 	template<typename T>
 	T atan2(T a, T b) noexcept {
@@ -278,7 +313,24 @@ namespace flamelib {
 	MAKE_SIMPLE_OVERLOAD(exp10, exp10f, exp10);
 	MAKE_SIMPLE_OVERLOAD(log10, log10f, log10);
 
-	MAKE_SIMPLE_OVERLOAD(trunc, truncf, trunc);
+	template<typename T>
+	__device__ int trunc(T a) noexcept {
+		if constexpr (is_same<T, float>)
+		    return static_cast<int>(::truncf(a));
+		else return static_cast<int>(::trunc(a));
+	}
+
+	template<typename T>
+	__device__ int rint(T a) noexcept {
+		if constexpr (is_same<T, float>)
+		    return static_cast<int>(::rintf(a));
+		else return static_cast<int>(::rint(a));
+	}
+
+	__device__ constexpr bool is_even(int x) noexcept {
+		return !(x & 1);
+	}
+
 	MAKE_SIMPLE_OVERLOAD(floor, floorf, floor);
 
 	template<typename T>
@@ -324,6 +376,13 @@ namespace flamelib {
 	template<typename T>
 	__device__ vec2<T> elmul(const vec2<T>& a, const vec2<T>& b) noexcept {
 		return {a.x * b.x, a.y * b.y};
+	}
+
+	template<typename T>
+	__device__ T copysign(T a, T b) noexcept {
+		if constexpr (is_same<T, float>)
+		    return ::copysignf(a, b);
+		else return ::copysign(a, b);
 	}
 
 	template<typename T>

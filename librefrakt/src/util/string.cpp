@@ -17,7 +17,7 @@ auto rfkt::str_util::split(const std::string& str, char delim) -> std::vector<st
     return tokens;
 }
 
-auto rfkt::str_util::join(const std::vector<std::string>& tokens, char delim) -> std::string
+auto rfkt::str_util::join(const std::vector<std::string>& tokens, const std::string& delim) -> std::string
 {
 	if (tokens.empty()) return "";
 	auto ret = tokens.at(0);

@@ -1,10 +1,15 @@
-#include <cuda_fp16.h>
-
 #define DEBUG(...) if(threadIdx.x == 0 && blockIdx.x == 0) {printf(__VA_ARGS__);}
 
+using __half = unsigned short;
 struct half3 {
 	__half x, y, z;
 };
+
+__half __float2half(const float a) {
+	__half val;
+	asm("{  cvt.rn.f16.f32 %0, %1;}\n" : "=h"(val) : "f"(a));
+	return val;
+}
 
 __global__ void tonemap(const float4* __restrict__ bins, half3* __restrict__ image, unsigned int dims_x, unsigned int dims_y, float gamma, float scale_constant, float brightness, float vibrancy) {
 
@@ -26,7 +31,7 @@ __global__ void tonemap(const float4* __restrict__ bins, half3* __restrict__ ima
 		return;
 	}
 
-	col.w += 1;
+	//col.w += 1;
 	const float factor = (col.w == 0.0f)? 0.0f : 0.5f * brightness * logf(1.0f + col.w * scale_constant) * 0.434294481903251827651128918916f / (col.w);
 	col.x *= factor; col.y *= factor; col.z *= factor; col.w *= factor;
 

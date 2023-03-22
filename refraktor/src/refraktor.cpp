@@ -160,13 +160,12 @@ int main() {
 	SPDLOG_INFO("clock: {}", dev.clock());
 	SPDLOG_INFO("max clock: {}", dev.max_clock());
 
-	rfkt::flame_info::initialize("config/variations.yml");
+	rfkt::flame_info::initialize("config");
 
 	sol::state lua;
 	lua.open_libraries(sol::lib::base, sol::lib::math, sol::lib::string);
 
 	using namespace rfkt;
-
 
 	rfkt::denoiser::init(ctx);
 	auto dn = rfkt::denoiser{ { 1920, 1080 }, false };
@@ -181,6 +180,20 @@ int main() {
 	auto jpeg = rfkt::nvjpeg::encoder{ jpeg_stream };
 	auto tm = rfkt::tonemapper{ km };
 	auto conv = rfkt::converter{ km };
+
+	for (const auto& f : rfkt::fs::list("assets/flames", rfkt::fs::filter::has_extension(".flam3"))) {
+		auto fopt = rfkt::flame::import_flam3(f.string());
+		if (!fopt) {
+			continue;
+		}
+
+		auto result = fc.get_flame_kernel(rfkt::precision::f32, fopt.value());
+		if (!result.kernel) {
+			SPDLOG_ERROR("\n{}", result.source);
+			SPDLOG_ERROR("\n{}", result.log);
+			return 1;
+		}
+	}
 
 
 	lua["use_logging"] = [](bool log) {

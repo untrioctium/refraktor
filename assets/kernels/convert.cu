@@ -1,4 +1,6 @@
-#include <cuda_fp16.h>
+//#include <cuda_fp16.h>
+using __half = unsigned short;
+
 
 // the long awaited sequel to half1 and half2
 struct half3 {
@@ -12,6 +14,12 @@ consteval auto image_type() {
     } else {
         return (uchar4*)(nullptr);
     }
+}
+
+float __half2float(__half v) {
+    float val;
+    asm("{  cvt.f32.f16 %0, %1;}\n" : "=f"(val) : "h"(v));
+    return val;
 }
 
 unsigned char half2uchar(__half v) {

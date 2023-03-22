@@ -1,11 +1,3 @@
-#define xcommon(name) xcommon_##name
-#define xaffine_a aff.a
-#define xaffine_b aff.b
-#define xaffine_c aff.c
-#define xaffine_d aff.d
-#define xaffine_e aff.e
-#define xaffine_f aff.f
-
 constexpr static uint64 num_xforms = @num_standard_xforms@;
 constexpr static bool has_final_xform = @num_standard_xforms < length(xforms)@;
 
@@ -14,8 +6,8 @@ struct affine {
     FloatT a, d, b, e, c, f;
 
     __device__ void apply(FloatT& px, FloatT& py) const {
-        auto tmp = __fma(a, px, __fma(b, py, c));
-        py = __fma(d, px, __fma(e, py, f));
+        auto tmp = fl::fma(a, px, fl::fma(b, py, c));
+        py = fl::fma(d, px, fl::fma(e, py, f));
         px = tmp;
     }
 };
@@ -39,36 +31,38 @@ struct xform_@xform.hash@_t {
         <# for variation in vlink.variations #>
         FloatT v_@variation.name@;
         <# endfor #>
+        <# if length(vlink.parameters) > 0 #>
 
         // parameters
         <# for parameter in vlink.parameters #>
         FloatT p_@parameter@;
         <# endfor #> 
+        <# endif #>
+        <# if length(vlink.precalc) > 0 #>
 
         // precalc
         <# for parameter in vlink.precalc #>
         FloatT p_@parameter@;
         <# endfor #> 
+        <# endif #>
 
-        __device__ void apply(vec2<FloatT> inp, vec2<FloatT>& outp, RandCtx* rs) const {
+        __device__ void apply(const vec2<FloatT>& inp, vec2<FloatT>& outp, RandCtx* rs) const {
             outp.x = outp.y = 0;
-            aff.apply(inp.x, inp.y);
 
             <# for common in vlink.common #>
-            FloatT common_@common.name@ = @common.source@;
+            const FloatT common_@common.name@ = @common.source@;
             <# endfor #>
-
             <# for variation in vlink.variations #>
+            
             // @variation.name@
-            {
-                @-get_variation_source(variation.id, "                ")@
-            }
+            @-get_variation_source(variation.id, "            ")@
             <# endfor #>
         }
 
         __device__ void do_precalc() {
             <# for variation in vlink.variations #>
             <# if variation_has_precalc(variation.id) #>
+            // @variation.name@
             @-get_precalc_source(variation.id, "            ")@
             <# endif #>
             <# endfor #>
@@ -79,6 +73,7 @@ struct xform_@xform.hash@_t {
     <# endfor #>
     __device__ void apply(vec2<FloatT>& inp, vec2<FloatT>& outp, RandCtx* rs) const {
         <# for vlink in xform.vchain #>
+        vlink_@loop.index@.aff.apply(inp.x, inp.y);
         vlink_@loop.index@.apply(inp, outp, rs);
             <# if not loop.is_last #>
         inp = outp;
@@ -98,6 +93,8 @@ template<typename FloatT, typename RandCtx>
 struct flame_t {
 
     affine<FloatT> screen_space;
+    affine<FloatT> plane_space;
+    
     FloatT weight_sum;
 
     <# for xform in xforms #>
@@ -138,7 +135,7 @@ struct flame_t {
         return reinterpret_cast<FloatT*>(this);
     }
 
-    __device__ FloatT do_precalc() {
+    __device__ void do_precalc() {
         // calculate weight sum
         weight_sum = <# for xid in range(num_standard_xforms) #>xform_@xid@.weight<# if not loop.is_last #> +<# endif #><# endfor #>;
 

@@ -37,7 +37,7 @@ namespace flang::grammar {
 		struct greater_than : symbol<'>'> {};
 		struct greater_equal : symbol<'>', '='> {};
 
-		struct comparison_operators : peg::sor<op::less_than, op::less_equal, op::greater_than, op::greater_equal> {};
+		struct comparison_operators : peg::sor<op::greater_equal, op::less_equal, op::greater_than, op::less_than> {};
 
 		// boolean
 		struct b_and : peg::sor<symbol<'&', '&'>, TAO_PEGTL_STRING("and")> {};
@@ -104,8 +104,9 @@ namespace flang::grammar {
 
 	struct assignment_statement : peg::if_must<expr::assignment, syn::semi> {};
 	struct declaration_statement : peg::if_must<declaration, syn::semi> {};
+	struct break_statement: peg::if_must<symbol<'b', 'r', 'e', 'a', 'k'>, syn::semi> {};
 
-	struct statement : peg::pad<peg::sor<if_statement, assignment_statement, declaration_statement, scoped>, peg::space>{};
+	struct statement : peg::pad<peg::sor<if_statement, assignment_statement, declaration_statement, scoped, break_statement>, peg::space>{};
 	struct scoped : peg::if_must<syn::open_brace, peg::must<peg::plus<statement>>, syn::close_brace> {};
 
 	struct body : peg::must<peg::plus<statement>, peg::eof> {};

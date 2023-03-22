@@ -60,6 +60,7 @@ namespace flang::grammar {
 	struct if_statement;
 	struct assignment_statement;
 	struct declaration_statement;
+	struct break_statement;
 
 	struct scoped;
 
@@ -159,10 +160,10 @@ namespace flang {
 	namespace detail {
 
 		template<std::size_t Length>
-		struct StringLiteral {
+		struct StringLiteral2 {
 			constexpr static std::size_t length = Length;
 
-			explicit(false) constexpr StringLiteral(const char(&str)[Length]) {
+			explicit(false) constexpr StringLiteral2(const char(&str)[Length]) {
 				std::copy_n(str, Length, value);
 			}
 
@@ -187,7 +188,7 @@ namespace flang {
 		const ast_node* ref() const { return node; }
 		std::string_view what() const { return message; }
 
-		template<detail::StringLiteral format_string, typename... Args>
+		template<detail::StringLiteral2 format_string, typename... Args>
 		static std::unexpected<semantic_error> make(const ast_node* ref, Args&&... args) {
 			return std::unexpected{ semantic_error{ref, std::format(format_string.value, std::forward<Args>(args)...)} };
 		}

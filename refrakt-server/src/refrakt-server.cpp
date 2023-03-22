@@ -719,7 +719,7 @@ int main(int argc, char** argv) {
 		rfkt::flame_info::initialize("config");
 	}
 	catch(const flang::parse_error& e) {
-		SPDLOG_ERROR("Failed to parse variations file: {}", e.what());
+		SPDLOG_ERROR("Failed to parse variations file: {} ({}:{})", e.what(), e.pos().line, e.pos().column);
 		return 1;
 	}
 	catch (const std::exception& e) {
@@ -750,7 +750,6 @@ int main(int argc, char** argv) {
 
 	auto jpeg_stream = rfkt::cuda_stream{};
 
-	auto dn = rfkt::denoiser{ {4096, 4096}, false };
 	auto conv = rfkt::converter{ km };
 	auto jpeg = rfkt::nvjpeg::encoder{ jpeg_stream };
 
@@ -933,14 +932,18 @@ int main(int argc, char** argv) {
 			{"fps", query_parser::integer},
 			{"loop_speed", query_parser::integer },
 			{"bin_time", query_parser::integer},
-			{"segments", query_parser::integer }
+			{"segments", query_parser::integer },
+			{"noisy", query_parser::boolean},
+			{"seed", query_parser::integer},
+			{"upscale", query_parser::boolean}
 		};
 
 		auto data = qp.parse(req->getQuery());
 
 		struct render_data {
-			unsigned int width, height, fps, loop_speed, jpeg_quality, bin_time, segments;
+			unsigned int width, height, outwidth, outheight, fps, loop_speed, jpeg_quality, bin_time, segments, seed;
 			double time, quality;
+			bool noisy, upscale;
 		} rd{};
 
 		rd.width = data.value("width", 1920);
@@ -952,12 +955,23 @@ int main(int argc, char** argv) {
 		rd.loop_speed = data.value("loop_speed", 5000);
 		rd.bin_time = data.value("bin_time", 2000);
 		rd.segments = data.value("segments", 1);
+		rd.seed = data.value("seed", 0xdeadbeef);
+		rd.noisy = data.value("noisy", false);
+		rd.upscale = data.value("upscale", false);
 
 		if (rd.width > 3840) rd.width = 3840;
 		if (rd.height > 2160) rd.height = 2160;
 		if (rd.quality > 20480) rd.quality = 20480;
 		if (rd.bin_time > 20000) rd.bin_time = 20000;
 		if (rd.jpeg_quality <= 0 || rd.jpeg_quality > 100) rd.jpeg_quality = 85;
+
+		rd.outwidth = rd.width;
+		rd.outheight = rd.height;
+
+		if (rd.upscale && !rd.noisy) {
+			rd.width /= 2;
+			rd.height /= 2;
+		}
 
 		auto cd = http_connection_data::make(res);
 		auto flame_path = fmt::format("assets/flames_test/electricsheep.{}.flam3", req->getParameter(0));
@@ -967,7 +981,7 @@ int main(int argc, char** argv) {
 			return;
 		}
 
-		jpeg_executor->post([flame_path = std::move(flame_path), cd = std::move(cd), rd = std::move(rd), ctx = ctx, &fc, &tm, &jpeg, &dn, &conv, &jpeg_stream]() mutable {
+		jpeg_executor->post([flame_path = std::move(flame_path), cd = std::move(cd), rd = std::move(rd), ctx = ctx, &fc, &tm, &jpeg, &conv, &jpeg_stream]() mutable {
 
 			auto timer = rfkt::timer();
 			auto fopt = rfkt::flame::import_flam3(flame_path);
@@ -979,7 +993,15 @@ int main(int argc, char** argv) {
 			}
 
 			timer.reset();
-			auto k_result = fc.get_flame_kernel(rfkt::precision::f32, fopt.value());
+			auto k_result = [&]() -> rfkt::flame_compiler::result {
+				try {
+					return fc.get_flame_kernel(rfkt::precision::f32, fopt.value());
+				}
+				catch (const std::exception& e) {
+					SPDLOG_ERROR("{}", e.what());
+					throw;
+				}
+			}();
 			auto t_kernel = timer.count();
 
 			if (!k_result.kernel.has_value()) {
@@ -991,12 +1013,13 @@ int main(int argc, char** argv) {
 
 			SPDLOG_INFO("{}", k_result.source);
 
+			auto dn = rfkt::denoiser{ {rd.outwidth, rd.outheight}, rd.upscale };
 
 			auto kernel = rfkt::flame_kernel{ std::move(k_result.kernel.value()) };
 			auto tonemapped = rfkt::cuda_buffer<half3>(rd.width * rd.height, jpeg_stream);
-			auto smoothed = rfkt::cuda_buffer<half3>(rd.width * rd.height, jpeg_stream);
-			auto render = rfkt::cuda_buffer<uchar4>(rd.width * rd.height, jpeg_stream);
-			auto state = kernel.warmup(jpeg_stream, fopt.value(), { rd.width, rd.height }, rd.time, rd.segments, double(rd.fps) / rd.loop_speed, 0xdeadbeef, 100);
+			auto smoothed = rfkt::cuda_buffer<half3>(rd.outwidth * rd.outheight, jpeg_stream);
+			auto render = rfkt::cuda_buffer<uchar4>(rd.outwidth * rd.outheight, jpeg_stream);
+			auto state = kernel.warmup(jpeg_stream, fopt.value(), { rd.width, rd.height }, rd.time, rd.segments, double(rd.fps) / rd.loop_speed, rd.seed, 100);
 
 			timer.reset();
 			auto meter = rfkt::gpuinfo::power_meter{ rfkt::gpuinfo::device::by_index(0) };
@@ -1005,20 +1028,29 @@ int main(int argc, char** argv) {
 			auto t_bin = result.elapsed_ms;
 
 			auto power = joules / (t_bin / 1000.0);
-			auto power_per_pass = joules / (result.total_passes / 1'000'000'000.0);
+			auto power_per_draw = joules / (result.total_draws / 1'000'000'000.0);
 
 			auto mpass_per_ms = result.total_passes / (1'000'000 * t_bin);
 			auto mdraw_per_ms = result.total_draws / (1'000'000 * t_bin);
 
-			SPDLOG_INFO("load {:.4}, kernel {:.4}, bin {:.4}, quality {:.4}, {:.4} mdraw/ms, {:.4} miter/ms, {:.4} watts, {:.4} joules per billion passes", t_load, t_kernel, t_bin, result.quality, mdraw_per_ms, mpass_per_ms, power, power_per_pass);
+			SPDLOG_INFO("load {:.4}, kernel {:.4}, bin {:.4}, quality {:.4}, {:.4} mdraw/ms, {:.4} miter/ms, {} passes_per_thread, {:.4} watts, {:.4} joules per billion draws", t_load, t_kernel, t_bin, result.quality, mdraw_per_ms, mpass_per_ms, result.passes_per_thread, power, power_per_draw);
 
 			tm.run(state.bins, tonemapped, { rd.width, rd.height }, result.quality, fopt->gamma.sample(rd.time), fopt->brightness.sample(rd.time), fopt->vibrancy.sample(rd.time), jpeg_stream);
-			dn.denoise({ rd.width, rd.height }, tonemapped, smoothed, jpeg_stream);
-			conv.to_24bit(smoothed, render, { rd.width, rd.height }, true, jpeg_stream);
-			auto data = jpeg.encode_image(render.ptr(), rd.width, rd.height, rd.jpeg_quality, jpeg_stream).get();
+			dn.denoise({ rd.outwidth, rd.outheight }, tonemapped, smoothed, jpeg_stream);
+			conv.to_24bit((!rd.noisy)? smoothed: tonemapped, render, { rd.outwidth, rd.outheight }, true, jpeg_stream);
+			auto data = jpeg.encode_image(render.ptr(), rd.outwidth, rd.outheight, rd.jpeg_quality, jpeg_stream).get();
  
-			cd->defer([data = std::move(data)](auto& cd){
+			std::map<std::string, double> metadata = {};
+			metadata["load-ms"] = t_load;
+			metadata["kernel-ms"] = t_kernel;
+			metadata["bin-ms"] = t_bin;
+			metadata["quality"] = result.quality;
+
+			cd->defer([data = std::move(data), meta=std::move(metadata)](auto& cd) {
 				if (!cd.aborted()) {
+					for (const auto& [k, v] : meta) {
+						cd.response()->writeHeader(k, std::format("{}", v));
+					}
 					cd.response()->writeHeader("Content-Type", "image/jpeg");
 					cd.response()->tryEnd({(char*)data.data(), data.size()});
 				}

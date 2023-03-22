@@ -32,6 +32,32 @@ namespace flang {
 
 		ast_node() = default;
 
+		template<typename Pred>
+		std::vector<const ast_node*> find_descendents(Pred&& pred) const noexcept {
+			std::vector<const ast_node*> result;
+			for (const auto& child : *this) {
+				if (pred(child)) {
+					result.push_back(child);
+				}
+				auto sub = child->find_descendants(pred);
+				result.insert(result.end(), sub.begin(), sub.end());
+			}
+			return result;
+		}
+
+		template<typename Pred>
+		bool has_descendent(Pred&& pred) const noexcept {
+			for (const auto& child : *this) {
+				if (pred(child)) {
+					return true;
+				}
+				if (child->has_descendent(pred)) {
+					return true;
+				}
+			}
+			return false;
+		}
+
 	private:
 
 		friend class ast;

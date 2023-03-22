@@ -1,5 +1,3 @@
-#include <cuda/std/type_traits>
-
 constexpr static unsigned int rotl(const unsigned int x, int k) {
 	return (x << k) | (x >> (32 - k));
 }
@@ -17,7 +15,7 @@ struct rand_engine {
 
 	__device__ FloatT rand01() {
 		Generator* const gen = static_cast<Generator*>(this);
-		if constexpr (cuda::std::is_same<FloatT, double>::value) {
+		if constexpr (flamelib::is_same<FloatT, double>) {
 			unsigned long long bits = ((((unsigned long long) gen->rand()) << 32) | (((unsigned long long) gen->rand())));
 			bits &= 0x000FFFFFFFFFFFFFull;
 			bits |= 0x3FF0000000000000ull;

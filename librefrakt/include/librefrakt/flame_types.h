@@ -283,6 +283,7 @@ namespace rfkt
 		auto real_count() const noexcept -> std::size_t {
 			std::size_t count =
 				6 + // screen space transform
+				6 + // plane space transform
 				1; // weight sum
 
 			if (final_xform.has_value()) count += final_xform->real_count();
@@ -347,6 +348,14 @@ namespace rfkt
 			packer(mat.e.sample(t));
 			packer(mat.c.sample(t));
 			packer(mat.f.sample(t));
+
+			auto pmat = make_plane_space_affine(dims.x, dims.y, t);
+			packer(pmat.a.sample(t));
+			packer(pmat.d.sample(t));
+			packer(pmat.b.sample(t));
+			packer(pmat.e.sample(t));
+			packer(pmat.c.sample(t));
+			packer(pmat.f.sample(t));
 
 			auto sum = 0.0;
 			for (const auto& xf : xforms) sum += xf.weight.sample(t);

@@ -590,6 +590,10 @@ namespace ezrtc {
 
 }
 
+#ifdef __INTELLISENSE__
+#define EZRTC_IMPLEMENTATION_UNIT
+#endif
+
 #ifdef EZRTC_IMPLEMENTATION_UNIT
 
 #ifdef EZRTC_USE_FMTLIB
@@ -1484,10 +1488,8 @@ ezrtc::compiler::result ezrtc::compiler::compile(const ezrtc::spec& s) {
 		md.dependencies.emplace_back(dep, detail::last_mod(dep));
 	}
 
-
-
-	std::vector<const char*> header_names {"cstdio", "iostream"};
-	std::vector<const char*> header_contents {"", ""};
+	std::vector<const char*> header_names {};
+	std::vector<const char*> header_contents {};
 
 	for (const auto& [name, contents] : s.headers) {
 		header_names.push_back(name.c_str());
@@ -1510,8 +1512,10 @@ ezrtc::compiler::result ezrtc::compiler::compile(const ezrtc::spec& s) {
 
 	using prog_scope = detail::scoped<nvrtcProgram, [](nvrtcProgram p) { nvrtcDestroyProgram(&p); } > ;
 
+	auto attempts = 0;
 	auto make_program = [&]() {
 		while (true) {
+			attempts++;
 			nvrtcProgram prog_handle;
 			EZRTC_CHECK_NVRTC(
 				nvrtcCreateProgram(

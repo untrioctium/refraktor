@@ -515,7 +515,7 @@ const flang::var_definitions& flang::stdlib()
 		});
 
 		const auto basic_math = std::vector<std::string>{
-			"sin", "cos", "cosh", "sinh", "exp", "sqrt", "eps", "tan", "abs", "log", "log10", "log2"
+			"sin", "sinpi", "cos", "cospi", "cosh", "sinh", "exp", "sqrt", "eps", "tan", "abs", "log", "log10", "log2", "rsqrt", "acos"
 		};
 
 		for (const auto& name : basic_math) {
@@ -537,7 +537,7 @@ const flang::var_definitions& flang::stdlib()
 		}
 
 		const auto binary = std::vector<std::string>{
-			"copysign", "modf", "pow"
+			"copysign", "modf", "pow", "atan2", "hypot"
 		};
 
 		for (const auto& name : binary) {
@@ -572,8 +572,11 @@ const flang::var_definitions& flang::stdlib()
 			{{flang::vtype::decimal}, flang::vtype::integer}
 		});
 
+		l.members.emplace("rint", flang::type_desc::function{
+			{{flang::vtype::decimal}, flang::vtype::integer}
+		});
+
 		l.members.emplace("is_even", flang::type_desc::function{ {{flang::vtype::integer}, flang::vtype::boolean } });
-		l.members.emplace("is_odd", flang::type_desc::function{ {{flang::vtype::integer}, flang::vtype::boolean } });
 
 		return l;
 
