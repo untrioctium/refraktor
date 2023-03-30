@@ -264,7 +264,7 @@ void warmup(
 	auto pos = hammersley::sample<Real, TOTAL_THREADS>(fl::grid_rank());
 	pos.x *= bins_w;
 	pos.y *= bins_h;
-	state.flame.screen_space.apply(pos.x, pos.y);
+	state.flame.plane_space.apply(pos.x, pos.y);
 	
 	my_iter(x) = pos.x;
 	my_iter(y) = pos.y;

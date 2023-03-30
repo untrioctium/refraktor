@@ -339,7 +339,7 @@ namespace ezrtc {
 			auto data = std::span<const char>{ (const char*) sqlite3_column_blob(get_stmt, 2), static_cast<std::size_t>(sqlite3_column_bytes(get_stmt, 2)) };
 
 			auto row = cache::row{[stmt = std::move(get_stmt)]() noexcept {}};
-			row.signature = std::move(sig);
+			row.signature = sig;
 			row.meta = std::move(meta);
 			row.data = std::move(data);
 
@@ -469,7 +469,7 @@ namespace ezrtc {
 
 			void put(std::string_view id, row&& r) {
 				
-				size_type uncompressed_size = r.data.size();
+				size_type uncompressed_size = static_cast<size_type>(r.data.size());
 				auto compressed_size = compressBound(uncompressed_size);
 				auto compressed = std::vector<char>{};
 				compressed.resize(compressed_size + sizeof(size_type));
@@ -477,7 +477,7 @@ namespace ezrtc {
 				auto status = compress2((unsigned char*)compressed.data() + sizeof(size_type), &compressed_size, (const unsigned char*)r.data.data(), r.data.size(), 9);
 				compressed.resize(compressed_size + sizeof(size_type));
 
-				*((size_type*)(compressed.data())) = static_cast<size_type>(uncompressed_size);
+				*((size_type*)(compressed.data())) = uncompressed_size;
 
 				if (status != Z_OK) {
 					return;
@@ -1610,7 +1610,7 @@ ezrtc::compiler::result ezrtc::compiler::compile(const ezrtc::spec& s) {
 	auto get_lowered_name = [&prog](std::string_view expression) {
 		const char* name;
 		EZRTC_CHECK_NVRTC(nvrtcGetLoweredName(prog, expression.data(), &name));
-		return std::string_view{name, std::strlen(name) + 1};
+		return std::string_view{name, std::strlen(name) + 1}; // include null terminator
 	};
 
 	for (const auto& kernel : s.kernels) {

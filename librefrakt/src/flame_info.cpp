@@ -1,27 +1,15 @@
 #include <map>
 #include <yaml-cpp/yaml.h>
 
-#include <librefrakt/flame_info.h>
-#include <librefrakt/util/string.h>
-#include <librefrakt/animators.h>
+#include <spdlog/spdlog.h>
+
+#include "librefrakt/flame_types.h"
+#include "librefrakt/flame_info.h"
+#include "librefrakt/util/string.h"
 
 #include "flang/grammar.h"
 
-struct flame_table {
-	std::vector<rfkt::flame_info::def::variation> variations;
-	std::vector<rfkt::flame_info::def::parameter> parameters;
-	std::map<std::string, rfkt::flame_info::def::common, std::less<>> common;
-
-	std::map<std::string, std::reference_wrapper<rfkt::flame_info::def::variation>, std::less<>> variation_names;
-	std::map<std::string, std::reference_wrapper<rfkt::flame_info::def::parameter>, std::less<>> parameter_names;
-};
-
-auto& ft() {
-	static auto instance = flame_table{};
-	return instance;
-}
-
-auto validate_variation(const rfkt::flame_info::def::variation& v) {
+std::optional<flang::semantic_error> validate_variation(const rfkt::flamedb::variation& v, std::span<std::string_view> common, const std::pair<flang::ast, std::optional<flang::ast>>& ast) {
 
 	auto scopes = flang::scope_stack{};
 	auto& scope = scopes.emplace_back();
@@ -31,17 +19,15 @@ auto validate_variation(const rfkt::flame_info::def::variation& v) {
 	scope.add_decimal("weight");
 
 	auto common_group = flang::type_desc::group{};
-	for (const auto& [name, def] : ft().common) {
+	for (auto name : common) {
 		common_group.add_decimal(name);
 	}
 
 	scope.members.emplace("common", std::move(common_group));
 
 	auto param_group = flang::type_desc::group{};
-	for (const auto& p : v.parameters) {
-		const auto& name = p.get().name;
-		auto trimmed = name.substr(name.find(v.name) + v.name.size() + 1);
-		param_group.add_decimal(trimmed);
+	for (const auto& [name, def] : v.parameters) {
+		param_group.add_decimal(name);
 	}
 
 	scope.members.emplace("param", std::move(param_group));
@@ -55,27 +41,25 @@ auto validate_variation(const rfkt::flame_info::def::variation& v) {
 	affine_group.add_decimal("f");
 	scope.members.emplace("aff", std::move(affine_group));
 
-	auto src_result = flang::validate(v.source.head(), flang::stdlib(), scopes);
+	auto src_result = flang::validate(ast.first.head(), flang::stdlib(), scopes);
 
 	if (src_result.has_value()) {
-		SPDLOG_ERROR("Failed to validate variation `{}` source: {}", v.name, src_result->what());
-		exit(1);
+		return src_result;
 	}
 
 	if (v.precalc_source.has_value()) {
-		auto precalc_result = flang::validate(v.precalc_source->head(), flang::stdlib(), scopes);
+		auto precalc_result = flang::validate(ast.second->head(), flang::stdlib(), scopes);
 
 		if (precalc_result.has_value()) {
-			SPDLOG_ERROR("Failed to validate variation `{}` precalc: {}", v.name, precalc_result->what());
-			exit(1);
+			return precalc_result;
 		}
 	}
+
+	return std::nullopt;
 }
 
-void rfkt::flame_info::initialize(std::string_view config_path)
+void rfkt::initialize(rfkt::flamedb& fdb, std::string_view config_path)
 {
-	rfkt::animator::init_builtins();
-
 	auto find_xcommon_calls = [](const flang::ast& src) -> std::set<std::string> {
 		using namespace flang::matchers;
 
@@ -95,14 +79,6 @@ void rfkt::flame_info::initialize(std::string_view config_path)
 	auto vdefs = YAML::LoadFile(std::string{ config_path } + "/variations_new.yml");
 	auto cdefs = YAML::LoadFile(std::string{ config_path } + "/common.yml");
 
-	std::size_t num_variations = 0;
-	std::size_t num_parameters = 0;
-
-	// FIXME: this clears up issues with the vectors moving their data and destroying references when resizing
-	// but this should be properly calculated instead of allocating way more space than needed
-	ft().variations.reserve(256);
-	ft().parameters.reserve(256);
-
 	std::vector<std::string> names;
 	for (auto it = vdefs.begin(); it != vdefs.end(); it++) {
 		names.push_back(it->first.as<std::string>());
@@ -111,135 +87,129 @@ void rfkt::flame_info::initialize(std::string_view config_path)
 
 	for (auto it = cdefs.begin(); it != cdefs.end(); it++) {
 		auto name = it->first.as<std::string>();
-		auto parsed_src = flang::ast::parse_expression(it->second.as<std::string>());
-		if (!parsed_src) {
-			throw parsed_src.error();
-		}
-
-		auto cdef = flame_info::def::common{};
-		cdef.name = name;
-		cdef.source = std::move(parsed_src.value());
-		cdef.dependencies = find_xcommon_calls(cdef.source);
-		ft().common[name] = std::move(cdef);
+		fdb.add_or_update_common(name, it->second.as<std::string>());
 	}
 
 	for (auto& name : names) {
-		auto def = def::variation{};
-		def.index = (num_variations++);
+		auto def = rfkt::flamedb::variation{};
+
 		def.name = name;
 
 		auto yml = vdefs[name];
 
 		if (yml.IsScalar()) {
-			auto parsed = flang::ast::parse_statement(yml.as<std::string>());
-			if (!parsed) {
-				throw parsed.error();
-			}
-			def.source = std::move(parsed.value());
+			def.source = std::move(yml.as<std::string>());
 		}
 		else {
 			auto node = yml.as<YAML::Node>();
-			auto parsed_src = flang::ast::parse_statement(node["src"].as<std::string>());
-			if (!parsed_src) throw parsed_src.error();
-			def.source = std::move(parsed_src.value());
+
+			def.source = node["src"].as<std::string>();
 
 			if (node["precalc"].IsScalar()) {
-				auto parsed_precalc = flang::ast::parse_statement(node["precalc"].as<std::string>());
-				if(!parsed_precalc) throw std::runtime_error{ "Failed to parse variation: " + name };
-				def.precalc_source = std::move(parsed_precalc.value());
+				def.precalc_source = node["precalc"].as<std::string>();
 			}
 
 			auto param = node["param"];
 
 			for (auto it = param.begin(); it != param.end(); it++) {
-				auto pdef = def::parameter{};
-				pdef.name = std::format("{}_{}", name, it->first.as<std::string>());
+				auto pdef = rfkt::flamedb::parameter{};
+				pdef.name = it->first.as<std::string>();
 
 				if (it->second["default"].IsScalar()) pdef.default_value = it->second["default"].as<double>();
 				if (it->second["tags"].IsSequence()) {
 					for (const auto& tag : it->second["tags"]) {
-						if (tag.as<std::string>() == "precalc") {
-							pdef.is_precalc = true;
-						}
+						pdef.tags.insert(tag.as<std::string>());
 					}
 				}
 
-				pdef.index = (num_parameters++);
-				pdef.owner = def.index;
-
-				ft().parameters.push_back(pdef);
-				ft().parameter_names.insert_or_assign(pdef.name, std::ref(ft().parameters[pdef.index]));
-				def.parameters.push_back(std::ref(ft().parameters.at(pdef.index)));
+				def.parameters.emplace(pdef.name, std::move(pdef));
 			}
-
-			auto flags = node["flags"];
-			for (auto it = flags.begin(); it != flags.end(); it++)
-				def.flags.insert(it->as<std::string>());
-		}
-		for (const auto& xname : find_xcommon_calls(def.source)) {
-			def.dependencies.push_back(ft().common[xname]);
 		}
 
-		validate_variation(def);
-
-		auto index = def.index;
-		ft().variations.emplace_back(std::move(def));
-		ft().variation_names.insert_or_assign(name, std::ref(ft().variations.at(index)));
+		fdb.add_or_update_variation(def);
 	}
 
 }
 
-auto rfkt::flame_info::num_variations() -> std::size_t
-{
-	return ft().variations.size();
-}
+namespace rfkt {
 
-auto rfkt::flame_info::num_parameters() -> std::size_t
-{
-	return ft().parameters.size();
-}
+	bool flamedb::add_or_update_variation(const variation& vdef) noexcept {
+		cache_value_type vsrc;
 
-bool rfkt::flame_info::is_variation(std::string_view name)
-{
-	return ft().variation_names.contains(name);
-}
+		auto src = flang::ast::parse_statement(vdef.source);
+		if (!src) {
+			SPDLOG_ERROR("cannot parse variation `{}`: {}", vdef.name, src.error().what());
+			return false;
+		}
+		vsrc.first = std::move(src.value());
 
-bool rfkt::flame_info::is_parameter(std::string_view name)
-{
-	return ft().parameter_names.contains(name);
-}
+		if (vdef.precalc_source) {
+			auto precalc = flang::ast::parse_statement(*vdef.precalc_source);
+			if (!precalc) {
+				SPDLOG_ERROR("cannot parse variation `{}` precalc: {}", vdef.name, precalc.error().what());
+				return false;
+			}
+			vsrc.second = std::move(precalc.value());
+		}
 
-bool rfkt::flame_info::is_common(std::string_view name)
-{
-	return ft().common.contains(name);
-}
+		std::vector<std::string_view> common_names;
+		for (const auto& [name, _] : common()) {
+			common_names.push_back(name);
+		}
 
-auto rfkt::flame_info::variation(std::uint32_t idx) -> const def::variation&
-{
-	return ft().variations.at(idx);
-}
+		auto validate_result = validate_variation(vdef, common_names, vsrc);
+		if (validate_result.has_value()) {
+			SPDLOG_ERROR("cannot validate variation `{}`: {}", vdef.name, validate_result.value().what());
+			return false;
+		}
 
-auto rfkt::flame_info::variation(std::string_view name) -> const def::variation&
-{
-	return ft().variation_names.find(name)->second;
-}
+		variations_[vdef.name] = vdef;
+		variation_cache_.insert_or_assign(vdef.name, std::move(vsrc));
+		recalc_hash();
+		return true;
+	}
 
-auto rfkt::flame_info::parameter(std::uint32_t idx) -> const def::parameter&
-{
-	return ft().parameters.at(idx);
-}
+	bool flamedb::add_or_update_common(std::string_view name, std::string_view source) noexcept {
+		auto ast = flang::ast::parse_expression(source);
+		if (!ast) {
+			SPDLOG_ERROR("cannot parse common `{}`: {}", name, ast.error().what());
+			return false;
+		}
 
-auto rfkt::flame_info::parameter(std::string_view name) -> const def::parameter&
-{
-	return ft().parameter_names.find(name)->second;
-}
+		// TODO: validate common
+		common_.insert_or_assign(std::string{ name }, std::string{ source });
+		common_cache_.insert_or_assign(std::string{ name}, std::move(ast.value()));
+		recalc_hash();
+		return true;
+	}
 
-auto rfkt::flame_info::common(std::string_view name) -> const def::common&
-{
-	return ft().common.find(name)->second;
-}
+	void flamedb::recalc_hash() noexcept {
+		rfkt::hash::state_t hs;
+		for (const auto& [_, var] : variations_) {
+			var.add_to_hash(hs);
+		}
 
-auto rfkt::flame_info::variations() -> const std::vector<def::variation>&
-{
-	return ft().variations;
+		for (const auto& [name, src] : common_) {
+			hs.update(name);
+			hs.update(src);
+		}
+
+		hash_ = hs.digest();
+		SPDLOG_INFO("new hash: {}", hash_.str64());
+	}
+
+	auto flamedb::make_vardata(std::string_view vname) const noexcept -> std::pair<std::string, vardata> {
+		const auto& vdef = variations_.find(vname)->second;
+
+		auto precalc_count = std::size_t{ 0 };
+		std::map<std::string, double, std::less<>> params;
+		for (const auto& [name, param] : vdef.parameters) {
+			if (param.tags.contains("precalc")) {
+				precalc_count++;
+				continue;
+			}
+			params[name] = param.default_value;
+		}
+		return { vdef.name, { 0.0, precalc_count, std::move(params)}};
+	}
 }

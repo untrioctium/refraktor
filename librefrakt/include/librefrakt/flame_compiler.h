@@ -5,6 +5,7 @@
 
 #include <ezrtc.h>
 
+#include <librefrakt/flame_info.h>
 #include <librefrakt/flame_types.h>
 #include <librefrakt/cuda_buffer.h>
 #include <librefrakt/util/cuda.h>
@@ -103,7 +104,7 @@ namespace rfkt {
 			std::string source = {};
 			std::string log = {};
 
-			result(std::string&& src, std::string&& log) noexcept : source(std::move(src)), log(std::move(log)), kernel(std::nullopt) {}
+			result(std::string&& src, std::string&& log) noexcept : source(std::move(src)), log(std::move(log)) {}
 
 			result(result&& o) noexcept {
 				kernel = std::move(o.kernel);
@@ -121,8 +122,7 @@ namespace rfkt {
 
 		static_assert(std::move_constructible<result>);
 
-		auto get_flame_kernel(precision prec, const flame& f)-> result;
-		bool is_cached(precision prec, const flame& f);
+		auto get_flame_kernel(const flamedb& fdb, precision prec, const flame& f)-> result;
 
 		flame_compiler(ezrtc::compiler& k_manager);
 	private:
@@ -132,7 +132,7 @@ namespace rfkt {
 			return per_thread_size * threads_per_block + flame_real_bytes + 820;
 		}
 
-		std::string make_struct(const rfkt::flame& f);
+		std::string make_struct(const flamedb& fdb, const rfkt::flame& f);
 
 		std::pair<cuda::execution_config, ezrtc::spec> make_opts(precision prec, const flame& f);
 
@@ -143,7 +143,9 @@ namespace rfkt {
 
 		std::shared_ptr<ezrtc::cuda_module> catmull;
 
-		std::map<std::uint32_t, std::pair<std::string, std::string>, std::less<>> compiled_variations;
+		std::map<std::string, std::pair<std::string, std::string>, std::less<>> compiled_variations;
 		std::map<std::string, std::string, std::less<>> compiled_common;
+
+		rfkt::hash_t last_flamedb_hash = {};
 	};
 }

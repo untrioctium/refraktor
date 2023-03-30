@@ -89,9 +89,7 @@ rings: |-
 fan: |-
   dx := math.pi * eps(aff.c * aff.c);
   dx2 := 0.5 * dx;
-  a := common.atan;
-
-  a += copysign(dx2, dx2 - modf(a + aff.f, dx));
+  a := common.atan + copysign(dx2, dx2 - modf(common.atan + aff.f, dx));
   result += weight * common.sqrt * cossin(a);
 
 blob:

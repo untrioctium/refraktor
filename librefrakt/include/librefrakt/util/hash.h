@@ -7,11 +7,11 @@
 namespace rfkt {
 	class hash_t {
 	public:
+		using value_type = std::size_t;
 
 		hash_t() = default;
-		hash_t(std::size_t low, std::size_t high) : bytes(low, high) {}
+		hash_t(value_type low, value_type high) : bytes(low, high) {}
 
-		bool operator == (const rfkt::hash_t& o) const noexcept = default;
 		auto operator <=> (const rfkt::hash_t& o) const noexcept = default;
 
 		auto str16() const->std::string;
@@ -19,7 +19,7 @@ namespace rfkt {
 		auto str64() const->std::string;
 
 	private:
-		std::pair<std::size_t, std::size_t> bytes;
+		std::pair<value_type, value_type> bytes;
 	};
 
 	static_assert(std::move_constructible<hash_t>);
@@ -27,7 +27,7 @@ namespace rfkt {
 
 namespace rfkt::hash {
 
-	class state_t: traits::noncopyable {
+	class state_t: public traits::noncopyable {
 	public:	
 		state_t();
 		~state_t();

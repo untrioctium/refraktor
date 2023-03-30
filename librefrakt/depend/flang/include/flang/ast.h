@@ -37,16 +37,16 @@ namespace flang {
 		ast(const ast&) = delete;
 		ast& operator=(const ast&) = delete;
 
-		ast(ast&&) = default;
-		ast& operator=(ast&&) = default;
+		ast(ast&&) noexcept = default;
+		ast& operator=(ast&&) noexcept = default;
 
 		const auto* head() const { return &nodes_.front(); }
 
 		static std::expected<ast, parse_error> parse_expression(std::string_view source);
 		static std::expected<ast, parse_error> parse_statement(std::string_view source);
 
-		const auto begin() const { return nodes_.cbegin(); }
-		const auto end() const { return nodes_.end(); }
+		auto begin() const { return nodes_.cbegin(); }
+		auto end() const { return nodes_.end(); }
 
 	private:
 

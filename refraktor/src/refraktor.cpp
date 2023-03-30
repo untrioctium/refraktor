@@ -135,7 +135,7 @@ rfkt::flame interpolate_dumb(const rfkt::flame& fl, const rfkt::flame& fr) {
 	return ret;
 }
 
-class pipeline {
+/*class pipeline {
 public:
 
 
@@ -160,7 +160,7 @@ int main() {
 	SPDLOG_INFO("clock: {}", dev.clock());
 	SPDLOG_INFO("max clock: {}", dev.max_clock());
 
-	rfkt::flame_info::initialize("config");
+	auto fdb = rfkt::flamedb{};
 
 	sol::state lua;
 	lua.open_libraries(sol::lib::base, sol::lib::math, sol::lib::string);
@@ -334,141 +334,42 @@ int main() {
 		if(result.valid() && result.return_count() > 0)
 			std::cout << result.get<std::string>(0) << std::endl;
 	}
-}
+}*/
 
-int mainy() {
 
-	/*rfkt::flame_info::initialize("config/variations.yml");
-	auto ctx = rfkt::cuda::init();
 
-	auto dev = ctx.device();
-	SPDLOG_INFO("Using device {}, CUDA {}.{}", dev.name(), dev.compute_major(), dev.compute_minor());
-	SPDLOG_INFO("{} threads per MP, {} MPs, {} total threads", dev.max_threads_per_mp(), dev.mp_count(), dev.max_concurrent_threads());
-	SPDLOG_INFO("{} bytes shared memory per block", dev.max_shared_per_block());
-	SPDLOG_INFO("{} MHz", dev.clock_rate() / 1000);
+int main() {
 
-	auto handler = [](int sig) {
-		SPDLOG_INFO("Signal: {}", sig);
-		break_loop = true;
-	};
+	rfkt::cuda::init();
 
-	signal(SIGINT, handler);
-
-	// 53476
-
-	auto km = rfkt::kernel_manager{};
+	rfkt::flamedb fdb;
+	rfkt::initialize(fdb, "config");
+	
+	auto km = ezrtc::compiler{};
+	km.find_system_cuda();
 	auto fc = rfkt::flame_compiler{ km };
 
-	auto [tm_result, tm] = km.compile_file("assets/kernels/tonemap.cu",
-		rfkt::compile_opts("tonemap")
-		.function("tonemap<false>")
-		.flag(rfkt::compile_flag::extra_vectorization)
-		.flag(rfkt::compile_flag::use_fast_math)
-	);
-
-	if (!tm_result.success) {
-		SPDLOG_ERROR("{}", tm_result.log);
-		return 1;
+	auto fxml = rfkt::fs::read_string("assets/flames/electricsheep.247.27541.flam3");
+	auto f = rfkt::import_flam3(fdb, fxml);
+	if (!f) {
+		SPDLOG_ERROR("failed to import flame");
+		return -1;
 	}
 
-	auto render_w = std::uint32_t{ 1280 };
-	auto render_h = std::uint32_t{ 720 };
+	try {
+		auto k = fc.get_flame_kernel(fdb, rfkt::precision::f32, f->f);
 
-	const int fps = 30;
-	const int seconds = 1;
-
-	//auto sesh = rfkt::nvenc::session::make();
-
-	//auto out_buf = std::make_shared<rfkt::cuda_buffer<uchar4>>(render_w * render_h);//sesh->initialize({ render_w, render_h }, { 1,30 });
-	auto files = rfkt::fs::list("assets/flames_test/", rfkt::fs::filter::has_extension(".flam3"));
-
-	auto sesh = eznve::encoder(uint2{ render_w, render_h }, uint2{ fps, 1 }, eznve::codec::h264, (CUcontext)ctx, [](const eznve:chunk_info&) {});
-
-	int count = 0;
-	for (const auto& filename : files)
-	{
-		if (break_loop) break;
-
-		auto flame = rfkt::flame::import_flam3(filename.string());
-		auto k_result = fc.get_flame_kernel(rfkt::precision::f32, flame.value());
-
-		auto fprint = [&f = flame.value()](std::string_view str) {
-			auto v = f.seek(str);
-			if (v) SPDLOG_INFO("{}: {}", str, v->t0);
-			else SPDLOG_INFO("{}: null", str);
-		};
-
-		if (!k_result.kernel.has_value()) {
-			SPDLOG_ERROR("Could not compile kernel:\n{}\n-------------\n{}\n", k_result.log, k_result.source);
-			return 1;
+		SPDLOG_INFO("\n{}\n{}\n", k.source, k.log);
+		if (!k.kernel) {
+			return -1;
 		}
-
-		//fprint("f/0/v/spherical");
-		//break;
-
-		//SPDLOG_INFO("{}\n{}", k_result.source, k_result.log);
-		auto& kernel = k_result.kernel.value();
-		count++;
-
-		int total_frames = fps * seconds;
-		std::string path = fmt::format("{}.h264", filename.string());
-
-		auto out_file = std::ofstream{};
-		out_file.open(path, std::ios::out | std::ios::binary);
-
-		sesh.set_callback([&out_file](const eznve::chunk_info& info) {
-			out_file.write((const char*)info.data.data(), info.data.size());
-		});
-
-		for (int frame = 0; frame < total_frames; frame++)
-		{
-			auto frame_start = std::chrono::high_resolution_clock::now();
-			auto state = kernel.warmup(rfkt::cuda::thread_local_stream(), flame.value(), { render_w, render_h }, frame/float(total_frames), 1, 1.0 / (total_frames), 0xdeadbeef, 100);
-
-			auto target_quality = 2048.0;
-			auto current_quality = 0.0f;
-			std::size_t total_draws = 0, total_passes = 0;
-			float elapsed_ms = 0;
+	}
+	catch (const std::exception& e) {
+		SPDLOG_CRITICAL("{}", e.what());
+	}
 
 
-			int seconds = 0;
-			while (current_quality < target_quality && seconds < 5)
-			{
-				auto result = kernel.bin(rfkt::cuda::thread_local_stream(), state, target_quality - current_quality, 25, 1'000'000'000).get();
-				current_quality += result.quality;
-				total_draws += result.total_draws;
-				total_passes += result.total_passes;
-				elapsed_ms += result.elapsed_ms;
-				seconds += 5;
-				//SPDLOG_INFO("quality: {}", (int)current_quality);
-			}
+	SPDLOG_INFO("initialized flame system (hash: {})", fdb.hash().str64());
 
-			CUDA_SAFE_CALL(tm.kernel().launch({ render_w / 8 + 1, render_h / 8 + 1, 1 }, { 8, 8, 1 }, rfkt::cuda::thread_local_stream())(
-				state.bins.ptr(),
-				sesh.buffer(),
-				render_w, render_h,
-				static_cast<float>(flame->gamma.sample(0)),
-				1.0f / (current_quality * sqrtf(10.0f)),
-				static_cast<float>(flame->brightness.sample(0)),
-				static_cast<float>(flame->vibrancy.sample(0))
-				));
-			cuStreamSynchronize(rfkt::cuda::thread_local_stream());
-			auto frame_end = std::chrono::high_resolution_clock::now();
-			auto total_ms = std::chrono::duration_cast<std::chrono::nanoseconds>(frame_end - frame_start).count() / 1'000'000.0;
-
-			sesh.submit_frame((frame % fps == 0)? eznve::frame_flag::idr : eznve::frame_flag::none);
-			//stbi_write_bmp("test.bmp", render_w, render_h, 4, host_buf.data());
-			//rfkt::stbi::write_file(host_buf.data(), render_w, render_h, path);
-			SPDLOG_INFO("[{}%] {}: {} quality, {:.4} ms bin, {:.4} ms total, {:.4}m iter/ms, {:.4}m draw/ms, {:.5}% eff, {:.3} quality at 30fps", static_cast<int>(frame / float(total_frames) * 100.0f), filename.filename().string(), (int)current_quality, elapsed_ms, total_ms, total_passes / elapsed_ms / 1'000'000, total_draws / elapsed_ms / 1'000'000, total_draws / float(total_passes) * 100.0f, current_quality / elapsed_ms * 1000.0 / 30.0);
-		}
-
-		sesh.flush();
-		out_file.close();
-		auto new_path = filename.string() + ".mp4";
-		auto muxret = mux(path, new_path, fps);
-		//if(muxret == 0) std::filesystem::remove(path);
-
-	}*/
-
-return 0;
+	return 0;
 }

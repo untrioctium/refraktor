@@ -27,25 +27,20 @@ struct xform_@xform.hash@_t {
 
         affine<FloatT> aff;
 
-        // variations
         <# for variation in vlink.variations #>
         FloatT v_@variation.name@;
-        <# endfor #>
-        <# if length(vlink.parameters) > 0 #>
-
-        // parameters
-        <# for parameter in vlink.parameters #>
-        FloatT p_@parameter@;
+            <# if length(variation.parameters) > 0 #>
+            <# for parameter in variation.parameters #>
+            FloatT p_@variation.name@_@parameter@;
+            <# endfor #> 
+            <# endif #>
+            <# if length(variation.precalc) > 0 #>
+            <# for parameter in variation.precalc #>
+            FloatT p_@variation.name@_@parameter@;
+            <# endfor #>
+            <# endif #>
         <# endfor #> 
-        <# endif #>
-        <# if length(vlink.precalc) > 0 #>
-
-        // precalc
-        <# for parameter in vlink.precalc #>
-        FloatT p_@parameter@;
-        <# endfor #> 
-        <# endif #>
-
+        
         __device__ void apply(const vec2<FloatT>& inp, vec2<FloatT>& outp, RandCtx* rs) const {
             outp.x = outp.y = 0;
 
@@ -55,15 +50,15 @@ struct xform_@xform.hash@_t {
             <# for variation in vlink.variations #>
             
             // @variation.name@
-            @-get_variation_source(variation.id, "            ")@
+            @-get_variation_source(variation.name, "            ")@
             <# endfor #>
         }
 
         __device__ void do_precalc() {
             <# for variation in vlink.variations #>
-            <# if variation_has_precalc(variation.id) #>
+            <# if variation_has_precalc(variation.name) #>
             // @variation.name@
-            @-get_precalc_source(variation.id, "            ")@
+            @-get_precalc_source(variation.name, "            ")@
             <# endif #>
             <# endfor #>
         }     

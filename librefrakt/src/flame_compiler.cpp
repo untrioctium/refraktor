@@ -9,6 +9,7 @@
 #include <thread>
 #include <random>
 #include <span>
+#include <nlohmann/json.hpp>
 
 #include <spdlog/spdlog.h>
 
@@ -22,6 +23,8 @@
 
 #include <flang/grammar.h>
 #include <flang/matcher.h>
+
+using json = nlohmann::json;
 
 std::string expand_tabs(const std::string& src, const std::string& tab_str = "    ") {
     std::string result = src;
@@ -260,7 +263,7 @@ auto make_table() {
 
     // vec constructor
     table.emplace_back(
-        of_type<expr::call> and with_child(with_content<"vec2", "vec3"> and of_rank<0>),
+        of_type<expr::call> and with_child_at<0>(with_content<"vec2", "vec3">),
         [](std::string_view name, const flang::ast_node* node) {
             auto x = create_source(name, node->nth(1));
             auto y = create_source(name, node->nth(2));
@@ -339,34 +342,13 @@ std::string create_source(std::string_view name, const flang::ast_node* node) {
     return std::format("@{}@", node->type());
 }
 
-template<typename AdjMap, typename VertexID>
-void order_recurse(const VertexID& vertex, const AdjMap& adj, std::set<VertexID>& visited, std::deque<VertexID>& ordering) {
-    visited.insert(vertex);
-    for (const auto& edge : adj.at(vertex)) {
-        if (!visited.contains(edge)) order_recurse(edge, adj, visited, ordering);
-    }
-    ordering.push_front(vertex);
-}
-
-template<class VertexID, class AdjMap>
-auto get_ordering(const AdjMap& adj) -> std::deque<VertexID> {
-    auto ordering = std::deque<VertexID>{};
-    auto visited = std::set<VertexID>{};
-
-    for (const auto& [vertex, edges] : adj) {
-        if (!visited.contains(vertex)) order_recurse(vertex, adj, visited, ordering);
-    }
-
-    return ordering;
-}
-
 std::string strip_tabs(const std::string& src) {
     std::string ret = src;
     ret.erase(std::remove(ret.begin(), ret.end(), '\t'), ret.end());
     return ret;
 }
 
-auto extract_common(const rfkt::flame& f) -> std::map<rfkt::hash_t, std::set<int>> {
+auto extract_duplicates(const rfkt::flame& f) -> std::map<rfkt::hash_t, std::set<int>> {
 
     std::map<rfkt::hash_t, std::set<int>> shared_xforms;
     for (int i = 0; i <= f.xforms.size(); i++) {
@@ -383,7 +365,27 @@ auto extract_common(const rfkt::flame& f) -> std::map<rfkt::hash_t, std::set<int
     return shared_xforms;
 }
 
-std::string rfkt::flame_compiler::make_struct(const rfkt::flame& f) {
+void collect_common(const rfkt::flamedb& fdb, const flang::ast* ast, std::vector<std::string_view>& storage) noexcept {
+    using namespace flang::grammar;
+    using namespace flang::matchers;
+
+    constexpr static auto is_common_access = of_type<member_access> and with_child_at<0>(with_content<"common">);
+    constexpr static auto vector_contains = [](const auto& vec, const auto& val) {
+		return std::find(vec.begin(), vec.end(), val) != vec.end();
+	};
+
+    for (const auto& node : *ast) {
+        if (!is_common_access(&node)) continue;
+        std::string_view common_name = node.nth(1)->content();
+        if (vector_contains(storage,common_name)) continue;
+
+        const auto* common_source = &fdb.get_common_ast(common_name);
+        collect_common(fdb, common_source, storage);
+        storage.push_back(common_name);
+    }
+}
+
+std::string rfkt::flame_compiler::make_struct(const flamedb& fdb, const rfkt::flame& f) {
 
     auto info = json::object({
         {"xform_definitions", json::array()},
@@ -394,11 +396,11 @@ std::string rfkt::flame_compiler::make_struct(const rfkt::flame& f) {
     auto& xfs = info["xforms"];
     auto& xfd = info["xform_definitions"];
 
-    const auto common = extract_common(f);
+    const auto shared_xforms = extract_duplicates(f);
 
-    std::set<std::uint32_t> needed_variations;
+    std::set<std::string_view> needed_variations;
 
-    for (auto& [hash, children] : common) {
+    for (auto& [hash, children] : shared_xforms) {
         auto xf_def_js = json::object({
             {"hash", hash.str32()},
             {"vchain", json::array()}
@@ -412,71 +414,47 @@ std::string rfkt::flame_compiler::make_struct(const rfkt::flame& f) {
         for (auto& vl : child.vchain) {
             auto vl_def_js = json::object({
                 {"variations", json::array()},
-                {"parameters", json::array()},
-                {"precalc", json::array()},
                 {"common", json::array()}
              });
 
-            std::map<std::string, std::vector<std::string>> required_common;
+            std::vector<std::string_view> required_common;
 
-            vl.for_each_variation([&](const auto& vdef, const auto& weight) {
-                vl_def_js["variations"].push_back(
-                    json::object({
-                        {"name", vdef.name},
-                        {"id", vdef.index}
-                        })
-                );
+            for(const auto& [name, vd] : vl) {
+                auto vinfo = json::object({
+                    {"name", name},
+                    {"parameters", json::array()},
+                    {"precalc", json::array()}
+                });
 
-                needed_variations.insert(vdef.index);
+                const auto& vdef = fdb.get_variation(name);
 
-
-                for (const auto& common : vdef.dependencies) {
-                    const auto& name = common.get().name;
-                    if (required_common.count(name) > 0) continue;
-
-                    required_common[name] = {};
-
-                    for (auto& cdep : common.get().dependencies) {
-                        required_common[name].push_back(cdep);
-
-                        if (required_common.count(cdep) == 0) {
-							required_common[cdep] = {};
-
-                            for (auto& cdep2 : rfkt::flame_info::common(cdep).dependencies) {
-                                required_common[cdep].push_back(cdep2);
-
-                                if (required_common.count(cdep2) == 0) {
-                                    required_common[cdep2] = {};
-                                }
-                            }
-						}
+                for (const auto& [name, pdef] : vdef.parameters) {
+                    if (pdef.tags.count("precalc")) {
+                        vinfo["precalc"].push_back(name);
                     }
-                }
-            });
+                    else {
+                        vinfo["parameters"].push_back(name);
+                    }
+				}
 
-            auto ordering = get_ordering<std::string>(required_common);
+                collect_common(fdb, fdb.get_variation_ast(name).apply, required_common);
 
-            while (ordering.size()) {
-                const auto& cdef = rfkt::flame_info::common(ordering.back());
+                vl_def_js["variations"].push_back(std::move(vinfo));
 
-                if (!compiled_common.contains(cdef.name)) {
-                    compiled_common[cdef.name] = create_source(cdef.name, cdef.source.head());
+                needed_variations.insert(name);
+            };
+
+            for(auto& cname: required_common) {
+                if (!compiled_common.contains(cname)) {
+                    const auto& src = fdb.get_common_ast(cname);
+                    compiled_common.try_emplace(std::string{ cname }, create_source(cname, src.head()));
                 }
 
                 vl_def_js["common"].push_back(json::object({
-                    {"name", cdef.name},
-                    {"source", compiled_common[cdef.name]}
+                    {"name", cname},
+                    {"source", compiled_common.find(cname)->second}
                     }));
-                ordering.pop_back();
             }
-            
-            vl.for_each_parameter([&](const auto& pdef, const auto& weight) {
-                vl_def_js["parameters"].push_back(pdef.name);
-            });
-
-            vl.for_each_precalc([&](const auto& pdef) {
-                vl_def_js["precalc"].push_back(pdef.name);
-            });
 
             vc.push_back(std::move(vl_def_js));
         }
@@ -497,33 +475,33 @@ std::string rfkt::flame_compiler::make_struct(const rfkt::flame& f) {
     for (auto& v : needed_variations) {
         if (compiled_variations.contains(v)) continue;
 
-        const auto& vdef = rfkt::flame_info::variation(v);
+        const auto vsrc = fdb.get_variation_ast(v);
 
         std::pair<std::string, std::string> compiled;
-        compiled.first = create_source(vdef.name, vdef.source.head());
-        if (vdef.precalc_source.has_value()) {
-            compiled.second = create_source(vdef.name, vdef.precalc_source->head());
+        compiled.first = create_source(v, vsrc.apply->head());
+        if (vsrc.precalc) {
+            compiled.second = create_source(v, vsrc.precalc->head());
         }
 
-        compiled_variations.emplace(vdef.index, std::move(compiled));
+        compiled_variations.emplace(v, std::move(compiled));
     }
 
-    auto environment = [&compiled_variations=this->compiled_variations, &compiled_common=this->compiled_common]() -> inja::Environment {
+    auto environment = [&compiled_variations=this->compiled_variations, &compiled_common=this->compiled_common, &fdb]() -> inja::Environment {
         auto env = inja::Environment{};
 
         env.set_expression("@", "@");
         env.set_statement("<#", "#>");
 
         env.add_callback("get_variation_source", 2, [&compiled_variations](inja::Arguments& args) {
-            return expand_tabs(compiled_variations[args.at(0)->get<std::uint32_t>()].first, args.at(1)->get<std::string>());
+            return expand_tabs(compiled_variations[args.at(0)->get<std::string>()].first, args.at(1)->get<std::string>());
         });
 
         env.add_callback("variation_has_precalc", 1, [&compiled_variations](inja::Arguments& args) {
-            return !compiled_variations[args.at(0)->get<std::uint32_t>()].second.empty();
+            return !compiled_variations[args.at(0)->get<std::string>()].second.empty();
         });
 
         env.add_callback("get_precalc_source", 2, [&compiled_variations](inja::Arguments& args) {
-            return expand_tabs(compiled_variations[args.at(0)->get<std::uint32_t>()].second, args.at(1)->get<std::string>());
+            return expand_tabs(compiled_variations[args.at(0)->get<std::string>()].second, args.at(1)->get<std::string>());
         });
 
         env.set_trim_blocks(true);
@@ -548,10 +526,17 @@ std::string annotate_source(std::string src) {
     return fmt::format("{:>4}| ", 1) + src;
 }
 
-auto rfkt::flame_compiler::get_flame_kernel(precision prec, const flame& f) -> result
+auto rfkt::flame_compiler::get_flame_kernel(const flamedb& fdb, precision prec, const flame& f) -> result
 {
     auto start = std::chrono::high_resolution_clock::now();
-    auto src = make_struct(f);
+
+    if (fdb.hash() != last_flamedb_hash) {
+        compiled_common.clear();
+        compiled_variations.clear();
+        last_flamedb_hash = fdb.hash();
+    }
+
+    auto src = make_struct(fdb, f);
     auto [most_blocks, opts] = make_opts(prec, f);
     opts.header("flame_generated.h", src);
 
@@ -560,6 +545,7 @@ auto rfkt::flame_compiler::get_flame_kernel(precision prec, const flame& f) -> r
 
     opts.header("refrakt/random.h", rand_src);
     opts.header("refrakt/flamelib.h", flamelib_src);
+    opts.define("FLAMEDB_HASH", fdb.hash().str32());
 
     auto compile_result = km.compile(opts);
     auto duration_ms = std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::high_resolution_clock::now() - start).count() / 1'000'000.0;
@@ -583,53 +569,39 @@ auto rfkt::flame_compiler::get_flame_kernel(precision prec, const flame& f) -> r
         SPDLOG_ERROR("Kernel for {} needs {} blocks but only got {}", f.hash().str64(), most_blocks.grid, max_blocks);
         return r;
     }
-    SPDLOG_INFO("Loaded flame kernel: {} temp. samples, {} flame params, {} regs, {} shared, {} local, {:.4} ms", max_blocks, f.real_count(), func.register_count(), func.shared_bytes(), func.local_bytes(), duration_ms);
+    SPDLOG_INFO("Loaded flame kernel {}: {} temp. samples, {} flame params, {} regs, {} shared, {} local, {:.4} ms", f.hash().str64(), max_blocks, f.size_reals(), func.register_count(), func.shared_bytes(), func.local_bytes(), duration_ms);
 
     auto shuf_dev = compile_result.module.value()["shuf_bufs"];
     cuMemcpyDtoD(shuf_dev.ptr(), shuf_bufs[most_blocks.block].ptr(), shuf_dev.size());
 
-    r.kernel = flame_kernel{ f.hash(), f.real_count(), std::move(compile_result.module.value()), std::pair<int, int>{most_blocks.grid, most_blocks.block}, catmull, gpuinfo::device::by_index(0).clock() };
+    r.kernel = flame_kernel{ f.hash(), f.size_reals(), std::move(compile_result.module.value()), std::pair<int, int>{most_blocks.grid, most_blocks.block}, catmull, gpuinfo::device::by_index(0).clock() };
 
     return r;
 }
 
-rfkt::cuda_buffer<unsigned short> make_shuffle_buffers(std::size_t particles_per_temporal_sample, std::size_t num_shuf_buf) {
+rfkt::cuda_buffer<unsigned short> make_shuffle_buffers(std::size_t ppts, std::size_t count) {
     using shuf_t = unsigned short;
+    const auto shuf_size = ppts * count;
 
-    auto buf = rfkt::cuda_buffer<unsigned short>( particles_per_temporal_sample * num_shuf_buf);
+    auto shuf_local = std::vector<shuf_t>(shuf_size);
+    auto engine = std::default_random_engine(0);
 
-    shuf_t* shuf_bufs_local = (shuf_t*)malloc(sizeof(shuf_t) * particles_per_temporal_sample * num_shuf_buf);
-
-    if (shuf_bufs_local == nullptr) exit(1);
-
-    for (shuf_t j = 0; j < particles_per_temporal_sample; j++) {
-        shuf_bufs_local[j] = j;
+    for (shuf_t j = 0; j < ppts; j++) {
+        shuf_local[j] = j;
     }
 
-    for (int i = 1; i < num_shuf_buf; i++) {
-        memcpy(shuf_bufs_local + i * particles_per_temporal_sample, shuf_bufs_local, sizeof(shuf_t) * particles_per_temporal_sample);
+    std::shuffle(shuf_local.begin(), shuf_local.begin() + ppts, engine);
+
+    for (int i = 1; i < count; i++) {
+        auto start = shuf_local.begin() + i * ppts;
+        auto end = shuf_local.begin() + (i + 1) * ppts;
+
+        std::copy(shuf_local.begin(), shuf_local.begin() + ppts, start);
+        std::shuffle(start, end, engine);
     }
 
-    std::vector<std::thread> gen_threads;
-    int bufs_per_thread = num_shuf_buf / 8;
-
-    for (int thread_idx = 0; thread_idx < 8; thread_idx++) {
-        gen_threads.emplace_back([=]() {
-            auto engine = std::default_random_engine(thread_idx);
-
-            int start = thread_idx * bufs_per_thread;
-            int end = thread_idx * bufs_per_thread + bufs_per_thread;
-
-            for (int i = start; i < end; i++) {
-                std::shuffle(shuf_bufs_local + i * particles_per_temporal_sample, shuf_bufs_local + (i + 1) * particles_per_temporal_sample, engine);
-            }
-            });
-    }
-
-    for (auto& t : gen_threads) t.join();
-
-    cuMemcpyHtoD(buf.ptr(), shuf_bufs_local, sizeof(shuf_t) * particles_per_temporal_sample * num_shuf_buf);
-    free(shuf_bufs_local);
+    auto buf = rfkt::cuda_buffer<unsigned short>(shuf_local.size());
+    buf.from_host(shuf_local);
     return buf;
 }
 
@@ -639,7 +611,7 @@ rfkt::flame_compiler::flame_compiler(ezrtc::compiler& k_manager): km(k_manager)
 
     exec_configs = cuda::context::current().device().concurrent_block_configurations();
 
-    std::string check_kernel_name = "get_sizes<";
+    /*std::string check_kernel_name = "get_sizes<";
     for (const auto& conf : exec_configs) {
         check_kernel_name += std::format("{},", conf.block);
     }
@@ -665,7 +637,7 @@ rfkt::flame_compiler::flame_compiler(ezrtc::compiler& k_manager): km(k_manager)
     std::vector<unsigned long long> shared_sizes{};
     shared_sizes.resize(exec_configs.size() * 2);
     cuMemcpyDtoH(shared_sizes.data(), var.ptr(), var.size());
-
+    */
 
     for (auto& exec : exec_configs) {
         shuf_bufs[exec.block] = make_shuffle_buffers(exec.block, num_shufs);
@@ -702,15 +674,11 @@ rfkt::flame_compiler::flame_compiler(ezrtc::compiler& k_manager): km(k_manager)
     auto func = (*catmull)();
     auto [s_grid, s_block] = func.suggested_dims();
     SPDLOG_INFO("Loaded catmull kernel: {} regs, {} shared, {} local, {}x{} suggested dims", func.register_count(), func.shared_bytes(), func.local_bytes(), s_grid, s_block);
-
-    for (const auto& v : rfkt::flame_info::variations()) {
-        SPDLOG_INFO("\n//{}\n{}", v.name, create_source(v.name, v.source.head()));
-    }
 }
 
 auto rfkt::flame_compiler::make_opts(precision prec, const flame& f)->std::pair<cuda::execution_config, ezrtc::spec>
 {
-    auto flame_real_count = f.real_count();
+    auto flame_real_count = f.size_reals() + 13;
     auto flame_size_bytes = ((prec == precision::f32) ? sizeof(float) : sizeof(double)) * flame_real_count;
     auto flame_hash = f.hash();
 
@@ -724,15 +692,7 @@ auto rfkt::flame_compiler::make_opts(precision prec, const flame& f)->std::pair<
         }
     }
 
-    //while (exec_configs[most_blocks_idx].grid > 300) {
-    //    most_blocks_idx--;
-    //}
-
-    //if (most_blocks_idx > 0) most_blocks_idx--;
     auto& most_blocks = exec_configs[most_blocks_idx];
-
-    //flame_generated += fmt::format("__device__ unsigned int flame_size_reals() {{ return {}; }}\n", flame_real_count);
-    //flame_generated += fmt::format("__device__ unsigned int flame_size_bytes() {{ return {}; }}\n", flame_size_bytes);
 
     auto name = fmt::format("flame_{}_f{}_t{}_s{}", flame_hash.str64(), (prec == precision::f32) ? "32" : "64", most_blocks.grid, flame_real_count);
 
@@ -897,7 +857,7 @@ auto rfkt::flame_kernel::bin(CUstream stream, flame_kernel::saved_state & state,
 
 auto rfkt::flame_kernel::warmup(CUstream stream, const flame& f, uint2 dims, double t, std::uint32_t nseg, double loops_per_frame, std::uint32_t seed, std::uint32_t count) const -> flame_kernel::saved_state
 {
-    const auto nreals = f.real_count() + 256ull * 3ull;
+    const auto nreals = f.size_reals() + 256ull * 3ull;
     const auto pack_size_reals = nreals * (nseg + 3ull);
 
     auto samples_dev = rfkt::cuda_buffer<double>{ pack_size_reals, stream };
@@ -914,7 +874,7 @@ auto rfkt::flame_kernel::warmup(CUstream stream, const flame& f, uint2 dims, dou
 
     const auto seg_length = (loops_per_frame * 1.2) / (nseg);
     for (int pos = -1; pos < static_cast<int>(nseg) + 2; pos++) {
-        f.pack(packer, dims, t + pos * seg_length);
+        f.pack(packer);
     }
 
     samples_dev.from_host(pack, stream);

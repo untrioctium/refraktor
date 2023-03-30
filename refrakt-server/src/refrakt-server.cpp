@@ -22,7 +22,7 @@
 #include <ranges>
 
 #include <readerwritercircularbuffer.h>
-
+/*
 auto cudaize(rfkt::cuda::context ctx, auto&& func) {
 	return [ctx, func = std::move(func)]() {
 		ctx.make_current_if_not();
@@ -272,7 +272,7 @@ namespace rfkt {
 		uint2 dims_;
 		bool upscale;
 	};
-}
+}*/
 
 /*struct socket_data {
 	rfkt::flame flame;
@@ -293,7 +293,7 @@ namespace rfkt {
 		SPDLOG_INFO("Closing socket");
 	}
 };*/
-
+/*
 namespace rfkt {
 	class rendering_thread : public std::enable_shared_from_this<rendering_thread> {
 	public:
@@ -527,14 +527,14 @@ namespace rfkt {
 			}
 
 			self->total_frames++;
-
+			*/
 			/*self->pp->post_process(state.bins, {self->encoder->buffer(), self->encoder->buffer_size()}, frame_quality,
 				self->flame->gamma.sample(t),
 				self->flame->brightness.sample(t),
 				self->flame->vibrancy.sample(t),
 				false,
 				self->stream).get();*/
-
+/*
 			if (lf) {
 				lf->pp_stream.sync();
 				const auto flag = ((self->total_frames) % self->fps == 0) ? eznve::frame_flag::idr : eznve::frame_flag::none;
@@ -609,8 +609,7 @@ namespace rfkt {
 		unsigned int fps;
 	};
 }
-
-
+*/
 /*void session_render_thread(std::shared_ptr<socket_data> ud, rfkt::cuda::context ctx) {
 	ctx.make_current_if_not();
 	auto tls = rfkt::cuda::thread_local_stream();
@@ -711,7 +710,7 @@ namespace rfkt {
 
 	SPDLOG_INFO("Exiting render thread");
 }*/
-
+/*
 int main(int argc, char** argv) {
 
 	SPDLOG_INFO("Starting refrakt-server");
@@ -817,7 +816,7 @@ int main(int argc, char** argv) {
 		.pong = nullptr,
 		.close = ws_closed
 	});
-
+	*/
 	/*app.ws<std::shared_ptr<socket_data>>("/stream", {
 		.compression = uWS::DISABLED,
 		.maxPayloadLength = 100 * 1024 * 1024,
@@ -912,7 +911,7 @@ int main(int argc, char** argv) {
 			}
 		}
 	});*/
-
+/*
 	app.get("/bananas", [](auto* res, auto* req) {
 		auto page = rfkt::fs::read_string("assets/static/muxer.html");
 
@@ -1069,4 +1068,6 @@ int main(int argc, char** argv) {
 	app.run();
 
 	return 1;
-}
+}*/
+
+int main() {}

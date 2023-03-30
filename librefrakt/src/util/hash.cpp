@@ -8,11 +8,9 @@
 
 using b64_codec = cppcodec::base64_url_unpadded;
 
-rfkt::hash::state_t::state_t()
+rfkt::hash::state_t::state_t(): state_(XXH3_createState())
 {
-	auto state = XXH3_createState();
-	XXH3_128bits_reset(state);
-	state_ = state;
+	XXH3_128bits_reset((XXH3_state_t*)state_);
 }
 
 rfkt::hash::state_t::~state_t()

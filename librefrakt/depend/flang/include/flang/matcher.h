@@ -1,6 +1,5 @@
 #pragma once
 
-#include <functional>
 #include <tao/pegtl/demangle.hpp>
 
 #include "flang/ast_node.h"
@@ -33,7 +32,7 @@ namespace flang {
 template<flang::detail::matcher_concept L, flang::detail::matcher_concept R>
 [[nodiscard]] consteval auto operator&&(L, R) noexcept {
 	return [](const flang::ast_node* node) -> bool {
-		return L{}(node) && R {}(node);
+		return L{}(node) && R{}(node);
 	};
 }
 
@@ -68,7 +67,7 @@ namespace flang::matchers {
 	template<int Rank>
 	constexpr static auto of_rank =
 	[](const flang::ast_node* node) -> bool {
-		const auto p = node->parent();
+		const auto* p = node->parent();
 		return p && p->size() > Rank && p->nth(Rank) == node;
 	};
 
@@ -82,6 +81,14 @@ namespace flang::matchers {
 				}
 			}
 			return false;
+		};
+	}
+
+	template<int Rank, flang::detail::matcher_concept Pred>
+	[[nodiscard]] consteval auto with_child_at(Pred) noexcept {
+		return [](const flang::ast_node* node) -> bool {
+			constexpr static auto pred = Pred{};
+			return node->size() > Rank && pred(node->nth(Rank));
 		};
 	}
 
