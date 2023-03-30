@@ -5,6 +5,8 @@
 #include <vector>
 #include <string_view>
 
+#include <nlohmann/json.hpp>
+
 #include <librefrakt/traits/hashable.h>
 
 namespace rfkt {
@@ -22,6 +24,28 @@ namespace rfkt {
 		{vec.y} -> std::same_as<double>;
 		{T{v, v}} -> std::same_as<T>;
 	};
+
+	template<typename T>
+	concept seekable = requires(T obj, std::string_view path) {
+		{obj.seek(path)} -> std::same_as<double*>;
+	};
+
+	constexpr std::pair<std::string_view, std::string_view> chomp(std::string_view path, std::string_view delim) noexcept {
+		if (!path.contains(delim)) return { path, {} };
+
+		const auto delim_pos = path.find(delim);
+		const auto delim_length = delim.size();
+
+		auto left = path.substr(0, delim_pos);
+		auto right = path.substr(delim_pos + delim_length);
+
+		return { left, right };
+	}
+
+	static_assert(chomp("hello/world", "/").first == "hello");
+	static_assert(chomp("hello/world", "/").second == "world");
+	static_assert(chomp("hello", "/").first == "hello");
+	static_assert(chomp("hello", "/").second.size() == 0);
 
 	struct affine {
 		double a = 0.0;
@@ -64,6 +88,16 @@ namespace rfkt {
 		static auto identity() noexcept {
 			return affine{ 1, 0, 0, 1, 0, 0 };
 		}
+
+		auto seek(this auto&& self, std::string_view path) noexcept {
+			if (path == "a") return &self.a;
+			if (path == "b") return &self.b;
+			if (path == "c") return &self.c;
+			if (path == "d") return &self.d;
+			if (path == "e") return &self.e;
+			if (path == "f") return &self.f;
+			return nullptr;
+		}
 	};
 
 	class flamedb;
@@ -96,6 +130,15 @@ namespace rfkt {
 
 		auto size_reals() const noexcept {
 			return parameters_.size() + precalc_count_ + 1;
+		}
+
+		auto seek(this auto&& self, std::string_view path) noexcept {
+			auto [root, stem] = chomp(path, "/");
+			if (path == "weight") return &self.weight;
+			if (auto iter = self.parameters_.find(root); iter != self.paramters_.end()) {
+				return &iter->second;
+			}
+			return nullptr;
 		}
 
 		vardata() = delete;
@@ -171,6 +214,16 @@ namespace rfkt {
 			return size;
 		}
 
+		auto seek(this auto&& self, std::string_view path) noexcept {
+			auto [root, stem] = chomp(path, "/");
+			if (root == "transform") return self.transform.seek(stem);
+			if (auto iter = self.variations_.find(root); iter != self.variations_.end()) {
+				return iter->second.seek(stem);
+			}
+
+			return nullptr;
+		}
+
 	private:
 		std::map<std::string, vardata, std::less<>> variations_;
 	};
@@ -204,6 +257,14 @@ namespace rfkt {
 				size += vl.size_reals();
 			}
 			return size;
+		}
+
+		auto seek(this auto&& self, std::string_view path) {
+			auto [root, stem] = chomp(path, "/");
+			if (root == "weight") return &self.weight;
+			if (root == "color") return &self.color;
+			if (root == "color_speed") return &self.color_speed;
+			if (root == "opacity") return &self.opacity;
 		}
 	};
 
