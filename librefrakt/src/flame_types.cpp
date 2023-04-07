@@ -102,6 +102,7 @@ rfkt::xform from_flam3_xml(const rfkt::flamedb& fdb, const pugi::xml_node& node)
 	if (vlinks[2].size_variations() > 0 || has_post_affine) {
 		if (vlinks[2].size_variations() == 0) {
 			vlinks[2].add_variation(fdb.make_vardata("linear"));
+			vlinks[2]["linear"].weight = 1.0;
 		}
 		xf.vchain.emplace_back(std::move(vlinks[2]));
 	}
@@ -109,7 +110,7 @@ rfkt::xform from_flam3_xml(const rfkt::flamedb& fdb, const pugi::xml_node& node)
 	return xf;
 }
 
-auto rfkt::import_flam3(const flamedb& fdb, std::string_view content) noexcept -> std::optional<flame_import_result>
+auto rfkt::import_flam3(const flamedb& fdb, std::string_view content) noexcept -> std::optional<flame>
 {
 	auto doc = pugi::xml_document();
 
@@ -117,16 +118,30 @@ auto rfkt::import_flam3(const flamedb& fdb, std::string_view content) noexcept -
 		return std::nullopt;
 	}
 
-	auto ret = flame_import_result{};
+	auto ret = flame{};
 
 	auto flame_node = doc.child("flame");
 
+	auto size = string_to_doubles(flame_node.attribute("size").value());
+
+	ret.scale = flame_node.attribute("scale").as_double() / size[1];
+	ret.rotate = flame_node.attribute("rotate").as_double();
+	
+	auto center = string_to_doubles(flame_node.attribute("center").value());
+	if (center.size() < 2) center.resize(2, 0.0);
+	ret.center_x = center[0];
+	ret.center_y = center[1];
+
+	ret.gamma = flame_node.attribute("gamma").as_double();
+	ret.brightness = flame_node.attribute("brightness").as_double();
+	ret.vibrancy = flame_node.attribute("vibrancy").as_double();
+
 	for (const auto& node : flame_node.children("xform")) {
-		ret.f.xforms.emplace_back(from_flam3_xml(fdb, node));{}
+		ret.xforms.emplace_back(from_flam3_xml(fdb, node));
 	}
 
-	if(auto fnode = flame_node.child("final_xform"); fnode) 
-		ret.f.final_xform = from_flam3_xml(fdb, fnode); {
+	if(auto fnode = flame_node.child("finalxform"); fnode) {
+		ret.final_xform = from_flam3_xml(fdb, fnode); 
 	}
 
 	auto colors = flame_node.children("color");
@@ -135,15 +150,14 @@ auto rfkt::import_flam3(const flamedb& fdb, std::string_view content) noexcept -
 		color_count++;
 	}
 
-	auto pal = rfkt::palette(color_count);
+	ret.palette.resize(color_count);
 	for (const auto& color : colors) {
 		auto index = color.attribute("index").as_ullong();
 		auto rgb = string_to_doubles(color.attribute("rgb").value());
 		if (rgb.size() < 3) rgb.resize(3, 0.0);
 		auto hsv = rfkt::color::rgb_to_hsv({ rgb[0]/255.0, rgb[1]/255.0, rgb[2]/255.0 });
-		pal[index] = { hsv.x, hsv.y, hsv.z };
+		ret.palette[index] = { hsv.x, hsv.y, hsv.z };
 	}
 
-	ret.p = std::move(pal);
 	return ret;
 }

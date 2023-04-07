@@ -1,4 +1,4 @@
-#define USE_ASYNC_MEMCPY
+//#define USE_ASYNC_MEMCPY
 
 #ifdef USE_ASYNC_MEMCPY
 #include <cooperative_groups/memcpy_async.h>
@@ -305,6 +305,10 @@ void bin(
 	#else
 	memcpy_sync<shared_size_bytes>((uint8*)(in_state + blockIdx.x), (uint8*)&state);
 	#endif
+
+	if(fl::is_grid_leader()) {
+		state.flame.print_debug();
+	}
 
 	if(fl::is_block_leader()) {
 		state.tss_quality = 0;

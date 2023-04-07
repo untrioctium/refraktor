@@ -54,3 +54,5 @@ render*
 imgui.ini
 *.sqlite3
 scripts/
+refrakt-gui
+/src

@@ -1,22 +1,15 @@
-add_subdirectory(depend/flang)
-
 set(HEADER_LIST 
 	"include/librefrakt/traits/hashable.h"
 	"include/librefrakt/traits/noncopyable.h"
 	"include/librefrakt/util/hash.h"
 	"include/librefrakt/util/cuda.h"
 	"include/librefrakt/util/gpuinfo.h"
-	"include/librefrakt/util/factory.h"
 	"include/librefrakt/util/filesystem.h"
-	"include/librefrakt/util/platform.h"
 	"include/librefrakt/util/stb.h"
-	"include/librefrakt/util/string.h"
 	"include/librefrakt/util/zlib.h"
 	"include/librefrakt/util/color.h"
-	"include/librefrakt/util/nvenc.h"
 	"include/librefrakt/util/nvjpeg.h"
 	"include/librefrakt/util.h"
-	"include/librefrakt/animators.h"
 	"include/librefrakt/flame_types.h"
 	"include/librefrakt/flame_info.h"
 	"include/librefrakt/flame_compiler.h"
@@ -24,30 +17,23 @@ set(HEADER_LIST
 	"include/librefrakt/image/tonemapper.h"
 	"include/librefrakt/image/denoiser.h"
 	"include/librefrakt/image/converter.h"
-	"include/ezrtc.h"
-	"include/eznve.hpp"
 )
 
 add_library(librefrakt STATIC
 	"src/util/hash.cpp"
 	"src/util/cuda.cpp"
 	"src/util/filesystem.cpp"
-	"src/util/platform.cpp"
 	"src/util/gpuinfo.cpp"
-	"src/util/string.cpp"
 	"src/util/zlib.cpp"
 	"src/util/color.cpp"
 	"src/util/stb.cpp"
-	"src/util/nvenc.cpp"
 	"src/util/nvjpeg.cpp"
-	"src/animators.cpp"
 	"src/flame_types.cpp"
 	"src/flame_info.cpp"
 	"src/flame_compiler.cpp"
 	"src/image/tonemapper.cpp"
 	"src/image/denoiser.cpp"
 	"src/image/converter.cpp"
-	"src/eznve.cpp"
 	${HEADER_LIST}
 )
 
@@ -105,14 +91,6 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(concurrencpp)
 
-# fmt
-FetchContent_Declare(
-  fmt
-  GIT_REPOSITORY https://github.com/fmtlib/fmt.git
-  GIT_TAG 7.1.2
-)
-FetchContent_MakeAvailable(fmt)
-
 # stb
 FetchContent_Declare(
   stb
@@ -136,7 +114,7 @@ target_include_directories(librefrakt PRIVATE ${cppcodec_SOURCE_DIR}/cppcodec)
 FetchContent_Declare(
  inja
  GIT_REPOSITORY https://github.com/pantor/inja.git
- GIT_TAG v3.1.0
+ GIT_TAG v3.4.0
 )
 FetchContent_MakeAvailable(inja)
 
@@ -147,21 +125,6 @@ FetchContent_Declare(
   GIT_TAG v1.10
 )
 FetchContent_MakeAvailable(pugixml)
-
-# ffmpeg's mirror of nvenc headers
-FetchContent_Declare(
-  nv-codec-headers
-  GIT_REPOSITORY https://github.com/FFmpeg/nv-codec-headers.git
-)
-FetchContent_MakeAvailable(nv-codec-headers)
-target_include_directories(librefrakt PRIVATE ${nv-codec-headers_SOURCE_DIR}/include)
-
-FetchContent_Declare(
-    dylib
-    GIT_REPOSITORY "https://github.com/martin-olivier/dylib"
-    GIT_TAG        "v2.1.0"
-)
-FetchContent_MakeAvailable(dylib)
 
 
 FetchContent_Declare(
@@ -181,20 +144,23 @@ FetchContent_MakeAvailable(sol2)
 
 target_compile_definitions(librefrakt PUBLIC EZRTC_USE_ZLIB EZRTC_USE_SQLITE)
 
+add_subdirectory(depend/flang)
+add_subdirectory(depend/ezrtc)
+add_subdirectory(depend/eznve)
+
 target_link_libraries(librefrakt PRIVATE 
 	xxhash 
-	CUDA::nvrtc
 	CUDA::nvjpeg
 	stb
-	dylib
 )
 
 target_link_libraries(librefrakt PUBLIC
 	flang
+	ezrtc
+	eznve
 	spdlog 
 	CUDA::nvml
 	CUDA::cuda_driver
-	fmt::fmt
 	concurrencpp
 	inja
 	lua_static

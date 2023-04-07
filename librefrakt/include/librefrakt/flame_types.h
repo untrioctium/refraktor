@@ -30,6 +30,9 @@ namespace rfkt {
 		{obj.seek(path)} -> std::same_as<double*>;
 	};
 
+	template<typename T>
+	constexpr static T* typed_nullptr = nullptr;
+
 	constexpr std::pair<std::string_view, std::string_view> chomp(std::string_view path, std::string_view delim) noexcept {
 		if (!path.contains(delim)) return { path, {} };
 
@@ -42,10 +45,23 @@ namespace rfkt {
 		return { left, right };
 	}
 
+	constexpr std::optional<std::size_t> string_to_sizet(std::string_view v) noexcept {
+		if (v.empty()) return std::nullopt;
+
+		std::size_t result = 0;
+		for (const auto c : v) {
+			if (c < '0' || c > '9') return std::nullopt;
+			result *= 10;
+			result += c - '0';
+		}
+
+		return result;
+	}
+
 	static_assert(chomp("hello/world", "/").first == "hello");
 	static_assert(chomp("hello/world", "/").second == "world");
 	static_assert(chomp("hello", "/").first == "hello");
-	static_assert(chomp("hello", "/").second.size() == 0);
+	static_assert(chomp("hello", "/").second.empty());
 
 	struct affine {
 		double a = 0.0;
@@ -55,7 +71,20 @@ namespace rfkt {
 		double c = 0.0;
 		double f = 0.0;
 
-		affine rotated(double degrees) const noexcept;
+		affine rotated(double deg) const noexcept {
+			double rad = 0.0174532925199432957692369076848861271344287188854172545609719144 * deg;
+			double sino = sin(rad);
+			double coso = cos(rad);
+
+			return {
+				a * coso + b * sino,
+				d * coso + e * sino,
+				b * coso - a * sino,
+				e * coso - d * sino,
+				c,
+				f
+			};
+		}
 
 		constexpr affine scaled(double scale) const noexcept {
 			return { a * scale, d * scale, b * scale, e * scale, c, f };
@@ -96,7 +125,7 @@ namespace rfkt {
 			if (path == "d") return &self.d;
 			if (path == "e") return &self.e;
 			if (path == "f") return &self.f;
-			return nullptr;
+			return typed_nullptr<double>;
 		}
 	};
 
@@ -135,10 +164,10 @@ namespace rfkt {
 		auto seek(this auto&& self, std::string_view path) noexcept {
 			auto [root, stem] = chomp(path, "/");
 			if (path == "weight") return &self.weight;
-			if (auto iter = self.parameters_.find(root); iter != self.paramters_.end()) {
+			if (auto iter = self.parameters_.find(root); iter != self.parameters_.end()) {
 				return &iter->second;
 			}
-			return nullptr;
+			return typed_nullptr<double>;
 		}
 
 		vardata() = delete;
@@ -221,7 +250,7 @@ namespace rfkt {
 				return iter->second.seek(stem);
 			}
 
-			return nullptr;
+			return typed_nullptr<double>;
 		}
 
 	private:
@@ -259,16 +288,25 @@ namespace rfkt {
 			return size;
 		}
 
-		auto seek(this auto&& self, std::string_view path) {
+		auto seek(this auto&& self, std::string_view path) noexcept {
 			auto [root, stem] = chomp(path, "/");
 			if (root == "weight") return &self.weight;
 			if (root == "color") return &self.color;
 			if (root == "color_speed") return &self.color_speed;
 			if (root == "opacity") return &self.opacity;
+
+			if (root == "vlink") {
+				auto [vroot, vstem] = chomp(stem, "/");
+				auto index = string_to_sizet(vroot);
+				if(!index || index.value() >= self.vchain.size()) return typed_nullptr<double>;
+				return self.vchain[*index].seek(vstem);
+			}
+
+			return typed_nullptr<double>;
 		}
 	};
 
-	using palette = std::vector<std::array<double, 3>>;
+	using palette_t = std::vector<std::array<double, 3>>;
 
 	class flame : public traits::hashable {
 	public:
@@ -283,6 +321,8 @@ namespace rfkt {
 		double gamma;
 		double brightness;
 		double vibrancy;
+
+		palette_t palette;
 
 		void add_to_hash(rfkt::hash::state_t& hs) const {
 			for (const auto& xf : xforms) {
@@ -310,14 +350,53 @@ namespace rfkt {
 			}
 			return size;
 		}
-	};
 
-	struct flame_import_result {
-		flame f;
-		palette p;
+		auto seek(this auto&& self, std::string_view path) noexcept {
+			auto [root, stem] = chomp(path, "/");
+			if (root == "center_x") return &self.center_x;
+			if (root == "center_y") return &self.center_y;
+			if (root == "scale") return &self.scale;
+			if (root == "rotate") return &self.rotate;
+			if (root == "gamma") return &self.gamma;
+			if (root == "brightness") return &self.brightness;
+			if (root == "vibrancy") return &self.vibrancy;
+
+			if (root == "xform") {
+				auto [vroot, vstem] = chomp(stem, "/");
+				if (vroot == "final") {
+					if (!self.final_xform) return typed_nullptr<double>;
+					return self.final_xform->seek(vstem); 
+				}
+
+				auto index = string_to_sizet(vroot);
+				if (!index || index.value() >= self.xforms.size()) {
+					return typed_nullptr<double>;
+				}
+
+				return self.xforms[*index].seek(vstem);
+			}
+
+			return typed_nullptr<double>;
+		}
+
+		affine make_screen_space_affine(int w, int h) const noexcept {
+			return affine::identity()
+				.translated(w / 2.0, h / 2.0)
+				.scaled(scale * h)
+				.rotated(rotate)
+				.translated(-center_x, -center_y);
+		}
+
+		affine make_plane_space_affine(int w, int h) const noexcept {
+			return affine::identity()
+				.translated(center_x, center_y)
+				.rotated(-rotate)
+				.scaled(1 / (scale * h))
+				.translated(w / -2.0, h / -2.0);
+		}
 	};
 
 	class flamedb;
 
-	auto import_flam3(const flamedb&, std::string_view content) noexcept -> std::optional<flame_import_result>;
+	auto import_flam3(const flamedb&, std::string_view content) noexcept -> std::optional<flame>;
 }

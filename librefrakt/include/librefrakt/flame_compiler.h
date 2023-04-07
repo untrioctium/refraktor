@@ -57,9 +57,14 @@ namespace rfkt {
 			}
 		};
 
-		auto bin(CUstream stream, flame_kernel::saved_state& state, float target_quality, std::uint32_t ms_bailout, std::uint32_t iter_bailout) const-> std::future<bin_result>;
-		auto warmup(CUstream stream, const flame& f, uint2 dims, double t, std::uint32_t nseg, double loops_per_frame, std::uint32_t seed, std::uint32_t count) const->flame_kernel::saved_state;
-		auto warmup(CUstream stream, std::span<const double> samples, uint2 dims, std::uint32_t seed, std::uint32_t count) const->flame_kernel::saved_state;
+		struct bailout_args {
+			std::uint32_t iters = 1000000;
+			std::uint32_t millis = 1000;
+			double quality = 128.0;
+		};
+
+		auto bin(cuda_stream& stream, flame_kernel::saved_state& state, const bailout_args&) const-> std::future<bin_result>;
+		auto warmup(cuda_stream& stream, std::span<const flame> samples, uint2 dims, std::uint32_t seed, std::uint32_t count) const->flame_kernel::saved_state;
 
 		flame_kernel(flame_kernel&& o) noexcept {
 			*this = std::move(o);
@@ -82,8 +87,8 @@ namespace rfkt {
 
 		std::size_t saved_state_size() const { return mod("bin").shared_bytes() * exec.first; }
 
-		flame_kernel(const rfkt::hash_t& flame_hash, std::size_t flame_size_reals, ezrtc::cuda_module&& mod, std::pair<int,int> exec, std::shared_ptr<ezrtc::cuda_module>& catmull, std::size_t device_hz) :
-			mod(std::move(mod)), flame_hash(flame_hash), exec(exec), catmull(catmull), device_hz(device_hz) {
+		flame_kernel(const rfkt::hash_t& flame_hash, std::size_t flame_size_reals, ezrtc::cuda_module&& mod, std::pair<int, int> exec, std::shared_ptr<ezrtc::cuda_module>& catmull, std::size_t device_hz) :
+			mod(std::move(mod)), flame_hash(flame_hash), exec(exec), catmull(catmull), device_hz(device_hz), flame_size_reals(flame_size_reals) {
 		}
 
 		std::shared_ptr<ezrtc::cuda_module> catmull = nullptr;

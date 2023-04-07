@@ -12,9 +12,9 @@ struct affine {
     }
 };
 
-<# for xform in xform_definitions #>
+<# for hash, xform in xform_definitions #>
 template<typename FloatT, typename RandCtx>
-struct xform_@xform.hash@_t {
+struct xform_@hash@_t {
 
     FloatT weight;
     FloatT color;
@@ -40,7 +40,7 @@ struct xform_@xform.hash@_t {
             <# endfor #>
             <# endif #>
         <# endfor #> 
-        
+
         __device__ void apply(const vec2<FloatT>& inp, vec2<FloatT>& outp, RandCtx* rs) const {
             outp.x = outp.y = 0;
 
@@ -136,6 +136,39 @@ struct flame_t {
 
         <# for xform in xforms #>
         xform_@xform.id@.do_precalc();
+        <# endfor #>
+    }
+
+    void print_debug() {
+        printf("flame_t\n");
+        printf("  screen_space: { a: %f, d: %f, b: %f, e: %f, c: %f, f: %f }\n", screen_space.a, screen_space.d, screen_space.b, screen_space.e, screen_space.c, screen_space.f);
+        printf("  plane_space: { a: %f, d: %f, b: %f, e: %f, c: %f, f: %f }\n", plane_space.a, plane_space.d, plane_space.b, plane_space.e, plane_space.c, plane_space.f);
+        printf("  weight_sum: %f\n", weight_sum);
+        <# for xform in xforms #>
+        <# set hash=xform.hash #>
+        printf("  xform@xform.id@:\n");
+        printf("    weight: %f\n", xform_@xform.id@.weight);
+        printf("    color: %f\n", xform_@xform.id@.color);
+        printf("    color_speed: %f\n", xform_@xform.id@.color_speed);
+        printf("    opacity: %f\n", xform_@xform.id@.opacity);
+        <# for vlink in at(xform_definitions, hash).vchain #>
+        <# set vid=loop.index #>
+        printf("    vlink@loop.index@:\n");
+        printf("      aff: { a: %f, d: %f, b: %f, e: %f, c: %f, f: %f }\n", xform_@xform.id@.vlink_@loop.index@.aff.a, xform_@xform.id@.vlink_@loop.index@.aff.d, xform_@xform.id@.vlink_@loop.index@.aff.b, xform_@xform.id@.vlink_@loop.index@.aff.e, xform_@xform.id@.vlink_@loop.index@.aff.c, xform_@xform.id@.vlink_@loop.index@.aff.f);
+        <# for variation in vlink.variations #>
+        printf("      v_@variation.name@: %f\n", xform_@xform.id@.vlink_@vid@.v_@variation.name@);
+        <# if length(variation.parameters) > 0 #>
+        <# for parameter in variation.parameters #>
+        printf("      p_@variation.name@_@parameter@: %f\n", xform_@xform.id@.vlink_@vid@.p_@variation.name@_@parameter@);
+        <# endfor #> 
+        <# endif #>
+        <# if length(variation.precalc) > 0 #>
+        <# for parameter in variation.precalc #>
+        printf("      p_@variation.name@_@parameter@: %f\n", xform_@xform.id@.vlink_@vid@.p_@variation.name@_@parameter@);
+        <# endfor #>
+        <# endif #>
+        <# endfor #> 
+        <# endfor #>
         <# endfor #>
     }
 };

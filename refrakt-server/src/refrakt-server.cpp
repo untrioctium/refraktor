@@ -3,11 +3,8 @@
 
 #include <vector_types.h>
 
-
-#include <fmt/format.h>
 #include <librefrakt/flame_compiler.h>
 #include <eznve.hpp>
-#include <librefrakt/util/string.h>
 #include <librefrakt/util/nvjpeg.h>
 #include <librefrakt/util/filesystem.h>
 #include <librefrakt/util.h>

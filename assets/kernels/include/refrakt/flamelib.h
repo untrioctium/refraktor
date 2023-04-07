@@ -142,6 +142,9 @@ namespace flamelib {
 	__device__ inline auto warp_rank() { return threadIdx.x % warp_size(); }
 	__device__ inline auto block_rank() { return threadIdx.x; }
 	__device__ inline auto grid_rank() { return threadIdx.x + blockIdx.x * blockDim.x; }
+
+	__device__ inline auto block_id() { return blockIdx.x; }
+	__device__ inline auto block_count() { return gridDim.x; }
 	
 	__device__ inline auto warp_start_in_block() { return block_rank() - warp_rank(); }
 

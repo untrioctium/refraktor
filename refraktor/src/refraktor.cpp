@@ -1,10 +1,8 @@
 #include <iostream>
-#include <fmt/format.h>
 #include <librefrakt/flame_compiler.h>
 #include <librefrakt/util.h>
 #include <librefrakt/util/stb.h>
 #include <librefrakt/util/filesystem.h>
-#include <librefrakt/util/platform.h>
 #include <signal.h>
 #include <fstream>
 
@@ -22,7 +20,7 @@
 
 bool break_loop = false;
 
-int mux(const rfkt::fs::path& in, const rfkt::fs::path& out, double fps) {
+/*int mux(const rfkt::fs::path& in, const rfkt::fs::path& out, double fps) {
 
 	auto args = fmt::format("./bin/mp4mux.exe --track \"{}\"#frame_rate={} {}", in.string(), fps, out.string());
 	SPDLOG_INFO("Invoking muxer: {}", args);
@@ -30,7 +28,7 @@ int mux(const rfkt::fs::path& in, const rfkt::fs::path& out, double fps) {
 	auto ret = p.wait_for_exit();
 	SPDLOG_INFO("Muxer returned {}", ret);
 	return ret;
-}
+}*/
 
 rfkt::flame interpolate_dumb(const rfkt::flame& fl, const rfkt::flame& fr) {
 
@@ -336,40 +334,147 @@ int main() {
 	}
 }*/
 
+namespace rfkt {
+	class postprocessor {
+	public:
+		postprocessor(ezrtc::compiler& kc, uint2 dims, bool upscale) :
+			tm(kc),
+			dn(dims, upscale),
+			conv(kc),
+			tonemapped((upscale) ? (dims.x * dims.y / 4) : (dims.x * dims.y)),
+			denoised(dims.x* dims.y),
+			dims_(dims),
+			upscale(upscale)
+		{
+
+		}
+
+		~postprocessor() = default;
+
+		postprocessor(const postprocessor&) = delete;
+		postprocessor& operator=(const postprocessor&) = delete;
+
+		postprocessor(postprocessor&&) = default;
+		postprocessor& operator=(postprocessor&&) = default;
+
+		auto make_output_buffer() const -> rfkt::cuda_buffer<uchar4> {
+			return { dims_.x * dims_.y };
+		}
+
+		auto make_output_buffer(CUstream stream) const -> rfkt::cuda_buffer<uchar4> {
+			return { dims_.x * dims_.y, stream };
+		}
+
+		auto input_dims() const -> uint2 {
+			if (upscale) {
+				return { dims_.x / 2, dims_.y / 2 };
+			}
+			else {
+				return dims_;
+			}
+		}
+
+		auto output_dims() const -> uint2 {
+			return dims_;
+		}
+
+		std::future<double> post_process(
+			rfkt::cuda_view<float4> in,
+			rfkt::cuda_view<uchar4> out,
+			double quality,
+			double gamma, double brightness, double vibrancy,
+			bool planar_output,
+			cuda_stream& stream) {
+
+			auto promise = std::promise<double>{};
+			auto future = promise.get_future();
+
+			stream.host_func(
+				[&t = perf_timer]() mutable {
+					t.reset();
+				});
+
+			tm.run(in, tonemapped, input_dims(), quality, gamma, brightness, vibrancy, stream);
+			dn.denoise(output_dims(), tonemapped, denoised, stream);
+			conv.to_24bit(denoised, out, output_dims(), planar_output, stream);
+			stream.host_func([&t = perf_timer, p = std::move(promise)]() mutable {
+				p.set_value(t.count());
+				});
+
+			return future;
+		}
+
+	private:
+		rfkt::tonemapper tm;
+		rfkt::denoiser dn;
+		rfkt::converter conv;
+
+		rfkt::cuda_buffer<half3> tonemapped;
+		rfkt::cuda_buffer<half3> denoised;
+
+		rfkt::timer perf_timer;
+
+		uint2 dims_;
+		bool upscale;
+	};
+}
 
 
 int main() {
 
-	rfkt::cuda::init();
+	auto ctx = rfkt::cuda::init();
+	rfkt::denoiser::init(ctx);
 
 	rfkt::flamedb fdb;
 	rfkt::initialize(fdb, "config");
 	
+	auto stream = rfkt::cuda_stream{};
 	auto km = ezrtc::compiler{};
 	km.find_system_cuda();
 	auto fc = rfkt::flame_compiler{ km };
+	auto pp = rfkt::postprocessor{ km, { 1920, 1080 }, false };
+	auto je = rfkt::nvjpeg::encoder{ stream };
 
-	auto fxml = rfkt::fs::read_string("assets/flames/electricsheep.247.27541.flam3");
-	auto f = rfkt::import_flam3(fdb, fxml);
-	if (!f) {
-		SPDLOG_ERROR("failed to import flame");
-		return -1;
-	}
+	constexpr static auto fps = 30;
+	constexpr static auto seconds_per_loop = 5.0;
+	constexpr static auto degrees_per_loop = 360.0;
+	constexpr static auto degrees_per_frame = degrees_per_loop / (fps * seconds_per_loop);
 
-	try {
-		auto k = fc.get_flame_kernel(fdb, rfkt::precision::f32, f->f);
+
+	//for (const auto& fname : rfkt::fs::list("assets/flames_test", rfkt::fs::filter::has_extension(".flam3"))) {
+	const std::filesystem::path fname = "assets/flames_test/electricsheep.248.02196.flam3";
+		auto fxml = rfkt::fs::read_string(fname);
+		auto f = rfkt::import_flam3(fdb, fxml);
+
+		if (!f) {
+			SPDLOG_ERROR("failed to import flame");
+			return -1;
+		}
+
+		auto k = fc.get_flame_kernel(fdb, rfkt::precision::f32, *f);
 
 		SPDLOG_INFO("\n{}\n{}\n", k.source, k.log);
 		if (!k.kernel) {
 			return -1;
 		}
-	}
-	catch (const std::exception& e) {
-		SPDLOG_CRITICAL("{}", e.what());
-	}
 
+		auto samples = std::vector<rfkt::flame>{};
+		for (int i = 0; i < 4; i++) {
+			auto sample = f.value();
+			sample.
+		}
 
-	SPDLOG_INFO("initialized flame system (hash: {})", fdb.hash().str64());
+		auto out = pp.make_output_buffer(stream);
+		auto state = k.kernel->warmup(stream, samples, pp.input_dims(), 0xDEADBEEF, 100);
+		auto q = k.kernel->bin(stream, state, { .millis = 1000, .quality = 64 }).get();
+		auto res = pp.post_process(state.bins, out, q.quality, f->gamma, f->brightness, f->vibrancy, true, stream).get();
+
+		auto vec = je.encode_image(out.ptr(), 1920, 1080, 100, stream).get();
+
+		auto basename = fname.filename();
+		rfkt::fs::write("testrender/" + basename.string() + ".jpg", (const char*)vec.data(), vec.size(), false);
+	//}
+	SPDLOG_INFO("initialized flame system (hash: {})", fdb.hash().str16());
 
 	return 0;
 }

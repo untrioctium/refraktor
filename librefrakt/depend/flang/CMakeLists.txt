@@ -11,11 +11,13 @@ add_library(flang STATIC
     include/flang/ast.h
     include/flang/matcher.h
     include/flang/grammar.h
+    include/flang/interpreter.h
     include/flang.h
     src/grammar_defs.h
     src/ast.cpp
     src/grammar.cpp
-    src/matcher.cpp)
+    src/matcher.cpp
+    src/interpreter.cpp)
 
 FetchContent_Declare(
     pegtl

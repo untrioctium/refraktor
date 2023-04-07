@@ -388,7 +388,7 @@ void collect_common(const rfkt::flamedb& fdb, const flang::ast* ast, std::vector
 std::string rfkt::flame_compiler::make_struct(const flamedb& fdb, const rfkt::flame& f) {
 
     auto info = json::object({
-        {"xform_definitions", json::array()},
+        {"xform_definitions", json::object()},
         {"xforms", json::array()},
         {"num_standard_xforms", f.xforms.size()}
     });
@@ -402,7 +402,6 @@ std::string rfkt::flame_compiler::make_struct(const flamedb& fdb, const rfkt::fl
 
     for (auto& [hash, children] : shared_xforms) {
         auto xf_def_js = json::object({
-            {"hash", hash.str32()},
             {"vchain", json::array()}
         });
 
@@ -459,7 +458,7 @@ std::string rfkt::flame_compiler::make_struct(const flamedb& fdb, const rfkt::fl
             vc.push_back(std::move(vl_def_js));
         }
 
-        xfd.push_back(std::move(xf_def_js));
+        xfd[hash.str32()] = std::move(xf_def_js);
     }
 
     for (int i = 0; i <= f.xforms.size(); i++) {
@@ -509,7 +508,7 @@ std::string rfkt::flame_compiler::make_struct(const flamedb& fdb, const rfkt::fl
 
         return env;
     }();
-    //SPDLOG_INFO("{}", info.dump(1));
+    SPDLOG_INFO("{}", info.dump(1));
     return environment.render_file("./assets/templates/flame.tpl", info);
 
 }
@@ -574,7 +573,7 @@ auto rfkt::flame_compiler::get_flame_kernel(const flamedb& fdb, precision prec, 
     auto shuf_dev = compile_result.module.value()["shuf_bufs"];
     cuMemcpyDtoD(shuf_dev.ptr(), shuf_bufs[most_blocks.block].ptr(), shuf_dev.size());
 
-    r.kernel = flame_kernel{ f.hash(), f.size_reals(), std::move(compile_result.module.value()), std::pair<int, int>{most_blocks.grid, most_blocks.block}, catmull, gpuinfo::device::by_index(0).clock() };
+    r.kernel = flame_kernel{ f.hash(), f.size_reals() + 13, std::move(compile_result.module.value()), std::pair<int, int>{most_blocks.grid, most_blocks.block}, catmull, gpuinfo::device::by_index(0).clock() };
 
     return r;
 }
@@ -642,7 +641,7 @@ rfkt::flame_compiler::flame_compiler(ezrtc::compiler& k_manager): km(k_manager)
     for (auto& exec : exec_configs) {
         shuf_bufs[exec.block] = make_shuffle_buffers(exec.block, num_shufs);
 
-        fmt::print("{{{}, {}, {}}},\n", exec.grid, exec.block, exec.shared_per_block);
+        //fmt::print("{{{}, {}, {}}},\n", exec.grid, exec.block, exec.shared_per_block);
 
         {
             auto leftover = exec.shared_per_block - smem_per_block(precision::f32, 0, exec.block);
@@ -780,7 +779,7 @@ private:
     std::size_t offset = 0;
 };
 
-auto rfkt::flame_kernel::bin(CUstream stream, flame_kernel::saved_state & state, float target_quality, std::uint32_t ms_bailout, std::uint32_t iter_bailout) const -> std::future<bin_result>
+auto rfkt::flame_kernel::bin(cuda_stream& stream, flame_kernel::saved_state & state, const bailout_args& bo) const -> std::future<bin_result>
 {
     using counter_type = std::size_t;
     static constexpr auto counter_size = sizeof(counter_type);
@@ -796,7 +795,6 @@ auto rfkt::flame_kernel::bin(CUstream stream, flame_kernel::saved_state & state,
 
         std::promise<flame_kernel::bin_result> promise{};
         std::span<std::size_t> qpx_host;
-
     };
 
     auto stream_state = new stream_state_t{};
@@ -812,7 +810,7 @@ auto rfkt::flame_kernel::bin(CUstream stream, flame_kernel::saved_state & state,
     stream_state->qpx_dev = rfkt::cuda_buffer<std::size_t>{ num_counters, stream };
     stream_state->qpx_dev.clear(stream);
 
-    auto klauncher = [&mod = this->mod, stream, &exec = this->exec]<typename ...Ts>(Ts&&... args) {
+    auto klauncher = [&mod = this->mod, &stream, &exec = this->exec]<typename ...Ts>(Ts&&... args) {
         return mod("bin").launch(exec.first, exec.second, stream, true)(std::forward<Ts>(args)...);
     };
 
@@ -823,9 +821,9 @@ auto rfkt::flame_kernel::bin(CUstream stream, flame_kernel::saved_state & state,
 
     CUDA_SAFE_CALL(klauncher(
         state.shared.ptr(),
-        (std::size_t)(target_quality * stream_state->total_bins * 255.0),
-        iter_bailout,
-        static_cast<std::uint64_t>(ms_bailout) * 1'000'000,
+        (std::size_t)(bo.quality * stream_state->total_bins * 255.0),
+        bo.iters,
+        static_cast<std::uint64_t>(bo.millis) * 1'000'000,
         state.bins.ptr(), state.bin_dims.x, state.bin_dims.y,
         stream_state->qpx_dev.ptr(),
         stream_state->qpx_dev.ptr() + counter_size,
@@ -855,7 +853,7 @@ auto rfkt::flame_kernel::bin(CUstream stream, flame_kernel::saved_state & state,
     return future;
 }
 
-auto rfkt::flame_kernel::warmup(CUstream stream, const flame& f, uint2 dims, double t, std::uint32_t nseg, double loops_per_frame, std::uint32_t seed, std::uint32_t count) const -> flame_kernel::saved_state
+/*auto rfkt::flame_kernel::warmup(CUstream stream, const flame& f, uint2 dims, double t, std::uint32_t nseg, double loops_per_frame, std::uint32_t seed, std::uint32_t count) const -> flame_kernel::saved_state
 {
     const auto nreals = f.size_reals() + 256ull * 3ull;
     const auto pack_size_reals = nreals * (nseg + 3ull);
@@ -906,23 +904,44 @@ auto rfkt::flame_kernel::warmup(CUstream stream, const flame& f, uint2 dims, dou
     samples_dev.free_async(stream);
 
     return state;
-}
+}*/
 
-auto rfkt::flame_kernel::warmup(CUstream stream, std::span<const double> samples, uint2 dims, std::uint32_t seed, std::uint32_t count) const -> flame_kernel::saved_state
+auto rfkt::flame_kernel::warmup(cuda_stream& stream, std::span<const flame> samples, uint2 dims, std::uint32_t seed, std::uint32_t count) const -> flame_kernel::saved_state
 {
-    assert(samples.size() % this->flame_size_reals == 0);
-    assert(samples.size() / this->flame_size_reals > 3);
-
-    const auto nseg = static_cast<std::uint32_t>(samples.size() / flame_size_reals - 3);
+    const auto nseg = static_cast<std::uint32_t>(samples.size() - 3);
+    const auto sample_size = flame_size_reals + samples[0].palette.size() * 3;
+    const auto nreals = samples.size() * sample_size;
 
     thread_local pinned_ring_allocator_t<1024 * 1024 * 8> pra{};
 
-    auto pinned_samples = pra.reserve<double>(samples.size());
-    std::ranges::copy(samples, std::begin(pinned_samples));
-    auto samples_dev = rfkt::cuda_buffer<double>{ samples.size(), stream};
+    auto pinned_samples = pra.reserve<double>(nreals);
+
+    std::size_t pack_index = 0;
+    auto packer = [pinned_samples, &pack_index](double v) {
+		pinned_samples[pack_index] = v;
+		pack_index++;
+	};
+
+    for (const auto& sample : samples) {
+        sample.make_screen_space_affine(dims.x, dims.y).pack(packer);
+        sample.make_plane_space_affine(dims.y, dims.y).pack(packer);
+        packer(0); // weight sum (calculated in kernel)
+
+        sample.pack(packer);
+
+        for (const auto& c : sample.palette) {
+			packer(c[0]);
+			packer(c[1]);
+			packer(c[2]);
+		}
+    }
+
+    assert(pack_index == nreals);
+
+    auto samples_dev = rfkt::cuda_buffer<double>{ nreals, stream};
     samples_dev.from_host(pinned_samples, stream);
 
-    auto segments_dev = rfkt::cuda_buffer<double>{ samples.size() * 4 * nseg, stream};
+    auto segments_dev = rfkt::cuda_buffer<double>{ nreals * 4 * nseg, stream};
 
     const auto [grid, block] = this->catmull->kernel().suggested_dims();
     auto nblocks = (nseg * samples.size()) / block;
@@ -931,8 +950,8 @@ auto rfkt::flame_kernel::warmup(CUstream stream, std::span<const double> samples
         this->catmull->kernel().launch(nblocks, block, stream, false)
         (
             samples_dev.ptr(),
-            static_cast<std::uint32_t>(flame_size_reals),
-            nseg ,
+            static_cast<std::uint32_t>(sample_size),
+            nseg,
             segments_dev.ptr()
             ));
 
@@ -945,7 +964,7 @@ auto rfkt::flame_kernel::warmup(CUstream stream, std::span<const double> samples
         (
             nseg,
             segments_dev.ptr(),
-            seed, count,
+            seed, count, dims.x, dims.y,
             state.shared.ptr()
             ));
 

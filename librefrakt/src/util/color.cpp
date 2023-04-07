@@ -1,33 +1,27 @@
 #include <algorithm>
 #include <librefrakt/util/color.h>
 #include <cmath>
-// convert a RGB triplet in [0,255] to a hsv triplet in [0,360] for H and [0,1] for SV
-auto rfkt::color::rgb_to_hsv(const double3& rgb) -> double3
-{
-	if (rgb.x == rgb.y && rgb.y == rgb.z) {
-		return double3{ 0.0, 0.0, rgb.x };
-	}
-
-	auto cmax = std::max(rgb.x, std::max(rgb.y, rgb.z));
-	auto cmin = std::min(rgb.x, std::min(rgb.y, rgb.z));
+// convert a RGB triplet in [0,1] to a hsv triplet in [0,360] for H and [0,1] for SV
+auto rfkt::color::rgb_to_hsv(const double3& rgb) -> double3 {
+	auto cmax = std::max({ rgb.x, rgb.y, rgb.z });
+	auto cmin = std::min({ rgb.x, rgb.y, rgb.z });
 	auto delta = cmax - cmin;
 
-	auto out = double3{ 
-		0.0, 
-		(cmax == 0.0)? 0: (delta/cmax),
-		double(cmax)
-	};
+	auto out = double3{ 0.0, 0.0, cmax };
 
-	if (cmax == rgb.x)
-		out.x = fmod((rgb.y - rgb.z) / delta, 6.0);
-	else if (cmax == rgb.y)
-		out.x = (rgb.z - rgb.x) / delta + 2.0;
-	else if (cmax == rgb.z)
-		out.x = (rgb.x - rgb.y) / delta + 4.0;
+	if (delta > 0.0) {
+		out.y = delta / cmax;
 
-	out.x *= 60.0;
-
-	if (std::isnan(out.x) || std::isnan(out.y) || std::isnan(out.z)) __debugbreak();
+		if (rgb.x == cmax) {
+			out.x = 60.0 * std::fmod((rgb.y - rgb.z) / delta, 6.0);
+		}
+		else if (rgb.y == cmax) {
+			out.x = 60.0 * (((rgb.z - rgb.x) / delta) + 2.0);
+		}
+		else if (rgb.z == cmax) {
+			out.x = 60.0 * (((rgb.x - rgb.y) / delta) + 4.0);
+		}
+	}
 
 	return out;
 }

@@ -5,7 +5,6 @@
 
 #include "librefrakt/flame_types.h"
 #include "librefrakt/flame_info.h"
-#include "librefrakt/util/string.h"
 
 #include "flang/grammar.h"
 
@@ -195,7 +194,6 @@ namespace rfkt {
 		}
 
 		hash_ = hs.digest();
-		SPDLOG_INFO("new hash: {}", hash_.str64());
 	}
 
 	auto flamedb::make_vardata(std::string_view vname) const noexcept -> std::pair<std::string, vardata> {
