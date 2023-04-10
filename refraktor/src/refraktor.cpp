@@ -436,13 +436,17 @@ int main() {
 	auto je = rfkt::nvjpeg::encoder{ stream };
 
 	constexpr static auto fps = 30;
-	constexpr static auto seconds_per_loop = 5.0;
+	constexpr static auto seconds_per_loop = 1.0;
 	constexpr static auto degrees_per_loop = 360.0;
 	constexpr static auto degrees_per_frame = degrees_per_loop / (fps * seconds_per_loop);
 
+	constexpr static auto t = 0.0;
+	const auto sample_count = 4;
+	const auto sample_width = degrees_per_frame / (sample_count - 3);
 
-	//for (const auto& fname : rfkt::fs::list("assets/flames_test", rfkt::fs::filter::has_extension(".flam3"))) {
-	const std::filesystem::path fname = "assets/flames_test/electricsheep.248.02196.flam3";
+
+	for (const auto& fname : rfkt::fs::list("assets/flames_test", rfkt::fs::filter::has_extension(".flam3"))) {
+	//const std::filesystem::path fname = "assets/flames_test/electricsheep.247.27244.flam3";
 		auto fxml = rfkt::fs::read_string(fname);
 		auto f = rfkt::import_flam3(fdb, fxml);
 
@@ -453,27 +457,37 @@ int main() {
 
 		auto k = fc.get_flame_kernel(fdb, rfkt::precision::f32, *f);
 
-		SPDLOG_INFO("\n{}\n{}\n", k.source, k.log);
+		SPDLOG_INFO("\n{}", k.source);
 		if (!k.kernel) {
 			return -1;
 		}
 
 		auto samples = std::vector<rfkt::flame>{};
-		for (int i = 0; i < 4; i++) {
+
+		for (int i = 0; i < sample_count; i++) {
 			auto sample = f.value();
-			sample.
+			for (auto& x : sample.xforms) {
+				for (auto& vl : x.vchain) {
+					if (vl.per_loop > 0) {
+						vl.transform = vl.transform.rotated(sample_width * (i - 1));
+					}
+				}
+			}
+			samples.emplace_back(std::move(sample));
 		}
 
 		auto out = pp.make_output_buffer(stream);
 		auto state = k.kernel->warmup(stream, samples, pp.input_dims(), 0xDEADBEEF, 100);
-		auto q = k.kernel->bin(stream, state, { .millis = 1000, .quality = 64 }).get();
+		auto q = k.kernel->bin(stream, state, { .millis = 1000, .quality = 2000 }).get();
 		auto res = pp.post_process(state.bins, out, q.quality, f->gamma, f->brightness, f->vibrancy, true, stream).get();
 
-		auto vec = je.encode_image(out.ptr(), 1920, 1080, 100, stream).get();
+		SPDLOG_INFO("{}: {}, {} miters/ms {} mdraws/ms", fname.filename().string(), q.quality, q.total_passes / (1'000'000 * q.elapsed_ms), q.total_draws / (1'000'000 * q.elapsed_ms));
+
+		auto vec = je.encode_image(out.ptr(), pp.output_dims().x, pp.output_dims().y, 100, stream).get();
 
 		auto basename = fname.filename();
-		rfkt::fs::write("testrender/" + basename.string() + ".jpg", (const char*)vec.data(), vec.size(), false);
-	//}
+		rfkt::fs::write("testrender/" + basename.string() + "-2.jpg", (const char*)vec.data(), vec.size(), false);
+	}
 	SPDLOG_INFO("initialized flame system (hash: {})", fdb.hash().str16());
 
 	return 0;

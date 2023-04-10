@@ -1,4 +1,4 @@
-//#define USE_ASYNC_MEMCPY
+#define USE_ASYNC_MEMCPY
 
 #ifdef USE_ASYNC_MEMCPY
 #include <cooperative_groups/memcpy_async.h>
@@ -193,7 +193,7 @@ void memcpy_sync(const uint8* const __restrict__ src, uint8* const __restrict__ 
 }
 
 __device__ 
-Real flame_pass(unsigned int pass_idx, uint64* const xform_counters = nullptr) {
+vec4<Real> flame_pass(unsigned int pass_idx) {
 	
 	// every 32 passes, repopulate this warp's xid buffer
 	if(pass_idx % 32 == 0) {
@@ -231,7 +231,7 @@ Real flame_pass(unsigned int pass_idx, uint64* const xform_counters = nullptr) {
 
 	queue_shuffle_load(pass_idx + 1);
 
-	return opacity;
+	return vec4<Real>{out_local.x, out_local.y, out_local.z, opacity};
 }
 
 __global__ 
@@ -244,9 +244,6 @@ void warmup(
 {	
 	my_rand().init(seed + fl::grid_rank());
 	
-	if(fl::is_block_leader()) {
-		state.antialiasing_offsets = my_rand().randgauss(1/4.0);
-	}
 	queue_shuffle_load(0);
 	
 	const auto seg_size = gridDim.x / num_segments;
@@ -259,11 +256,13 @@ void warmup(
 	interpolate_flame<flame_size_reals>(t, segments + (seg_offset) * seg, state.flame.as_array());
 	interpolate_palette<256>(t, segments + flame_size_reals + (seg_offset) * seg, state.palette);
 	
-	if(fl::is_block_leader()) state.flame.do_precalc();
+	if(fl::is_block_leader()) {
+		state.flame.do_precalc(&my_rand());
+	}
 
 	auto pos = hammersley::sample<Real, TOTAL_THREADS>(fl::grid_rank());
-	pos.x *= bins_w;
-	pos.y *= bins_h;
+	pos.x = (pos.x + 1)/2 * bins_w;
+	pos.y = (pos.y + 1)/2 * bins_h;
 	state.flame.plane_space.apply(pos.x, pos.y);
 	
 	my_iter(x) = pos.x;
@@ -273,6 +272,10 @@ void warmup(
 	fl::sync_block();
 	for(unsigned int pass = 0; pass < warmup_count; pass++) {
 		flame_pass(pass);
+	}
+
+	if(fl::is_grid_leader()) {
+		//state.flame.print_debug();
 	}
 
 	// save shared state
@@ -294,8 +297,7 @@ void bin(
 	const uint32 iter_bailout,
 	const uint64 time_bailout,
 	float4* const __restrict__ bins, const uint32 bins_w, const uint32 bins_h,
-	uint64* const __restrict__ quality_counter, uint64* const __restrict__ pass_counter,
-	uint64* const __restrict__ xform_counters )
+	uint64* const __restrict__ quality_counter, uint64* const __restrict__ pass_counter)
 {
 	
 	// load shared state
@@ -305,10 +307,6 @@ void bin(
 	#else
 	memcpy_sync<shared_size_bytes>((uint8*)(in_state + blockIdx.x), (uint8*)&state);
 	#endif
-
-	if(fl::is_grid_leader()) {
-		state.flame.print_debug();
-	}
 
 	if(fl::is_block_leader()) {
 		state.tss_quality = 0;
@@ -320,19 +318,14 @@ void bin(
 	fl::sync_block();
 	for( unsigned int i =0; !state.should_bail; i++ ) {
 		
-		Real opacity = flame_pass(i, xform_counters);
-
-		auto transformed = vec3<Real>{};
+		auto transformed = flame_pass(i);
 		
 		if constexpr(has_final_xform) {
-			vec3<Real> my_iter_copy = {my_iter(x), my_iter(y), my_iter(color)};
+			vec3<Real> my_iter_copy = {transformed.x, transformed.y, transformed.z};
 			state.flame.dispatch(num_xforms, my_iter_copy, transformed, &my_rand());
-		} else transformed = {my_iter(x), my_iter(y), my_iter(color)};
+		}
 		
 		state.flame.screen_space.apply(transformed.x, transformed.y);
-		
-		transformed.x += state.antialiasing_offsets.x;
-		transformed.y += state.antialiasing_offsets.y;
 
 		transformed.x = trunc(transformed.x);
 		transformed.y = trunc(transformed.y);
@@ -340,32 +333,25 @@ void bin(
 		unsigned int hit = 0;
 		if(transformed.x >= 0 && transformed.y >= 0 
 		&& transformed.x < bins_w && transformed.y < bins_h 
-		&& opacity > 0.0) {
+		&& transformed.w > 0.0) {
+
+			float4& bin = bins[int(transformed.y) * bins_w + int(transformed.x)];
 
 			const auto palette_idx = transformed.z * 255.0f;
-			auto bin_idx = int(transformed.y) * bins_w + int(transformed.x);
+
 			const auto& upper = state.palette[static_cast<unsigned char>(ceil(palette_idx))];
 			const auto& lower = state.palette[static_cast<unsigned char>(floor(palette_idx))];
 			auto mix = palette_idx - truncf(palette_idx);
 
-			ushort4 result{
-				static_cast<unsigned short>(((1.0_r - mix) * lower.x + mix * upper.x) * opacity),
-				static_cast<unsigned short>(((1.0_r - mix) * lower.y + mix * upper.y) * opacity),
-				static_cast<unsigned short>(((1.0_r - mix) * lower.z + mix * upper.z) * opacity),
-				static_cast<unsigned short>(255.0f * opacity)
-			};
-
-//			DEBUG_BLOCK("%d %d %d %d", result.x, result.y, result.z, result.w);
-			float4& bin = bins[bin_idx];
-
 			float4 new_bin = bin;
-			new_bin.x += result.x/255.0f;
-			new_bin.y += result.y/255.0f;
-			new_bin.z += result.z/255.0f;
-			new_bin.w += result.w/255.0f;
+
+			new_bin.x += ((1.0_r - mix) * lower.x + mix * upper.x) / 255.0f * transformed.w;
+			new_bin.y += ((1.0_r - mix) * lower.y + mix * upper.y) / 255.0f * transformed.w;
+			new_bin.z += ((1.0_r - mix) * lower.z + mix * upper.z) / 255.0f * transformed.w;
+			new_bin.w += transformed.w;
 			bin = new_bin;
-			
-			hit = (unsigned int)(result.w);
+			hit = (unsigned int)(255.0f * transformed.w);
+
 		}
 		hit = fl::warp_reduce(hit);
 		if(fl::is_warp_leader()) {
@@ -383,6 +369,7 @@ void bin(
 	if(fl::is_block_leader()) {
 		atomicAdd(quality_counter, state.tss_quality);
 		atomicAdd(pass_counter, state.tss_passes);
+		//DEBUG_BLOCK("quality: %u, passes: %u", state.tss_quality, state.tss_passes);
 	}
 	
 	// save shared state

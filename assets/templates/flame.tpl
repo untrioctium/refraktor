@@ -54,7 +54,7 @@ struct xform_@hash@_t {
             <# endfor #>
         }
 
-        __device__ void do_precalc() {
+        __device__ void do_precalc(RandCtx* rs) {
             <# for variation in vlink.variations #>
             <# if variation_has_precalc(variation.name) #>
             // @variation.name@
@@ -76,9 +76,9 @@ struct xform_@hash@_t {
         <# endfor #>
     }
 
-    __device__ void do_precalc() {
+    __device__ void do_precalc(RandCtx* rs) {
         <# for vlink in xform.vchain #>
-        vlink_@loop.index@.do_precalc();
+        vlink_@loop.index@.do_precalc(rs);
         <# endfor #>
     }
 };
@@ -130,12 +130,17 @@ struct flame_t {
         return reinterpret_cast<FloatT*>(this);
     }
 
-    __device__ void do_precalc() {
+    __device__ void do_precalc(RandCtx* rs) {
         // calculate weight sum
         weight_sum = <# for xid in range(num_standard_xforms) #>xform_@xid@.weight<# if not loop.is_last #> +<# endif #><# endfor #>;
 
+        // jitter screen_space a bit for anti-antialiasing
+        auto jitter = rs->randgauss(1/4.0);
+        screen_space.c += jitter.x;
+        screen_space.f += jitter.y;
+
         <# for xform in xforms #>
-        xform_@xform.id@.do_precalc();
+        xform_@xform.id@.do_precalc(rs);
         <# endfor #>
     }
 

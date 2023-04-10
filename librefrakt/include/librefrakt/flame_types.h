@@ -192,6 +192,7 @@ namespace rfkt {
 	class vlink : public traits::hashable {
 	public:
 		affine transform;
+		double per_loop = 0;
 
 		auto& operator[](this auto&& self, std::string_view name) {
 			return self.variations_.find(name)->second;

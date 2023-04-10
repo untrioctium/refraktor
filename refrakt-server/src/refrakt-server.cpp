@@ -19,53 +19,24 @@
 #include <ranges>
 
 #include <readerwritercircularbuffer.h>
-/*
-auto cudaize(rfkt::cuda::context ctx, auto&& func) {
-	return [ctx, func = std::move(func)]() {
-		ctx.make_current_if_not();
-		func();
-	};
-}
 
-class event_loop_executor : public concurrencpp::derivable_executor<event_loop_executor> {
-public:
+using json = nlohmann::json;
 
-	event_loop_executor(std::string_view name): 
-		derivable_executor<event_loop_executor>("event_loop_executor"),
-		loop(uWS::Loop::get()) {}
-
-	void enqueue(concurrencpp::task task) override {
-		loop->defer(std::move(task));
-	}
-
-	void enqueue(std::span<concurrencpp::task> tasks) override {
-		for (auto& task : tasks) {
-			loop->defer(std::move(task));
+std::vector<rfkt::flame> gen_samples(const rfkt::flame& f, double t, double loops_per_frame) {
+	std::vector<rfkt::flame> samples{};
+	for (int i = 0; i < 4; i++) {
+		auto sample = f;
+		for (auto& x : sample.xforms) {
+			for (auto& vl : x.vchain) {
+				if (vl.per_loop > 0) {
+					const auto base = t * vl.per_loop;
+					vl.transform = vl.transform.rotated(base + vl.per_loop * loops_per_frame * (i - 1));
+				}
+			}
 		}
+		samples.emplace_back(std::move(sample));
 	}
-
-	int max_concurrency_level() const noexcept override {
-		return 1;
-	}
-
-	bool shutdown_requested() const noexcept override {
-		return false;
-	}
-
-	void shutdown() noexcept override {}
-private:
-
-	uWS::Loop* loop;
-};
-
-template<typename Type>
-auto get_or_default(nlohmann::json& js, std::string name, Type&& def) {
-	auto& v = js[name];
-	if (v.is_null()) return def;
-	if (std::is_same_v<Type, bool> && !v.is_boolean()) return def;
-	if (std::is_arithmetic_v<Type> && !v.is_number()) return def;
-	if (std::is_same_v<std::string, Type> && !v.is_string()) return def;
-	return v.get<Type>();
+	return samples;
 }
 
 template<size_t N>
@@ -269,42 +240,6 @@ namespace rfkt {
 		uint2 dims_;
 		bool upscale;
 	};
-}*/
-
-/*struct socket_data {
-	rfkt::flame flame;
-	rfkt::flame_kernel kernel;
-
-	std::size_t total_frames;
-	double loops_per_frame;
-	int fps;
-	double frame_fudge;
-
-	std::unique_ptr<eznve::encoder> session;
-	rfkt::postprocessor pp;
-
-	std::atomic_bool closed;
-	std::move_only_function<void(std::vector<char>&&, std::shared_ptr<socket_data>)> feed;
-
-	~socket_data() {
-		SPDLOG_INFO("Closing socket");
-	}
-};*/
-/*
-namespace rfkt {
-	class rendering_thread : public std::enable_shared_from_this<rendering_thread> {
-	public:
-
-		using handle = std::shared_ptr<rendering_thread>;
-
-		void start();
-		void stop();
-
-		bool is_running();
-
-		void defer();
-
-	};
 }
 
 namespace rfkt {
@@ -314,8 +249,8 @@ namespace rfkt {
 		using handle = std::shared_ptr<render_socket>;
 		using send_function = std::move_only_function<void(handle&&, std::vector<char>&&)>;
 
-		[[nodiscard]] static handle make(rfkt::flame_compiler& fc, ezrtc::compiler& km, rfkt::cuda::context ctx, concurrencpp::runtime& rt, send_function&& sf) {
-			auto ret = handle{ new render_socket{fc, km} };
+		[[nodiscard]] static handle make(rfkt::flame_compiler& fc, ezrtc::compiler& km, rfkt::flamedb& fdb, rfkt::cuda::context ctx, concurrencpp::runtime& rt, send_function&& sf) {
+			auto ret = handle{ new render_socket{fc, km, fdb} };
 			ret->send = std::move(sf);
 			ret->render_queue = rt.make_worker_thread_executor();
 			ret->work_queue = rt.thread_pool_executor();
@@ -378,19 +313,21 @@ namespace rfkt {
 			double total_time = 0.0;
 		};
 
-		render_socket(rfkt::flame_compiler& fc, ezrtc::compiler& km) :
+		render_socket(rfkt::flame_compiler& fc, ezrtc::compiler& km, rfkt::flamedb& fdb) :
 			chunks(10),
 			fc(fc),
-			km(km) {}
+			km(km),
+			fdb(fdb) {}
 
 		void on_begin(json&& data) {
 
-			if (not data.contains("flame")) {
-				SPDLOG_WARN("begin does not have flame information");
-				return;
-			}
-
-			auto flame_path = fmt::format("assets/flames_test/electricsheep.{}.flam3", data["flame"].get<std::string>());
+			auto flame_path = [&]() -> rfkt::fs::path {
+				if (not data.contains("flame")) {
+					auto local_flames = rfkt::fs::list("assets/flames_test", rfkt::fs::filter::has_extension(".flam3"));
+					return local_flames[std::rand() % local_flames.size()];
+				}
+				return fmt::format("assets/flames_test/electricsheep.{}.flam3", data["flame"].get<std::string>());
+			}();
 
 			auto upscale = data.value("upscale", false);
 			auto width = data.value("width", 1280u);
@@ -401,34 +338,28 @@ namespace rfkt {
 
 			this->max_bin_time = 1000.0 / fps - 2;
 
-			this->flame = rfkt::flame::import_flam3(flame_path);
+			this->flame = rfkt::import_flam3(fdb, rfkt::fs::read_string(flame_path));
 			if (not flame) {
-				SPDLOG_WARN("could not import {}", flame_path);
+				SPDLOG_WARN("could not import {}", flame_path.string());
 				return;
 			}
 
 			// add a tiny bit of rotation to each xform
 			if (data.value("embellish", false)) {
-				flame->for_each_xform([](auto id, rfkt::xform* xf) {
+				for(auto& xf: flame->xforms) {
 					//if (id == -1) return;
 
-					for (auto& vlink : xf->vchain) {
-						if (vlink.aff_mod_rotate.ani == nullptr) {
-							static const json args = []() {
-								auto o = json::object();
-								o.emplace("per_loop", 5 * (rand() & 1) ? -1 : 1);
-								return o;
-							}();
-
-							vlink.aff_mod_rotate.ani = rfkt::animator::make("increase", args);
-							return;
+					for (auto& vlink : xf.vchain) {
+						if (vlink.per_loop == 0) {
+							vlink.per_loop = 5 * (rand() & 1) ? -1 : 1;
 						}
 					}
-					});
+				}
 			}
-			auto k_result = fc.get_flame_kernel(rfkt::precision::f32, flame.value());
 
-			SPDLOG_ERROR("\n{}\n---------------\n{}\n=====\n{}\n", flame_path, k_result.source, k_result.log);
+			auto k_result = fc.get_flame_kernel(fdb, rfkt::precision::f32, flame.value());
+
+			SPDLOG_ERROR("\n{}\n---------------\n{}\n=====\n{}\n", flame_path.string(), k_result.source, k_result.log);
 
 			if (not k_result.kernel.has_value()) {
 
@@ -445,7 +376,7 @@ namespace rfkt {
 				render_frame(std::move(self), std::nullopt);
 			});
 
-			this->send_timer = this->timer_queue->make_timer(std::chrono::milliseconds(0), std::chrono::milliseconds(static_cast<long long>(std::floor(1000.0 / this->fps) - 2)), this->work_queue, [self = shared_from_this()]() {
+			this->send_timer = this->timer_queue->make_timer(std::chrono::milliseconds(0), std::chrono::milliseconds(static_cast<long long>(std::floor(1000.0 / this->fps) - 5)), this->work_queue, [self = shared_from_this()]() {
 				if (self->total_frames % self->fps == 0) {
 					SPDLOG_INFO("{} megabits/second", self->encoder->total_bytes() / self->secs_since_start() / (1'000'000) * 8);
 				}
@@ -480,11 +411,8 @@ namespace rfkt {
 			rfkt::timer frame_timer{};
 
 			auto state = self->kernel->warmup(self->stream,
-				self->flame.value(),
+				gen_samples(self->flame.value(), t, self->loops_per_frame),
 				self->pp->input_dims(),
-				t,
-				16,
-				self->loops_per_frame,
 				0xdeadbeef,
 				64
 			);
@@ -496,7 +424,7 @@ namespace rfkt {
 				if (subpasses > 0) {
 					SPDLOG_INFO("repairing frame ({}/10 buffered, wanted {:.4}, got {:.4})", self->chunks.size_approx(), self->target_quality.value(), frame_quality);
 				}
-				auto result = self->kernel->bin(self->stream, state, self->target_quality.value_or(1000) - frame_quality, self->max_bin_time, 1'000'000).get();
+				auto result = self->kernel->bin(self->stream, state, { .iters = 1'000'000, .millis = static_cast<unsigned int>(self->max_bin_time), .quality = self->target_quality.value_or(1000) - frame_quality }).get();
 
 				if (self->total_frames % self->fps == 0) {
 					SPDLOG_INFO("{} m draws/ms", (result.total_draws / 1'000'000) / result.elapsed_ms);
@@ -512,26 +440,26 @@ namespace rfkt {
 				subpasses++;
 			}
 
-			if (frame_quality < self->target_quality or subpasses > 1) {
-				if (self->chunks.size_approx() >= self->chunks.max_capacity()) {
+			if (self->target_quality.has_value() && frame_quality < self->target_quality.value() * .95 or subpasses > 1) {
+				if (self->chunks.size_approx() <= self->chunks.max_capacity()) {
 					if (self->chunks.size_approx() <= 4) self->target_quality.value() *= .975;
 					else if (self->chunks.size_approx() <= 8) self->target_quality.value() *= .99;
 					else self->target_quality.value() *= .995;
 				}
 				else {
-					self->target_quality.value() *= .9;
+					self->target_quality.value() *= .995;
 				}
 			}
 
 			self->total_frames++;
-			*/
+			
 			/*self->pp->post_process(state.bins, {self->encoder->buffer(), self->encoder->buffer_size()}, frame_quality,
-				self->flame->gamma.sample(t),
-				self->flame->brightness.sample(t),
-				self->flame->vibrancy.sample(t),
+				self->flame->gamma,
+				self->flame->brightness,
+				self->flame->vibrancy,
 				false,
 				self->stream).get();*/
-/*
+
 			if (lf) {
 				lf->pp_stream.sync();
 				const auto flag = ((self->total_frames) % self->fps == 0) ? eznve::frame_flag::idr : eznve::frame_flag::none;
@@ -555,10 +483,10 @@ namespace rfkt {
 
 			lf->bins = std::move(state.bins);
 			lf->quality = frame_quality;
-			lf->gamma = self->flame->gamma.sample(t);
-			lf->brightness = self->flame->brightness.sample(t);
-			lf->vibrancy = self->flame->vibrancy.sample(t);
-			
+			lf->gamma = self->flame->gamma;
+			lf->brightness = self->flame->brightness;
+			lf->vibrancy = self->flame->vibrancy;
+			//SPDLOG_INFO("{}", frame_quality);
 			if (self->total_frames % self->fps == 0 && self->total_frames > 0) {
 				SPDLOG_INFO("buffer: {}/10, target: {:.4}", self->chunks.size_approx(), self->target_quality.value());
 				SPDLOG_INFO("{:.4} billion iters/sec, {:.4} billion draws/sec", (lf->total_passes / 1'000'000'000.0) / self->secs_since_start(), (lf->total_draws / 1'000'000'000.0) / self->secs_since_start());
@@ -592,6 +520,8 @@ namespace rfkt {
 
 		std::atomic_bool is_closed = false;
 
+		rfkt::flamedb& fdb;
+
 		moodycamel::BlockingReaderWriterCircularBuffer<std::vector<char>> chunks;
 
 		decltype(std::chrono::high_resolution_clock::now()) start;
@@ -606,8 +536,8 @@ namespace rfkt {
 		unsigned int fps;
 	};
 }
-*/
-/*void session_render_thread(std::shared_ptr<socket_data> ud, rfkt::cuda::context ctx) {
+/*
+void session_render_thread(std::shared_ptr<socket_data> ud, rfkt::cuda::context ctx) {
 	ctx.make_current_if_not();
 	auto tls = rfkt::cuda::thread_local_stream();
 
@@ -707,12 +637,14 @@ namespace rfkt {
 
 	SPDLOG_INFO("Exiting render thread");
 }*/
-/*
+
 int main(int argc, char** argv) {
+
+	rfkt::flamedb fdb;
 
 	SPDLOG_INFO("Starting refrakt-server");
 	try {
-		rfkt::flame_info::initialize("config");
+		rfkt::initialize(fdb, "config");
 	}
 	catch(const flang::parse_error& e) {
 		SPDLOG_ERROR("Failed to parse variations file: {} ({}:{})", e.what(), e.pos().line, e.pos().column);
@@ -724,13 +656,13 @@ int main(int argc, char** argv) {
 	}
 
 
-	SPDLOG_INFO("Flame system initialized: {} variations, {} parameters", rfkt::flame_info::num_variations(), rfkt::flame_info::num_parameters());
+	SPDLOG_INFO("Flame system initialized: {} variations", fdb.variations().size());
 
 	
 	auto ctx = rfkt::cuda::init();
 	auto dev = ctx.device();
 
-	rfkt::gpuinfo::init();
+	//rfkt::gpuinfo::init();
 	rfkt::denoiser::init(ctx);
 
 	SPDLOG_INFO("Using device {}, CUDA {}.{}", dev.name(), dev.compute_major(), dev.compute_minor());
@@ -774,10 +706,10 @@ int main(int argc, char** argv) {
 
 	using ws_t = uWS::WebSocket<true, true, rfkt::render_socket::handle>;
 
-	auto ws_open = [&runtime, &ctx, &fc, &km](ws_t* ws) {
+	auto ws_open = [&runtime, &ctx, &fc, &km, &fdb](ws_t* ws) {
 		auto* handle = ws->getUserData();
 		(*handle) = rfkt::render_socket::make(
-			fc, km,
+			fc, km, fdb,
 			ctx,
 			runtime,
 			[ws, loop = uWS::Loop::get()](rfkt::render_socket::handle&& sock, std::vector<char>&& data) {
@@ -813,102 +745,7 @@ int main(int argc, char** argv) {
 		.pong = nullptr,
 		.close = ws_closed
 	});
-	*/
-	/*app.ws<std::shared_ptr<socket_data>>("/stream", {
-		.compression = uWS::DISABLED,
-		.maxPayloadLength = 100 * 1024 * 1024,
-		.idleTimeout = 16,
-		.maxBackpressure = 100 * 1024 * 1024,
-		.closeOnBackpressureLimit = false,
-		.resetIdleTimeoutOnSend = false,
-		.sendPingsAutomatically = true,
-		.upgrade = nullptr,
 
-		.open = [](ws_t* ws) {
-			SPDLOG_INFO("Opened session for streaming");
-		},
-		.message = [&fc, &km, &runtime, ctx, &local_flames](ws_t* ws, std::string_view message, uWS::OpCode opCode) {
-			auto* ud = ws->getUserData();
-			auto js = nlohmann::json::parse(message);
-			if (!js.is_object()) return;
-			auto& cmd_node = js["cmd"];
-			if (!cmd_node.is_string()) return;
-
-			std::string cmd = js["cmd"].get<std::string>();
-			if (cmd == "begin") {
-				auto flame = (js.count("flame") != 0) ? fmt::format("assets/flames_test/electricsheep.{}.flam3", js["flame"].get<std::string>()) : local_flames[rand() % local_flames.size()].string();
-
-				auto upscale = js.value("upscale", true);
-
-				auto width = get_or_default(js, "width", 1280u);
-				auto height = get_or_default(js, "height", 720u);
-
-				auto out_width = width;
-				auto out_height = height;
-
-				if (upscale) {
-					width /= 2;
-					height /= 2;
-				}
-
-				auto seconds_per_loop = get_or_default(js, "loop_length", 5.0);
-				auto fps = get_or_default(js, "fps", 30);
-
-				auto f = rfkt::flame::import_flam3(flame);
-				if (!f) return;
-
-				// add a tiny bit of rotation to each xform
-				f->for_each_xform([](auto id, rfkt::xform* xf) {
-					//if (id == -1) return;
-
-					for (auto& vlink : xf->vchain) {
-						if (vlink.aff_mod_rotate.ani == nullptr) {
-							static const json args = []() {
-								auto o = json::object();
-								o.emplace("per_loop", 5 * (rand() & 1)? -1: 1);
-								return o;
-							}();
-
-							vlink.aff_mod_rotate.ani = rfkt::animator::make("increase", args);
-							return;
-						}
-					}
-				});
-
-				auto k_result = fc.get_flame_kernel(rfkt::precision::f32, f.value());
-				if (!k_result.kernel.has_value()) {
-					SPDLOG_ERROR("errors for flame {}: \n{}---------------\n{}\n", flame, k_result.source, k_result.log);
-					return;
-				};
-
-				auto sesh = std::make_unique<eznve::encoder>( uint2{ out_width, out_height }, uint2{ static_cast<unsigned int>(fps), 1 }, eznve::codec::h264, (CUcontext) ctx);
-
-				auto new_ptr = std::shared_ptr<socket_data>{ new socket_data{
-					.flame = std::move(f.value()),
-					.kernel = std::move(*k_result.kernel),
-					.total_frames = 0,
-					.loops_per_frame = 1.0 / (seconds_per_loop * fps),
-					.fps = fps,
-					.frame_fudge = 5 + rfkt::denoiser::benchmark({out_width, out_height}, upscale, 10),
-					.session = std::move(sesh),
-					.pp = {km, uint2{out_width, out_height}, upscale},
-					.closed = false,
-					.feed = [loop = uWS::Loop::get(), ws](std::vector<char>&& d, std::shared_ptr<socket_data> ud) mutable {
-						loop->defer([ws, d = std::move(d), ud = std::move(ud)]() mutable {
-							 if(!ud->closed) ws->send(std::string_view{d.data(), d.size()});
-						});
-					}
-				} };
-
-				ud->swap(new_ptr);
-
-				runtime.thread_executor()->post(std::bind(session_render_thread, *ud, ctx));
-
-				SPDLOG_INFO("Starting session: {}, {}x{}, {} fps", flame, width, height, fps);
-			}
-		}
-	});*/
-/*
 	app.get("/bananas", [](auto* res, auto* req) {
 		auto page = rfkt::fs::read_string("assets/static/muxer.html");
 
@@ -916,7 +753,7 @@ int main(int argc, char** argv) {
 		res->tryEnd(page);
 	});
 
-	app.get("/render/:id", [&](auto* res, auto* req) {
+	/*app.get("/render/:id", [&](auto* res, auto* req) {
 
 		SPDLOG_INFO("get {}?{}", req->getUrl(), req->getQuery());
 		static const query_parser qp{
@@ -977,10 +814,10 @@ int main(int argc, char** argv) {
 			return;
 		}
 
-		jpeg_executor->post([flame_path = std::move(flame_path), cd = std::move(cd), rd = std::move(rd), ctx = ctx, &fc, &tm, &jpeg, &conv, &jpeg_stream]() mutable {
+		jpeg_executor->post([flame_path = std::move(flame_path), cd = std::move(cd), rd = std::move(rd), ctx = ctx, &fc, &tm, &jpeg, &conv, &jpeg_stream, &fdb]() mutable {
 
 			auto timer = rfkt::timer();
-			auto fopt = rfkt::flame::import_flam3(flame_path);
+			auto fopt = rfkt::import_flam3(fdb, flame_path);
 			auto t_load = timer.count();
 
 			if (!fopt) {
@@ -991,7 +828,7 @@ int main(int argc, char** argv) {
 			timer.reset();
 			auto k_result = [&]() -> rfkt::flame_compiler::result {
 				try {
-					return fc.get_flame_kernel(rfkt::precision::f32, fopt.value());
+					return fc.get_flame_kernel(fdb, rfkt::precision::f32, fopt.value());
 				}
 				catch (const std::exception& e) {
 					SPDLOG_ERROR("{}", e.what());
@@ -1053,7 +890,7 @@ int main(int argc, char** argv) {
 			});
 		});
 
-	});
+	});*/
 
 	app.listen(3000,
 		[](auto* listen_socket) {
@@ -1065,6 +902,4 @@ int main(int argc, char** argv) {
 	app.run();
 
 	return 1;
-}*/
-
-int main() {}
+}

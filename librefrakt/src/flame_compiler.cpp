@@ -508,7 +508,7 @@ std::string rfkt::flame_compiler::make_struct(const flamedb& fdb, const rfkt::fl
 
         return env;
     }();
-    SPDLOG_INFO("{}", info.dump(1));
+
     return environment.render_file("./assets/templates/flame.tpl", info);
 
 }
@@ -691,6 +691,10 @@ auto rfkt::flame_compiler::make_opts(precision prec, const flame& f)->std::pair<
         }
     }
 
+    while (exec_configs[most_blocks_idx].grid > 300) {
+        most_blocks_idx--;
+    }
+
     auto& most_blocks = exec_configs[most_blocks_idx];
 
     auto name = fmt::format("flame_{}_f{}_t{}_s{}", flame_hash.str64(), (prec == precision::f32) ? "32" : "64", most_blocks.grid, flame_real_count);
@@ -826,8 +830,7 @@ auto rfkt::flame_kernel::bin(cuda_stream& stream, flame_kernel::saved_state & st
         static_cast<std::uint64_t>(bo.millis) * 1'000'000,
         state.bins.ptr(), state.bin_dims.x, state.bin_dims.y,
         stream_state->qpx_dev.ptr(),
-        stream_state->qpx_dev.ptr() + counter_size,
-        stream_state->qpx_dev.ptr() + 2 * counter_size
+        stream_state->qpx_dev.ptr() + counter_size
     ));
 
     stream_state->qpx_dev.to_host(stream_state->qpx_host, stream);
@@ -836,7 +839,7 @@ auto rfkt::flame_kernel::bin(cuda_stream& stream, flame_kernel::saved_state & st
     CUDA_SAFE_CALL(cuLaunchHostFunc(stream, [](void* ptr) {
         auto* ss = (stream_state_t*)ptr;
         ss->end = std::chrono::high_resolution_clock::now();
-
+        //SPDLOG_INFO("{}", ss->qpx_host[0]);
         ss->promise.set_value(flame_kernel::bin_result{
             ss->qpx_host[0] / (ss->total_bins * 255.0),
             std::chrono::duration_cast<std::chrono::nanoseconds>(ss->end - ss->start).count() / 1'000'000.0,
@@ -944,7 +947,7 @@ auto rfkt::flame_kernel::warmup(cuda_stream& stream, std::span<const flame> samp
     auto segments_dev = rfkt::cuda_buffer<double>{ nreals * 4 * nseg, stream};
 
     const auto [grid, block] = this->catmull->kernel().suggested_dims();
-    auto nblocks = (nseg * samples.size()) / block;
+    auto nblocks = (nseg * sample_size) / block;
     if ((nseg * samples.size()) % block > 0) nblocks++;
     CUDA_SAFE_CALL(
         this->catmull->kernel().launch(nblocks, block, stream, false)
