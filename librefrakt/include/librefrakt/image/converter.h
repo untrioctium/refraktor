@@ -24,7 +24,7 @@ namespace rfkt {
 			conv = std::move(conv_result.module.value());
 		}
 
-		void to_24bit(cuda_view<half3> in, cuda_view<uchar4> out, uint2 dims, bool planar, cuda_stream& stream) const {
+		void to_24bit(cuda_span<half3> in, cuda_span<uchar4> out, uint2 dims, bool planar, cuda_stream& stream) const {
 			auto kernel = (planar) ? conv.kernel("convert<true>") : conv.kernel("convert<false>");
 
 			CUDA_SAFE_CALL(kernel

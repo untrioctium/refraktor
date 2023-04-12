@@ -358,7 +358,7 @@ namespace rfkt {
 		postprocessor& operator=(postprocessor&&) = default;
 
 		auto make_output_buffer() const -> rfkt::cuda_buffer<uchar4> {
-			return { dims_.x * dims_.y };
+			return rfkt::cuda_buffer<uchar4>{ dims_.x * dims_.y };
 		}
 
 		auto make_output_buffer(CUstream stream) const -> rfkt::cuda_buffer<uchar4> {
@@ -379,8 +379,8 @@ namespace rfkt {
 		}
 
 		std::future<double> post_process(
-			rfkt::cuda_view<float4> in,
-			rfkt::cuda_view<uchar4> out,
+			rfkt::cuda_span<float4> in,
+			rfkt::cuda_span<uchar4> out,
 			double quality,
 			double gamma, double brightness, double vibrancy,
 			bool planar_output,
@@ -429,14 +429,16 @@ int main() {
 	rfkt::initialize(fdb, "config");
 	
 	auto stream = rfkt::cuda_stream{};
-	auto km = ezrtc::compiler{};
+	auto kernel = std::make_shared<ezrtc::sqlite_cache>("kernel.sqlite3");
+	auto zlib = std::make_shared<ezrtc::cache_adaptors::zlib>(kernel);
+	auto km = ezrtc::compiler{ zlib };
 	km.find_system_cuda();
 	auto fc = rfkt::flame_compiler{ km };
-	auto pp = rfkt::postprocessor{ km, { 1920, 1080 }, false };
+	auto pp = rfkt::postprocessor{ km, { 800, 592 }, false };
 	auto je = rfkt::nvjpeg::encoder{ stream };
 
 	constexpr static auto fps = 30;
-	constexpr static auto seconds_per_loop = 1.0;
+	constexpr static auto seconds_per_loop = 5.0;
 	constexpr static auto degrees_per_loop = 360.0;
 	constexpr static auto degrees_per_frame = degrees_per_loop / (fps * seconds_per_loop);
 
@@ -445,7 +447,7 @@ int main() {
 	const auto sample_width = degrees_per_frame / (sample_count - 3);
 
 
-	for (const auto& fname : rfkt::fs::list("assets/flames_test", rfkt::fs::filter::has_extension(".flam3"))) {
+	for (const auto& fname : rfkt::fs::list("assets/flames_test/", rfkt::fs::filter::has_extension(".flam3"))) {
 	//const std::filesystem::path fname = "assets/flames_test/electricsheep.247.27244.flam3";
 		auto fxml = rfkt::fs::read_string(fname);
 		auto f = rfkt::import_flam3(fdb, fxml);
@@ -455,10 +457,10 @@ int main() {
 			return -1;
 		}
 
-		auto k = fc.get_flame_kernel(fdb, rfkt::precision::f32, *f);
+		auto k = fc.get_flame_kernel(fdb, rfkt::precision::f64, *f);
 
-		SPDLOG_INFO("\n{}", k.source);
 		if (!k.kernel) {
+			SPDLOG_INFO("\n{}\n{}", k.source, k.log);
 			return -1;
 		}
 
@@ -478,7 +480,7 @@ int main() {
 
 		auto out = pp.make_output_buffer(stream);
 		auto state = k.kernel->warmup(stream, samples, pp.input_dims(), 0xDEADBEEF, 100);
-		auto q = k.kernel->bin(stream, state, { .millis = 1000, .quality = 2000 }).get();
+		auto q = k.kernel->bin(stream, state, { .millis = 100000, .quality = 2000 }).get();
 		auto res = pp.post_process(state.bins, out, q.quality, f->gamma, f->brightness, f->vibrancy, true, stream).get();
 
 		SPDLOG_INFO("{}: {}, {} miters/ms {} mdraws/ms", fname.filename().string(), q.quality, q.total_passes / (1'000'000 * q.elapsed_ms), q.total_draws / (1'000'000 * q.elapsed_ms));

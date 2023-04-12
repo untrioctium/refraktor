@@ -71,7 +71,7 @@ public:
 		return std::unique_ptr<denoiser_impl>(new denoiser_impl{std::move(d)});
 	}
 
-	std::future<double> denoise(uint2 dims, cuda_view<half3> in, cuda_view<half3> out, cuda_stream& stream) {
+	std::future<double> denoise(uint2 dims, cuda_span<half3> in, cuda_span<half3> out, cuda_stream& stream) {
 
 		memset(&layer, 0, sizeof(layer));
 
@@ -150,7 +150,7 @@ rfkt::denoiser::denoiser(denoiser&& d) noexcept {
 }
 
 
-std::future<double> rfkt::denoiser::denoise(uint2 dims, cuda_view<half3> in, cuda_view<half3> out, cuda_stream& stream) {
+std::future<double> rfkt::denoiser::denoise(uint2 dims, cuda_span<half3> in, cuda_span<half3> out, cuda_stream& stream) {
 	return impl->denoise(dims, in, out, stream);
 }
 

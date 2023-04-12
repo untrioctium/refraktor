@@ -21,7 +21,7 @@ namespace rfkt {
 
         ~denoiser();
 
-        std::future<double> denoise(uint2 dims, cuda_view<half3> in, cuda_view<half3> out, cuda_stream& stream);
+        std::future<double> denoise(uint2 dims, cuda_span<half3> in, cuda_span<half3> out, cuda_stream& stream);
 
         static double benchmark(uint2 dims, bool upscale, std::uint32_t num_passes, cuda_stream& stream);
 

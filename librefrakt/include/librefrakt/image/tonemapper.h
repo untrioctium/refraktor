@@ -27,7 +27,7 @@ namespace rfkt {
 			tm = std::move(tm_result.module.value());
 		}
 
-		void run(cuda_view<float4> bins, cuda_view<half3> out, uint2 dims, double quality, double gamma, double brightness, double vibrancy, cuda_stream& stream) const {
+		void run(cuda_span<float4> bins, cuda_span<half3> out, uint2 dims, double quality, double gamma, double brightness, double vibrancy, cuda_stream& stream) const {
 
 			CUDA_SAFE_CALL(tm.kernel("tonemap").launch({ dims.x / 8 + 1, dims.y / 8 + 1, 1 }, { 8, 8, 1 }, stream)(
 				bins.ptr(),

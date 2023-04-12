@@ -181,7 +181,7 @@ namespace rfkt {
 		postprocessor& operator=(postprocessor&&) = default;
 
 		auto make_output_buffer() const -> rfkt::cuda_buffer<uchar4> {
-			return { dims_.x * dims_.y };
+			return rfkt::cuda_buffer<uchar4>{ dims_.x * dims_.y };
 		}
 
 		auto make_output_buffer(CUstream stream) const -> rfkt::cuda_buffer<uchar4> {
@@ -202,8 +202,8 @@ namespace rfkt {
 		}
 
 		std::future<double> post_process(
-			rfkt::cuda_view<float4> in,
-			rfkt::cuda_view<uchar4> out,
+			rfkt::cuda_span<float4> in,
+			rfkt::cuda_span<uchar4> out,
 			double quality,
 			double gamma, double brightness, double vibrancy,
 			bool planar_output,
@@ -593,7 +593,7 @@ void session_render_thread(std::shared_ptr<socket_data> ud, rfkt::cuda::context 
 		total_passes += result.total_passes;
 		wait_time += time_since_start() - wait_start;
 
-		denoise_time += ud->pp.post_process(state.bins, rfkt::cuda_view<uchar4>{ ud->session->buffer(), ud->session->buffer_size() }, result.quality, gamma, brightness, vibrancy, false, tls).get();
+		denoise_time += ud->pp.post_process(state.bins, rfkt::cuda_span<uchar4>{ ud->session->buffer(), ud->session->buffer_size() }, result.quality, gamma, brightness, vibrancy, false, tls).get();
 
 		ud->total_frames++;
 

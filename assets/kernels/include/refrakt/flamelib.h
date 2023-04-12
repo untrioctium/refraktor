@@ -303,7 +303,7 @@ namespace flamelib {
 	T modf(T a, T b) noexcept {
 		if constexpr (is_same<T, float>)
 			return ::fmodf(a, b);
-		else return ::modf(a, b);
+		else return ::fmod(a, b);
     }
 
 	// exponential and logarithmic functions
@@ -340,9 +340,9 @@ namespace flamelib {
 	__device__ vec2<T> sincos(T value) noexcept {
 		vec2<T> result = {};
 		if constexpr(is_same<T, float>)
-			sincosf(value, &result.x, &result.y);
+			::sincosf(value, &result.x, &result.y);
 		else 
-			sincos(value, &result.x, &result.y);
+			::sincos(value, &result.x, &result.y);
 		return result;
 	}
 
@@ -350,9 +350,9 @@ namespace flamelib {
 	__device__ vec2<T> cossin(T value) noexcept {
 		vec2<T> result = {};
 		if constexpr(is_same<T, float>)
-			sincosf(value, &result.y, &result.x);
+			::sincosf(value, &result.y, &result.x);
 		else 
-			sincos(value, &result.y, &result.x);
+			::sincos(value, &result.y, &result.x);
 		return result;
 	}
 
@@ -360,9 +360,9 @@ namespace flamelib {
 	__device__ vec2<T> sincospi(T value) noexcept {
 		vec2<T> result = {};
 		if constexpr(is_same<T, float>)
-			sincospif(value, &result.x, &result.y);
+			::sincospif(value, &result.x, &result.y);
 		else 
-			sincospi(value, &result.x, &result.y);
+			::sincospi(value, &result.x, &result.y);
 		return result;
 	}
 
@@ -370,9 +370,9 @@ namespace flamelib {
 	__device__ vec2<T> cossinpi(T value) noexcept {
 		vec2<T> result = {};
 		if constexpr(is_same<T, float>)
-			sincospif(value, &result.y, &result.x);
+			::sincospif(value, &result.y, &result.x);
 		else 
-			sincospi(value, &result.y, &result.x);
+			::sincospi(value, &result.y, &result.x);
 		return result;
 	}
 

@@ -10,7 +10,7 @@ namespace rfkt {
 	public:
 		cuda_buffer() noexcept = default;
 
-		cuda_buffer(std::size_t size) : 
+		explicit cuda_buffer(std::size_t size) : 
 			size_(size)
 		{
 			cuMemAlloc(&ptr_, size_ * sizeof(Contained));
@@ -35,7 +35,7 @@ namespace rfkt {
 		auto size() const noexcept { return size_; }
 		auto size_bytes() const noexcept { return size_ * sizeof(Contained); }
 
-		explicit operator bool() { return ptr_ != 0; }
+		explicit operator bool() const { return ptr_ != 0; }
 
 		cuda_buffer& operator=(cuda_buffer&& o) noexcept {
 			std::swap(ptr_, o.ptr_);
@@ -99,25 +99,25 @@ namespace rfkt {
 	};
 
 	template<typename Contained = char>
-	class cuda_view {
+	class cuda_span {
 	public:
-		cuda_view() noexcept = default;
+		cuda_span() noexcept = default;
 
-		cuda_view(CUdeviceptr ptr, std::size_t size_bytes) noexcept :
+		cuda_span(CUdeviceptr ptr, std::size_t size_bytes) noexcept :
 			ptr_(ptr),
 			size_(size_bytes/sizeof(Contained)) {}
 
-		explicit(false) cuda_view(const cuda_buffer<Contained>& buf) noexcept :
+		explicit(false) cuda_span(const cuda_buffer<Contained>& buf) noexcept :
 			ptr_(buf.ptr()),
 			size_(buf.size()) {}
 
-		~cuda_view() noexcept = default;
+		~cuda_span() noexcept = default;
 
-		cuda_view(const cuda_view&) noexcept = default;
-		cuda_view& operator=(const cuda_view&) noexcept = default;
+		cuda_span(const cuda_span&) noexcept = default;
+		cuda_span& operator=(const cuda_span&) noexcept = default;
 
-		cuda_view& operator=(cuda_view&& o) noexcept = default;
-		cuda_view(cuda_view&& o) noexcept = default;
+		cuda_span& operator=(cuda_span&& o) noexcept = default;
+		cuda_span(cuda_span&& o) noexcept = default;
 
 		[[nodiscard]] auto ptr() const noexcept { return ptr_; }
 		[[nodiscard]] auto size() const noexcept { return size_; }
