@@ -33,8 +33,8 @@ namespace rfkt::gui {
 		~id_scope() { ImGui::PopID(); }
 	};
 
-	inline bool drag_double(const std::string& name, double* v, float speed, double min, double max) {
-		return ImGui::DragScalar(name.c_str(), ImGuiDataType_Double, v, speed, &min, &max);
+	inline bool drag_double(std::string_view name, double& v, float speed, double min, double max) {
+		return ImGui::DragScalar(name.data(), ImGuiDataType_Double, &v, speed, &min, &max);
 	}
 
 	inline void tooltip(const std::string& tip) {
@@ -59,6 +59,15 @@ namespace rfkt::gui {
 		template<typename... Args>
 		class [[nodiscard]] style {
 		public:
+
+			style() = delete;
+
+			style(const style&) = delete;
+			style& operator=(const style&) = delete;
+
+			style(style&&) = delete;
+			style& operator=(style&&) = delete;
+
 			style(Args&&... args) {
 				static_assert(sizeof...(args) % 2 == 0, "style_scope requires even arguments");
 				push(args...);

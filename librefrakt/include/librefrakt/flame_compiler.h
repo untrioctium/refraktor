@@ -27,7 +27,6 @@ namespace rfkt {
 			std::size_t total_draws;
 			std::size_t total_bins;
 			double passes_per_thread;
-			std::vector<double> xform_selections;
 		};
 
 		struct saved_state: public traits::noncopyable {
@@ -35,8 +34,6 @@ namespace rfkt {
 			uint2 bin_dims = {};
 			double quality = 0.0;
 			cuda_buffer<> shared = {};
-
-			std::shared_future<double> warmup_ms;
 
 			saved_state() = delete;
 			saved_state(saved_state&& o) noexcept {
@@ -128,6 +125,7 @@ namespace rfkt {
 		static_assert(std::move_constructible<result>);
 
 		auto get_flame_kernel(const flamedb& fdb, precision prec, const flame& f)-> result;
+		std::string make_source(const flamedb& fdb, const rfkt::flame& f);
 
 		flame_compiler(ezrtc::compiler& k_manager);
 	private:
@@ -136,8 +134,6 @@ namespace rfkt {
 			const auto per_thread_size = (prec == precision::f32) ? 25 : 48;
 			return per_thread_size * threads_per_block + flame_real_bytes + 820;
 		}
-
-		std::string make_struct(const flamedb& fdb, const rfkt::flame& f);
 
 		std::pair<cuda::execution_config, ezrtc::spec> make_opts(precision prec, const flame& f);
 

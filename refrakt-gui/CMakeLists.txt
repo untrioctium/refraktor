@@ -1,15 +1,8 @@
-add_executable(refrakt-gui src/refrakt_gui.cpp src/gl.cpp src/gui_styles.cpp include/gl.h include/gui.h include/pch.h)
+add_executable(refrakt-gui src/refrakt_gui.cpp src/gl.cpp src/gui_styles.cpp include/gl.h include/gui.h include/pch.h include/gui/panels/preview_panel.h src/gui/panels/preview_panel.cpp)
 target_precompile_headers(refrakt-gui PRIVATE include/pch.h)
 target_include_directories(refrakt-gui PRIVATE include/)
 
 set_target_properties(refrakt-gui PROPERTIES VS_DEBUGGER_WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
-
-FetchContent_Declare(
-  eznve
-  GIT_REPOSITORY https://github.com/untrioctium/eznve.git
-  GIT_TAG main
-)
-FetchContent_MakeAvailable(eznve)
 
 # glfw
 set(GLFW_BUILD_DOCS OFF CACHE BOOL "" FORCE)
@@ -21,16 +14,14 @@ FetchContent_Declare(
   GIT_TAG 3.3.8
 )
 FetchContent_MakeAvailable(glfw)
-target_link_libraries(refrakt-gui PRIVATE glfw)
 
 # glad
 FetchContent_Declare(
   glad
   GIT_REPOSITORY https://github.com/Dav1dde/glad.git
-  GIT_TAG v0.1.34
+  GIT_TAG master
 )
 FetchContent_MakeAvailable(glad)
-target_link_libraries(refrakt-gui PRIVATE glad)
 
 #imgui
 FetchContent_Declare(
@@ -41,14 +32,13 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(imgui)
 file(GLOB IMGUI_SOURCES
   ${imgui_SOURCE_DIR}/*.cpp
-  ${imgui_SOURCE_DIR}/backends/imgui_impl_opengl3.cpp
   ${imgui_SOURCE_DIR}/backends/imgui_impl_glfw.cpp
+  ${imgui_SOURCE_DIR}/backends/imgui_impl_opengl3.cpp
 )
 add_library(imgui STATIC ${IMGUI_SOURCES})
 target_include_directories(imgui PUBLIC ${imgui_SOURCE_DIR})
 target_include_directories(imgui PUBLIC ${imgui_SOURCE_DIR}/backends)
-target_link_libraries(imgui PUBLIC glfw)
-target_link_libraries(imgui PUBLIC glad)
+target_link_libraries(imgui PUBLIC glfw glad)
 target_link_libraries(refrakt-gui PRIVATE imgui)
 
 #implot
@@ -64,8 +54,15 @@ target_include_directories(implot PUBLIC ${implot_SOURCE_DIR})
 target_link_libraries(implot PUBLIC imgui)
 target_link_libraries(refrakt-gui PRIVATE implot)
 
+FetchContent_Declare(
+  readerwriterqueue
+  GIT_REPOSITORY    https://github.com/cameron314/readerwriterqueue
+  GIT_TAG           master
+)
+FetchContent_MakeAvailable(readerwriterqueue)
+target_link_libraries(refrakt-gui PRIVATE readerwriterqueue)
+
+
 target_link_libraries(refrakt-gui 
 	PRIVATE 
-	librefrakt 
-	fmt::fmt
-      eznve)
+	librefrakt Dwmapi.lib)

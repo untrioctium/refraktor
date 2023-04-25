@@ -385,7 +385,7 @@ void collect_common(const rfkt::flamedb& fdb, const flang::ast* ast, std::vector
     }
 }
 
-std::string rfkt::flame_compiler::make_struct(const flamedb& fdb, const rfkt::flame& f) {
+std::string rfkt::flame_compiler::make_source(const flamedb& fdb, const rfkt::flame& f) {
 
     auto info = json::object({
         {"xform_definitions", json::object()},
@@ -535,7 +535,7 @@ auto rfkt::flame_compiler::get_flame_kernel(const flamedb& fdb, precision prec, 
         last_flamedb_hash = fdb.hash();
     }
 
-    auto src = make_struct(fdb, f);
+    auto src = make_source(fdb, f);
     auto [most_blocks, opts] = make_opts(prec, f);
     opts.header("flame_generated.h", src);
 

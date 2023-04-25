@@ -19,7 +19,7 @@ namespace rfkt {
 		auto str64() const->std::string;
 
 	private:
-		std::pair<value_type, value_type> bytes;
+		std::pair<value_type, value_type> bytes = { 0, 0 };
 	};
 
 	static_assert(std::move_constructible<hash_t>);
@@ -44,7 +44,9 @@ namespace rfkt::hash {
 			update(s.data(), s.size());
 		}
 
-		void update(std::integral auto value) {
+		template<typename T>
+		requires std::integral<T> || std::floating_point<T>
+		void update(T value) {
 			update(&value, sizeof(value));
 		}
 

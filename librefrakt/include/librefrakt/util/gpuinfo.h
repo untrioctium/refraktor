@@ -3,7 +3,7 @@
 
 namespace rfkt::gpuinfo {
 
-	inline void init();
+	void init();
 
 	class device {
 	public:

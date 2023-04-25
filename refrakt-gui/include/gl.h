@@ -3,47 +3,80 @@
 #include <cuda.h>
 #include <glad/glad.h>
 #include <cstdint>
+#include <atomic>
+#include <variant>
 
-struct GLFWwindow;
-struct GLFWmonitor;
+#include <future>
+
+#include <librefrakt/traits/noncopyable.h>
+#include <librefrakt/cuda_buffer.h>
 
 namespace rfkt::gl {
+
+	int2 get_window_size();
+	void make_current();
 
 	bool init(int width, int height);
 	void begin_frame();
 	void end_frame(bool render);
 	bool close_requested();
 
-	class texture {
+	void event_loop(std::stop_token);
+
+	std::string show_open_dialog(std::string_view filter = {});
+	void set_clipboard(std::string contents);
+	auto get_clipboard() -> std::future<std::string>;
+
+	void set_target_fps(unsigned int fps = 0);
+
+	class texture : public rfkt::traits::noncopyable {
 	public:
 		texture(std::size_t w, std::size_t h);
 		~texture();
 
-		texture(const texture&) = delete;
-		texture(texture&& o) {
-			std::swap(tex_id, o.tex_id);
-			std::swap(cuda_res, o.cuda_res);
-			std::swap(width_, o.width_);
-			std::swap(height_, o.height_);
+		texture(texture&& o) noexcept {
+			this->swap(o);
+		}
+
+		texture& operator=(texture&& o) noexcept {
+			this->swap(o);
+			return *this;
 		}
 
 		class
 			[[nodiscard("texture::cuda_map should be held")]]
-		cuda_map {
+		cuda_map : public rfkt::traits::noncopyable {
 		public:
 			cuda_map(texture& tex);
 			~cuda_map();
 
-			cuda_map(const cuda_map&) = delete;
-			cuda_map& operator=(const cuda_map&) = delete;
-			cuda_map(cuda_map&&) = default;
-			cuda_map& operator=(cuda_map&&) = default;
+			cuda_map(cuda_map&& o) noexcept {
+				this->swap(o);
+			}
 
-			void copy_from(CUdeviceptr ptr);
+			cuda_map& operator=(cuda_map&& o) noexcept {
+				this->swap(o);
+				return *this;
+			}
+
+			template<typename T>
+			void copy_from(const cuda_buffer<T>& buffer) {
+				if(buffer.size_bytes() < copy_params.WidthInBytes * copy_params.Height)
+					throw std::runtime_error("cuda_map::copy_from: buffer too small");
+
+				copy_params.srcDevice = buffer.ptr();
+				CUDA_SAFE_CALL(cuMemcpy2D(&copy_params));
+			}
 		private:
 			CUDA_MEMCPY2D copy_params;
 			CUgraphicsResource cuda_res = nullptr;
 			CUarray arr = nullptr;
+
+			void swap(cuda_map& o) {
+				std::swap(copy_params, o.copy_params);
+				std::swap(cuda_res, o.cuda_res);
+				std::swap(arr, o.arr);
+			}
 		};
 
 		GLuint id() const { return tex_id; }
@@ -53,6 +86,14 @@ namespace rfkt::gl {
 
 		auto map_to_cuda() { return cuda_map(*this); }
 	private:
+
+		void swap(texture& o) {
+			std::swap(tex_id, o.tex_id);
+			std::swap(cuda_res, o.cuda_res);
+			std::swap(width_, o.width_);
+			std::swap(height_, o.height_);
+		}
+
 		friend class cuda_map;
 
 		GLuint tex_id = 0;

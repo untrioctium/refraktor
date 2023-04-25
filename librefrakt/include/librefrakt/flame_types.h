@@ -395,6 +395,14 @@ namespace rfkt {
 				.scaled(1 / (scale * h))
 				.translated(w / -2.0, h / -2.0);
 		}
+
+		template<typename T>
+		void for_each_xform(T&& t) noexcept {
+			for (int i = 0; i < xforms.size(); i++) {
+				t(i, xforms[i]);
+			}
+			if (final_xform) t(-1, *final_xform);
+		}
 	};
 
 	class flamedb;
