@@ -17,107 +17,7 @@
 #include "gl.h"
 #include "gui.h"
 
-std::vector<rfkt::flame> gen_samples(const rfkt::flame& f, double t, double loops_per_frame) {
-	std::vector<rfkt::flame> samples{};
-	for (int i = 0; i < 4; i++) {
-		auto sample = f;
-		for (auto& x : sample.xforms) {
-			for (auto& vl : x.vchain) {
-				if (vl.per_loop > 0) {
-					const auto base = t * vl.per_loop;
-					vl.transform = vl.transform.rotated(base + vl.per_loop * loops_per_frame * (i - 1));
-				}
-			}
-		}
-		samples.emplace_back(std::move(sample));
-	}
-	return samples;
-}
-
-namespace rfkt {
-	class postprocessor {
-	public:
-		postprocessor(ezrtc::compiler& kc, uint2 dims, bool upscale) :
-			tm(kc),
-			dn(dims, upscale),
-			conv(kc),
-			tonemapped((upscale) ? (dims.x * dims.y / 4) : (dims.x * dims.y)),
-			denoised(dims.x* dims.y),
-			dims_(dims),
-			upscale(upscale)
-		{
-
-		}
-
-		~postprocessor() = default;
-
-		postprocessor(const postprocessor&) = delete;
-		postprocessor& operator=(const postprocessor&) = delete;
-
-		postprocessor(postprocessor&&) = default;
-		postprocessor& operator=(postprocessor&&) = default;
-
-		auto make_output_buffer() const -> rfkt::cuda_buffer<uchar4> {
-			return rfkt::cuda_buffer<uchar4>{ dims_.x* dims_.y };
-		}
-
-		auto make_output_buffer(CUstream stream) const -> rfkt::cuda_buffer<uchar4> {
-			return { dims_.x * dims_.y, stream };
-		}
-
-		auto input_dims() const -> uint2 {
-			if (upscale) {
-				return { dims_.x / 2, dims_.y / 2 };
-			}
-			else {
-				return dims_;
-			}
-		}
-
-		auto output_dims() const -> uint2 {
-			return dims_;
-		}
-
-		std::future<double> post_process(
-			rfkt::cuda_span<float4> in,
-			rfkt::cuda_span<uchar4> out,
-			double quality,
-			double gamma, double brightness, double vibrancy,
-			bool planar_output,
-			cuda_stream& stream) {
-
-			auto promise = std::promise<double>{};
-			auto future = promise.get_future();
-
-			stream.host_func(
-				[&t = perf_timer]() mutable {
-					t.reset();
-				});
-
-			tm.run(in, tonemapped, input_dims(), quality, gamma, brightness, vibrancy, stream);
-			dn.denoise(output_dims(), tonemapped, denoised, stream);
-			conv.to_24bit(denoised, out, output_dims(), planar_output, stream);
-			stream.host_func([&t = perf_timer, p = std::move(promise)]() mutable {
-				p.set_value(t.count());
-				});
-
-			return future;
-		}
-
-	private:
-		rfkt::tonemapper tm;
-		rfkt::denoiser dn;
-		rfkt::converter conv;
-
-		rfkt::cuda_buffer<half3> tonemapped;
-		rfkt::cuda_buffer<half3> denoised;
-
-		rfkt::timer perf_timer;
-
-		uint2 dims_;
-		bool upscale;
-	};
-}
+#include "gui/panels/preview_panel.h"
 
 void draw_status_bar() {
 	ImGuiViewportP* viewport = (ImGuiViewportP*)(void*)ImGui::GetMainViewport();
@@ -259,49 +159,6 @@ bool flame_editor(rfkt::flamedb& fdb, rfkt::flame& f) {
 	return modified;
 }
 
-auto enqueue_render(
-	std::shared_ptr<concurrencpp::worker_thread_executor> executor,
-	rfkt::cuda_stream& stream,
-	std::shared_ptr<rfkt::flame_kernel> kernel,
-	std::shared_ptr<rfkt::flame_kernel::saved_state> state, 
-	rfkt::flame_kernel::bailout_args bo, 
-	rfkt::tonemapper& tm,
-	rfkt::denoiser& dn,
-	rfkt::converter& conv,
-	double3 gbv) {
-
-	auto out_tex = rfkt::gl::texture{ state->bin_dims.x, state->bin_dims.y };
-	auto cuda_map = out_tex.map_to_cuda();
-
-	return executor->submit([&stream, state, bo, kernel = std::move(kernel), out_tex = std::move(out_tex), &tm, &dn, &conv, gbv, cuda_map = std::move(cuda_map)]() mutable {
-		const auto total_bins = state->bin_dims.x * state->bin_dims.y;
-
-		auto out_buf = rfkt::cuda_buffer<uchar4>{ total_bins, stream };
-		auto tonemapped = rfkt::cuda_buffer<half3>{ total_bins, stream };
-		auto denoised = rfkt::cuda_buffer<half3>{ total_bins, stream };
-
-		auto bin_info = kernel->bin(stream, *state, bo).get();
-		state->quality += bin_info.quality;
-		
-		tm.run(state->bins, tonemapped, state->bin_dims, state->quality, gbv.x, gbv.y, gbv.z, stream);
-		dn.denoise(state->bin_dims, tonemapped, denoised, stream);
-		tonemapped.free_async(stream);
-		conv.to_24bit(denoised, out_buf, state->bin_dims, false, stream);
-		denoised.free_async(stream);
-		stream.sync();
-
-		cuda_map.copy_from(out_buf);
-
-		out_buf.free_async(stream);
-
-		return std::move(out_tex);
-	});
-}
-
-class render_panel {
-
-};
-
 void main_thread(rfkt::cuda::context ctx, std::stop_source stop) {
 
 	namespace ccpp = concurrencpp;
@@ -322,14 +179,31 @@ void main_thread(rfkt::cuda::context ctx, std::stop_source stop) {
 	auto dn = rfkt::denoiser{ {2560, 1440}, false };
 	auto conv = rfkt::converter{ kc };
 
-	std::optional<rfkt::gl::texture> displayed_tex;
-	std::optional<ccpp::result<rfkt::gl::texture>> rendering;
-	std::shared_ptr<rfkt::flame_kernel::saved_state> current_state;
+	preview_panel::renderer_t renderer = [&tm, &dn, &conv](
+		rfkt::cuda_stream& stream, const rfkt::flame_kernel& kernel,
+		rfkt::flame_kernel::saved_state& state,
+		rfkt::flame_kernel::bailout_args bo, double3 gbv) {
+
+			const auto total_bins = state.bin_dims.x * state.bin_dims.y;
+
+			auto out_buf = rfkt::cuda_buffer<uchar4>{ total_bins, stream };
+			auto tonemapped = rfkt::cuda_buffer<half3>{ total_bins, stream };
+			auto denoised = rfkt::cuda_buffer<half3>{ total_bins, stream };
+
+			auto bin_info = kernel.bin(stream, state, bo).get();
+			state.quality += bin_info.quality;
+
+			tm.run(state.bins, tonemapped, state.bin_dims, state.quality, gbv.x, gbv.y, gbv.z, stream);
+			dn.denoise(state.bin_dims, tonemapped, denoised, stream);
+			tonemapped.free_async(stream);
+			conv.to_24bit(denoised, out_buf, state.bin_dims, false, stream);
+			denoised.free_async(stream);
+			stream.sync();
+
+			return out_buf;
+	};
 
 	auto flame = rfkt::import_flam3(fdb, rfkt::fs::read_string("assets/flames_test/electricsheep.247.47670.flam3"));
-	auto compile_result = fc.get_flame_kernel(fdb, rfkt::precision::f32, flame.value());
-
-	auto kernel = std::make_shared<rfkt::flame_kernel>(std::move(compile_result.kernel.value()));
 
 	rfkt::gl::make_current();
 	rfkt::gl::set_target_fps(120);
@@ -341,18 +215,14 @@ void main_thread(rfkt::cuda::context ctx, std::stop_source stop) {
 	auto render_stream = rfkt::cuda_stream{};
 	render_worker->post([ctx]() {ctx.make_current(); });
 
-	const auto seconds_per_loop = 10000000000000.0;
-	const auto fps = 30;
-
-	bool trigger_render = false;
-	bool next_frame_is_dirty = false;
-	bool clear_state = false;
-	bool clear_state_next = false;
-
-	bool first_frame = true;
+	preview_panel::executor_t executor = [render_worker](std::move_only_function<void(void)>&& func) {
+		render_worker->post(std::move(func));
+	};
 
 	auto thunk_executor = runtime.make_manual_executor();
-	thunk_executor->post([&]() {ctx.make_current(); });
+	thunk_executor->post([&ctx]() {ctx.make_current(); });
+
+	auto prev_panel = preview_panel{render_stream, fc, executor, renderer};
 
 	while (!should_exit) {
 		rfkt::gl::begin_frame();
@@ -364,24 +234,6 @@ void main_thread(rfkt::cuda::context ctx, std::stop_source stop) {
 
 		ImGui::DockSpaceOverViewport(ImGui::GetMainViewport(), ImGuiDockNodeFlags_PassthruCentralNode);
 
-		if (rendering.has_value() && rendering->status() == ccpp::result_status::value) {
-			displayed_tex = rendering->get();
-			rendering = std::nullopt;
-			if (next_frame_is_dirty) {
-				next_frame_is_dirty = false;
-				trigger_render = true;
-				if (clear_state_next) {
-					clear_state = true;
-					clear_state_next = false;
-				}
-			}
-		}
-
-		if (current_state && !rendering && current_state->quality < 2000) {
-			trigger_render = true;
-			clear_state |= false;
-		}
-
 		ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
 		ImGui::PushStyleColor(ImGuiCol_MenuBarBg, ImVec4(32 / 255.0f, 32 / 255.0f, 32 / 255.0f, 1.0f));
 		if (ImGui::BeginMainMenuBar()) {
@@ -389,7 +241,7 @@ void main_thread(rfkt::cuda::context ctx, std::stop_source stop) {
 				ImGui::MenuItem("New");
 
 				if (ImGui::MenuItem("Open...")) {
-					runtime.background_executor()->enqueue([ctx, &fdb, &fc, &thunk_executor, &cur_flame = flame, &cur_kernel = kernel, &trigger_render, &clear_state]() mutable {
+					runtime.background_executor()->enqueue([ctx, &fdb, &thunk_executor, &cur_flame = flame]() mutable {
 						ctx.make_current_if_not();
 
 						std::string filename = rfkt::gl::show_open_dialog("Flames\0*.flam3\0");
@@ -401,18 +253,8 @@ void main_thread(rfkt::cuda::context ctx, std::stop_source stop) {
 							SPDLOG_ERROR("could not open flame: {}", filename);
 						}
 
-						auto result = fc.get_flame_kernel(fdb, rfkt::precision::f32, flame.value());
-
-						if (!result.kernel.has_value()) {
-							SPDLOG_ERROR("Could not compile {}:\n{}\n{}", result.source, result.log);
-							return;
-						}
-
-						thunk_executor->enqueue([flame = std::move(flame), kernel = std::move(result.kernel.value()), &cur_flame, &cur_kernel, &trigger_render, &clear_state]() mutable {
+						thunk_executor->enqueue([flame = std::move(flame), &cur_flame]() mutable {
 							cur_flame = std::move(flame);
-							cur_kernel = std::make_shared<rfkt::flame_kernel>(std::move(kernel));
-							trigger_render = true;
-							clear_state = true;
 						});
 					});
 				}
@@ -444,125 +286,16 @@ void main_thread(rfkt::cuda::context ctx, std::stop_source stop) {
 		ImGui::PopStyleColor();
 
 		if (ImGui::Begin("Flame Options")) {
-			if (flame_editor(fdb, flame.value())) {
-				trigger_render = true;
-				clear_state = true;
-			}
+			flame_editor(fdb, flame.value());
 		}
 		ImGui::End();
-
-		ImGui::PushStyleColor(ImGuiCol_WindowBg, IM_COL32(.1 * 255, .1 * 255, .1 * 255, 255));
-		ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
-		std::optional<uint2> render_size{};
-		if (ImGui::Begin("Render") && !first_frame) {
-			auto window_min = ImGui::GetWindowContentRegionMin();
-			auto window_max = ImGui::GetWindowContentRegionMax();
-
-			auto avail = ImGui::GetContentRegionAvail();
-
-			render_size = uint2{ (uint32_t)(window_max.x - window_min.x), (uint32_t)(window_max.y - window_min.y) };
-			auto lol = 2;
-		}
-		ImGui::End();
-		ImGui::PopStyleColor();
-		ImGui::PopStyleVar();
-
-		if (!render_size) {
-			trigger_render = true;
-			clear_state = true;
-		}
-
 
 		ImGui::ShowDemoWindow();
-
 		draw_status_bar();
 
-		if (render_size.has_value() && current_state && 
-			(render_size.value().x != current_state->bin_dims.x || render_size.value().y != current_state->bin_dims.y)) {
-			trigger_render = true;
-			clear_state = true;
-		}
-
-		static bool dragging = false;
-		static auto last_delta = ImGui::GetMouseDragDelta();
-		bool preview_hovered = false;
-		if (ImGui::Begin("Render")) {
-			if (displayed_tex.has_value()) {
-				auto& tex = displayed_tex.value();
-				ImGui::Image((void*)(intptr_t)tex.id(), ImVec2(render_size->x, render_size->y));
-				preview_hovered = ImGui::IsItemHovered();
-			}
-		}
-		ImGui::End();
-
-		if (!dragging && preview_hovered && ImGui::IsMouseDown(ImGuiMouseButton_Left) && !ImGui::IsMouseDragging(ImGuiMouseButton_Left)) {
-			dragging = true;
-			last_delta = ImGui::GetMouseDragDelta();
-		}
-		else if (dragging) {
-			if (!ImGui::IsMouseDown(ImGuiMouseButton_Left)) dragging = false;
-			else {
-				auto delta = ImGui::GetMouseDragDelta();
-				auto drag_dist = delta - last_delta;
-				if (drag_dist.x != 0 || drag_dist.y != 0) {
-					auto scale = flame->scale;
-					auto rot = -flame->rotate * IM_PI / 180;
-
-					double2 vector = { drag_dist.x / (scale * render_size->y) , drag_dist.y / (scale * render_size->y) };
-					double2 rotated = { vector.x * cos(rot) - vector.y * sin(rot), vector.x * sin(rot) + vector.y * cos(rot) };
-
-					flame->center_x -= rotated.x;
-					flame->center_y -= rotated.y;
-
-					trigger_render = true;
-					clear_state = true;
-				}
-
-				last_delta = delta;
-			}
-		}
-
-		if (preview_hovered) {
-			ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
-		}
-
-		if (auto scroll = ImGui::GetIO().MouseWheel; scroll != 0 && preview_hovered) {
-			flame->scale *= std::pow(1.1, scroll);
-			trigger_render = true;
-			clear_state = true;
-		}
-
-		bool is_rendering = rendering.has_value();
-
-		if (trigger_render && is_rendering) {
-			trigger_render = false;
-			next_frame_is_dirty = true;
-			clear_state_next |= clear_state;
-			clear_state = false;
-		}
-
-		if (!is_rendering && trigger_render && render_size) {
-			if (!current_state || clear_state) {
-				auto samples = gen_samples(flame.value(), 0.0, 1 / (fps * seconds_per_loop));
-				auto new_state = kernel->warmup(render_stream, samples, render_size.value(), 0xdeadbeef, 100);
-				current_state = std::make_shared<rfkt::flame_kernel::saved_state>(std::move(new_state));
-				clear_state = false;
-			}
-			rendering = enqueue_render(
-				render_worker, render_stream, kernel, current_state,
-				{ .millis = 1000/60, .quality = 2000 }, tm, dn, conv,
-				{ flame->gamma, flame->brightness, flame->vibrancy }
-			);
-			trigger_render = false;
-		}
+		prev_panel.show(fdb, flame.value());
 
 		rfkt::gl::end_frame(true);
-		first_frame = false;
-
-	}
-
-	if (rendering.has_value()) {
-		auto _ = rendering->get();
 	}
 
 	stop.request_stop();

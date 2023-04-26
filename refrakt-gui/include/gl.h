@@ -67,6 +67,15 @@ namespace rfkt::gl {
 				copy_params.srcDevice = buffer.ptr();
 				CUDA_SAFE_CALL(cuMemcpy2D(&copy_params));
 			}
+
+			template<typename T>
+			void copy_from(const cuda_buffer<T>& buffer, rfkt::cuda_stream& stream) {
+				if (buffer.size_bytes() < copy_params.WidthInBytes * copy_params.Height)
+					throw std::runtime_error("cuda_map::copy_from: buffer too small");
+
+				copy_params.srcDevice = buffer.ptr();
+				CUDA_SAFE_CALL(cuMemcpy2DAsync(&copy_params, stream));
+			}
 		private:
 			CUDA_MEMCPY2D copy_params;
 			CUgraphicsResource cuda_res = nullptr;
@@ -102,4 +111,14 @@ namespace rfkt::gl {
 		std::size_t width_;
 		std::size_t height_;
 	};
+
+	static_assert(!std::is_copy_constructible_v<texture>);
+	static_assert(!std::is_copy_assignable_v<texture>);
+	static_assert(std::is_move_constructible_v<texture>);
+	static_assert(std::is_move_assignable_v<texture>);
+
+	static_assert(!std::is_copy_constructible_v<texture::cuda_map>);
+	static_assert(!std::is_copy_assignable_v<texture::cuda_map>);
+	static_assert(std::is_move_constructible_v<texture::cuda_map>);
+	static_assert(std::is_move_assignable_v<texture::cuda_map>);
 }

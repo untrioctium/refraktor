@@ -106,7 +106,8 @@ namespace rfkt {
 			return decltype(v){ a * v.x + b * v.y + c, d * v.x + e * v.y + f };
 		}
 
-		auto pack(packer auto p) const {
+		template<typename T>
+		auto pack(T&& p) const noexcept {
 			p(a); p(d); p(b); p(e); p(c); p(f);
 		}
 
@@ -146,7 +147,8 @@ namespace rfkt {
 			return self.parameters_.end();
 		}
 
-		auto pack(packer auto p) const {
+		template<typename T>
+		auto pack(T&& p) const noexcept {
 			p(weight);
 			for (const auto& [_, value] : parameters_) {
 				p(value);
@@ -224,10 +226,11 @@ namespace rfkt {
 			}
 		}
 
-		auto pack(packer auto p) const {
-			transform.pack(p);
+		template<typename T>
+		auto pack(T&& p) const noexcept {
+			transform.pack(std::forward<T>(p));
 			for (const auto& [_, v] : variations_) {
-				v.pack(p);
+				v.pack(std::forward<T>(p));
 			}
 		}
 
@@ -273,11 +276,12 @@ namespace rfkt {
 			}
 		}
 
-		auto pack(packer auto&& p) const {
+		template<typename T>
+		auto pack(T&& p) const noexcept {
 			p(weight); p(color); p(color_speed); p(opacity);
 
 			for (const auto& link : vchain) {
-				link.pack(p);
+				link.pack(std::forward<T>(p));
 			}
 		}
 
@@ -337,11 +341,12 @@ namespace rfkt {
 			}
 		}
 
-		void pack(packer auto&& p) const noexcept {
+		template<typename T>
+		auto pack(T&& p) const noexcept {
 			for (const auto& xf : xforms) {
-				xf.pack(p);
+				xf.pack(std::forward<T>(p));
 			}
-			if (final_xform) final_xform->pack(p);
+			if (final_xform) final_xform->pack(std::forward<T>(p));
 		}
 
 		std::size_t size_reals() const noexcept {

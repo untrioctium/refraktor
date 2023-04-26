@@ -35,7 +35,7 @@ namespace rfkt {
 			double quality = 0.0;
 			cuda_buffer<> shared = {};
 
-			saved_state() = delete;
+			saved_state() = default;
 			saved_state(saved_state&& o) noexcept {
 				(*this) = std::move(o);
 			}
@@ -43,6 +43,7 @@ namespace rfkt {
 				std::swap(bins, o.bins);
 				std::swap(bin_dims, o.bin_dims);
 				std::swap(shared, o.shared);
+				std::swap(quality, o.quality);
 				return *this;
 			}
 

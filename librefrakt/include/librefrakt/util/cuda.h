@@ -171,7 +171,7 @@ namespace rfkt {
 
         void sync() {
             if (not stream) return;
-            cuStreamSynchronize(stream);
+            CUDA_SAFE_CALL(cuStreamSynchronize(stream));
         }
 
         using host_func_t = std::move_only_function<void(void)>;

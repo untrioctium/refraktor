@@ -308,6 +308,7 @@ rfkt::gl::texture::cuda_map::cuda_map(texture& tex) : cuda_res(tex.cuda_res)
 
 	copy_params.WidthInBytes = tex.width() * 4;
 	copy_params.Height = tex.height();
+
 }
 
 rfkt::gl::texture::cuda_map::~cuda_map()
@@ -508,14 +509,12 @@ void event_visitor<rfkt::events::scroll>(rfkt::events::scroll event, ImGuiIO& io
 
 template<>
 void event_visitor<rfkt::events::destroy_texture>(rfkt::events::destroy_texture event, ImGuiIO&) {
-	SPDLOG_INFO("destroying texture");
 	CUDA_SAFE_CALL(cuGraphicsUnregisterResource(event.cuda_res));
 	glDeleteTextures(1, &event.tex_id);
 }
 
 template<>
 void event_visitor<rfkt::events::destroy_cuda_map>(rfkt::events::destroy_cuda_map event, ImGuiIO&) {
-	SPDLOG_INFO("destroying cuda_map");
 	CUDA_SAFE_CALL(cuGraphicsUnmapResources(1, &event.cuda_res, 0));
 }
 
