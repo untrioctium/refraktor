@@ -457,7 +457,7 @@ int main() {
 			return -1;
 		}
 
-		auto k = fc.get_flame_kernel(fdb, rfkt::precision::f64, *f);
+		auto k = fc.get_flame_kernel(fdb, rfkt::precision::f32, *f);
 
 		if (!k.kernel) {
 			SPDLOG_INFO("\n{}\n{}", k.source, k.log);

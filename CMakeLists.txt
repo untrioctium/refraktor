@@ -28,7 +28,7 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(spdlog)
 
-add_subdirectory(librefrakt)
-add_subdirectory(refraktor)
-add_subdirectory(refrakt-server)
-add_subdirectory(refrakt-gui)
+add_subdirectory(src/librefrakt)
+add_subdirectory(src/refraktor)
+add_subdirectory(src/refrakt-server)
+add_subdirectory(src/refrakt-gui)

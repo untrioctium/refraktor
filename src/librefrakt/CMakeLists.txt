@@ -40,7 +40,6 @@ add_library(librefrakt STATIC
 #set_property(TARGET librefrakt PROPERTY INTERPROCEDURAL_OPTIMIZATION TRUE)
 
 target_include_directories(librefrakt PUBLIC include)
-target_include_directories(librefrakt PRIVATE "C:/ProgramData/NVIDIA Corporation/OptiX SDK 7.6.0/include")
 
 # yaml-cpp
 set(YAML_CPP_BUILD_TESTS OFF)
@@ -147,6 +146,10 @@ target_compile_definitions(librefrakt PUBLIC EZRTC_USE_ZLIB EZRTC_USE_SQLITE)
 add_subdirectory(depend/flang)
 add_subdirectory(depend/ezrtc)
 add_subdirectory(depend/eznve)
+add_subdirectory(depend/optix_downloader)
+
+message(STATUS "Found Optix: $ENV{OPTIX_INCLUDE_DIRECTORY}")
+target_include_directories(librefrakt PRIVATE $ENV{OPTIX_INCLUDE_DIRECTORY})
 
 target_link_libraries(librefrakt PRIVATE 
 	xxhash 
