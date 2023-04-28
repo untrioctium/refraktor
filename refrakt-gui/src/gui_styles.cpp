@@ -1,6 +1,7 @@
 #include <imgui.h>
 #include <yaml-cpp/yaml.h>
 
+#include "gl.h"
 #include "gui.h"
 
 YAML::Node& styles() {
@@ -183,4 +184,28 @@ void rfkt::gui::set_style(std::size_t idx) {
 			*((ImVec2*)c_pos) = ImVec2(c.second[0].as<float>(), c.second[1].as<float>());
 		}
 	}
+}
+
+bool rfkt::gui::drag_double(std::string_view name, double& v, float speed, double min, double max) {
+
+	static bool dragging = false;
+	static ImVec2 drag_position = {};
+
+	auto changed = ImGui::DragScalar(name.data(), ImGuiDataType_Double, &v, speed, &min, &max);
+
+	const bool mouse_down = ImGui::IsMouseDown(ImGuiMouseButton_Left);
+	const bool hovered = ImGui::IsItemHovered();
+
+	if (!mouse_down && dragging) {
+		dragging = false;
+		rfkt::gl::set_mouse_position(drag_position.x, drag_position.y);
+		rfkt::gl::set_cursor_enabled(true);
+	}
+	else if (mouse_down && !dragging && hovered) {
+		dragging = true;
+		rfkt::gl::set_cursor_enabled(false);
+		drag_position = ImGui::GetMousePos();
+	}
+
+	return changed;
 }

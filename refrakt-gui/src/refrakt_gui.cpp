@@ -1,8 +1,8 @@
 #include <cuda.h>
 #include <glad/glad.h>
 #include <GLFW/glfw3.h>
-
 #include <concurrencpp/concurrencpp.h>
+#include <RtMidi.h>
 
 #include <librefrakt/flame_info.h>
 #include <librefrakt/flame_compiler.h>
@@ -159,7 +159,93 @@ bool flame_editor(rfkt::flamedb& fdb, rfkt::flame& f) {
 	return modified;
 }
 
+namespace midi {
+	
+	struct message {
+		enum class type_t {
+			none,
+			note_on,
+			note_off,
+			control_change,
+			pitch_bend,
+			program_change,
+			aftertouch,
+			poly_aftertouch
+		} type = type_t::none;
+
+		uint8_t channel = 0;
+		std::pair<uint8_t, uint8_t> data;
+
+		static message from_bytes(std::span<uint8_t> msg) noexcept {
+			message m{};
+
+			if (msg.size() == 0)
+				return m;
+
+			m.channel = msg[0] & 0x0F;
+
+			switch (msg[0] & 0xF0) {
+			case 0x80:
+				m.type = type_t::note_off;
+				m.data = { msg[1], msg[2] };
+				break;
+			case 0x90:
+				m.type = type_t::note_on;
+				m.data = { msg[1], msg[2] };
+				break;
+			case 0xA0:
+				m.type = type_t::poly_aftertouch;
+				m.data = { msg[1], msg[2] };
+				break;
+			case 0xB0:
+				m.type = type_t::control_change;
+				m.data = { msg[1], msg[2] };
+				break;
+			case 0xC0:
+				m.type = type_t::program_change;
+				m.data = { msg[1], 0 };
+				break;
+			case 0xD0:
+				m.type = type_t::aftertouch;
+				m.data = { msg[1], 0 };
+				break;
+			case 0xE0:
+				m.type = type_t::pitch_bend;
+				m.data = { msg[1], msg[2] };
+				break;
+			}
+
+			return m;
+		}
+	};
+
+	namespace detail {
+		RtMidiIn& info_instance() {
+			static RtMidiIn instance{};
+			return instance;
+		}
+	};
+
+	auto device_count() {
+		return detail::info_instance().getPortCount();
+	}
+
+	std::string device_name(unsigned int port) {
+		return detail::info_instance().getPortName(port);
+	}
+
+}
+
+class midi_system {
+public:
+
+private:
+	std::map<unsigned int, RtMidiIn> inputs;
+};
+
 void main_thread(rfkt::cuda::context ctx, std::stop_source stop) {
+
+
 
 	namespace ccpp = concurrencpp;
 
@@ -206,7 +292,7 @@ void main_thread(rfkt::cuda::context ctx, std::stop_source stop) {
 	auto flame = rfkt::import_flam3(fdb, rfkt::fs::read_string("assets/flames_test/electricsheep.247.47670.flam3"));
 
 	rfkt::gl::make_current();
-	rfkt::gl::set_target_fps(120);
+	rfkt::gl::set_target_fps(60);
 	bool should_exit = false;
 
 	ccpp::runtime runtime;
@@ -303,6 +389,8 @@ void main_thread(rfkt::cuda::context ctx, std::stop_source stop) {
 }
 
 int main(int argc, char**) {
+
+
 
 	auto ctx = rfkt::cuda::init();
 	rfkt::denoiser::init(ctx);

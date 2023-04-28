@@ -4,6 +4,15 @@ target_include_directories(refrakt-gui PRIVATE include/)
 
 set_target_properties(refrakt-gui PROPERTIES VS_DEBUGGER_WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
 
+# rtmidi
+FetchContent_Declare(
+  rtmidi
+  GIT_REPOSITORY https://github.com/thestk/rtmidi.git
+  GIT_TAG master
+)
+FetchContent_MakeAvailable(rtmidi)
+
+
 # glfw
 set(GLFW_BUILD_DOCS OFF CACHE BOOL "" FORCE)
 set(GLFW_BUILD_TESTS OFF CACHE BOOL "" FORCE)
@@ -65,4 +74,4 @@ target_link_libraries(refrakt-gui PRIVATE readerwriterqueue)
 
 target_link_libraries(refrakt-gui 
 	PRIVATE 
-	librefrakt Dwmapi.lib)
+	librefrakt rtmidi Dwmapi.lib)

@@ -26,6 +26,9 @@ namespace rfkt::gl {
 	std::string show_open_dialog(std::string_view filter = {});
 	void set_clipboard(std::string contents);
 	auto get_clipboard() -> std::future<std::string>;
+	void set_mouse_position(double x, double y);
+	void set_cursor_enabled(bool enabled);
+	bool cursor_enabled();
 
 	void set_target_fps(unsigned int fps = 0);
 

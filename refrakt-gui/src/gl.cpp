@@ -33,6 +33,7 @@ namespace rfkt::gl {
 		timepoint_t frame_end;
 
 		std::unordered_map<ImGuiMouseCursor, GLFWcursor*> cursors;
+		bool cursor_enabled = true;
 
 	} gl_state;
 }
@@ -193,10 +194,20 @@ namespace rfkt {
 		struct get_clipboard {
 			std::promise<std::string> promise;
 		};
-	}
 
+		struct set_mouse_position {
+			double x;
+			double y;
+		};
+
+		struct set_cursor_enabled {
+			bool enabled;
+		};
+	}
 	using signal = std::variant<
 		signals::set_cursor,
+		signals::set_mouse_position,
+		signals::set_cursor_enabled,
 		signals::set_clipboard,
 		signals::get_clipboard>;
 
@@ -377,6 +388,10 @@ bool rfkt::gl::init(int width, int height)
 		return mods;
 	};
 
+	if (glfwRawMouseMotionSupported()) {
+		glfwSetInputMode(gl_state.window, GLFW_RAW_MOUSE_MOTION, GLFW_TRUE);
+	}
+
 	glfwSetKeyCallback(gl_state.window, [](GLFWwindow* window, int key, int scancode, int action, int) {
 		push_event(rfkt::events::key{ key, scancode, action, get_key_modifiers(window), glfwGetKeyName(key, scancode)});
 	});
@@ -415,7 +430,7 @@ bool rfkt::gl::init(int width, int height)
 	ImPlot::CreateContext();
 
 	ImGuiIO& io = ImGui::GetIO();
-	io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
+	io.ConfigFlags |= ImGuiConfigFlags_DockingEnable | ImGuiConfigFlags_NavEnableSetMousePos;
 	io.BackendFlags |= ImGuiBackendFlags_HasMouseCursors | ImGuiBackendFlags_HasSetMousePos;
 	
 	gl_state.cursors[ImGuiMouseCursor_Arrow] = glfwCreateStandardCursor(GLFW_ARROW_CURSOR);
@@ -480,8 +495,6 @@ void event_visitor<rfkt::events::key>(rfkt::events::key event, ImGuiIO& io) {
 
 template<>
 void event_visitor<rfkt::events::mouse_move>(rfkt::events::mouse_move event, ImGuiIO& io) {
-	auto window_pos = window_pos_atomic().load();
-
 	io.AddMousePosEvent((float)event.x, (float)event.y);
 }
 
@@ -540,15 +553,16 @@ void rfkt::gl::begin_frame()
 	io.DeltaTime = static_cast<decltype(io.DeltaTime)>(time - last_time);
 	last_time = time;
 
-	auto signal = rfkt::signals::set_cursor{};
-	signal.cursor = [](ImGuiMouseCursor cursor) -> GLFWcursor* {
-		if(cursor == ImGuiMouseCursor_None) return nullptr;
-		if(!gl_state.cursors.contains(cursor)) return gl_state.cursors[ImGuiMouseCursor_Arrow];
-		return gl_state.cursors[cursor];
-	}(ImGui::GetMouseCursor());
+	if (gl_state.cursor_enabled) {
+		auto signal = rfkt::signals::set_cursor{};
+		signal.cursor = [](ImGuiMouseCursor cursor) -> GLFWcursor* {
+			if (cursor == ImGuiMouseCursor_None) return nullptr;
+			if (!gl_state.cursors.contains(cursor)) return gl_state.cursors[ImGuiMouseCursor_Arrow];
+			return gl_state.cursors[cursor];
+		}(ImGui::GetMouseCursor());
 
-	rfkt::push_signal(std::move(signal));
-
+		rfkt::push_signal(std::move(signal));
+	}
 	if (io.WantSetMousePos)
 		SPDLOG_INFO("Mouse pos");
 
@@ -565,6 +579,36 @@ void rfkt::gl::begin_frame()
 	ImGui::NewFrame();
 }
 
+void preciseSleep(double seconds) {
+	using namespace std;
+	using namespace std::chrono;
+
+	static double estimate = 5e-3;
+	static double mean = 5e-3;
+	static double m2 = 0;
+	static int64_t count = 1;
+
+	while (seconds > estimate) {
+		auto start = high_resolution_clock::now();
+		this_thread::sleep_for(milliseconds(1));
+		auto end = high_resolution_clock::now();
+
+		double observed = (end - start).count() / 1e9;
+		seconds -= observed;
+
+		++count;
+		double delta = observed - mean;
+		mean += delta / count;
+		m2 += delta * (observed - mean);
+		double stddev = sqrt(m2 / (count - 1));
+		estimate = mean + stddev;
+	}
+
+	// spin lock
+	auto start = high_resolution_clock::now();
+	while ((high_resolution_clock::now() - start).count() / 1e9 < seconds);
+}
+
 void rfkt::gl::end_frame(bool render)
 {
 	ImGui::Render();
@@ -575,7 +619,12 @@ void rfkt::gl::end_frame(bool render)
 	}
 
 	if (gl_state.target_fps.has_value()) {
-		while (state::clock_t::now() < gl_state.frame_end) { /* busy loop */ }
+
+		auto sleep_seconds = std::chrono::duration_cast<std::chrono::nanoseconds>(gl_state.frame_end - std::chrono::steady_clock::now()).count() / 1e9;
+		preciseSleep(sleep_seconds);
+		//std::this_thread::sleep_until(gl_state.frame_end - std::chrono::milliseconds(1));
+
+		//while (state::clock_t::now() < gl_state.frame_end) { /* busy loop */ }
 	}
 }
 
@@ -607,6 +656,16 @@ void signal_visitor<rfkt::signals::get_clipboard>(rfkt::signals::get_clipboard s
 	sig.promise.set_value(contents);
 }
 
+template<>
+void signal_visitor<rfkt::signals::set_mouse_position>(rfkt::signals::set_mouse_position sig) {
+	glfwSetCursorPos(rfkt::gl::gl_state.window, sig.x, sig.y);
+}
+
+template<>
+void signal_visitor<rfkt::signals::set_cursor_enabled>(rfkt::signals::set_cursor_enabled sig) {
+	glfwSetInputMode(rfkt::gl::gl_state.window, GLFW_CURSOR, sig.enabled ? GLFW_CURSOR_NORMAL : GLFW_CURSOR_DISABLED);
+}
+
 void rfkt::gl::set_clipboard(std::string contents)
 {
 	rfkt::push_signal(rfkt::signals::set_clipboard{std::move(contents)});
@@ -618,6 +677,16 @@ auto rfkt::gl::get_clipboard() -> std::future<std::string> {
 	auto future = sig.promise.get_future();
 	rfkt::push_signal(std::move(sig));
 	return future;
+}
+
+void rfkt::gl::set_mouse_position(double x, double y)
+{
+	rfkt::push_signal(rfkt::signals::set_mouse_position{ x, y});
+}
+
+void rfkt::gl::set_cursor_enabled(bool enabled) {
+	gl_state.cursor_enabled = enabled;
+	rfkt::push_signal(rfkt::signals::set_cursor_enabled{ enabled });
 }
 
 bool rfkt::gl::close_requested() {
