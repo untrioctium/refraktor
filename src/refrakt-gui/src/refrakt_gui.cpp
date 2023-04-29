@@ -19,6 +19,62 @@
 
 #include "gui/panels/preview_panel.h"
 
+class command_executor {
+public:
+
+	command_executor() : current_command{ command_stack.end() } {}
+
+	void execute(thunk_t&& execute, thunk_t&& undo) {
+		execute();
+
+		if (can_redo()) {
+			command_stack.erase(current_command, command_stack.end());
+		}
+
+		command_stack.push_back({ std::move(undo), std::move(execute) });
+		current_command = command_stack.end();
+	}
+
+	bool can_undo() {
+		return current_command != command_stack.begin();
+	}
+
+	bool can_redo() {
+		return current_command != command_stack.end();
+	}
+
+	void undo() {
+		if (!can_undo())
+			return;
+		SPDLOG_INFO("undoing");
+		--current_command;
+		current_command->undo();
+	}
+
+	void redo() {
+		if (!can_redo())
+			return;
+		SPDLOG_INFO("redoing");
+		current_command->redo();
+		++current_command;
+	}
+
+	void clear() {
+		command_stack.clear();
+		current_command = command_stack.end();
+	}
+
+private:
+
+	struct undo_redo {
+		thunk_t undo;
+		thunk_t redo;
+	};
+
+	std::list<undo_redo> command_stack{};
+	decltype(command_stack)::iterator current_command;
+};
+
 void draw_status_bar() {
 	ImGuiViewportP* viewport = (ImGuiViewportP*)(void*)ImGui::GetMainViewport();
 	ImGuiWindowFlags window_flags = ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_MenuBar;
@@ -46,7 +102,7 @@ void draw_status_bar() {
 			ImGui::PushStyleColor(ImGuiCol_Text, temp_color);
 			ImGui::Text("%d C", temp);
 			ImGui::PopStyleColor();
-			ImGui::Text("%d W", dev.wattage());
+			//ImGui::Text("%d W", dev.wattage());
 
 			ImGui::EndMenuBar();
 		}
@@ -62,22 +118,22 @@ void draw_status_bar() {
 	}*/
 }
 
-bool flame_editor(rfkt::flamedb& fdb, rfkt::flame& f) {
+bool flame_editor(rfkt::flamedb& fdb, rfkt::flame& f, std::move_only_function<void(thunk_t&&, thunk_t&&)>& exec) {
 	bool modified = false;
 
 	rfkt::gui::id_scope flame_scope{ &f };
 
 	ImGui::Text("Display");
-	modified |= rfkt::gui::drag_double("Rotate", f.rotate, 0.01, -360, 360);
-	modified |= rfkt::gui::drag_double("Scale", f.scale, 0.1, 0, 10'000);
-	modified |= rfkt::gui::drag_double("Center X", f.center_x, 0.1, -10, 10);
-	modified |= rfkt::gui::drag_double("Center Y", f.center_y, 0.1, -10, 10);
+	modified |= rfkt::gui::drag_double("Rotate", f.rotate, 0.01, -360, 360, exec);
+	modified |= rfkt::gui::drag_double("Scale", f.scale, 0.1, 0, 10'000, exec);
+	modified |= rfkt::gui::drag_double("Center X", f.center_x, 0.1, -10, 10, exec);
+	modified |= rfkt::gui::drag_double("Center Y", f.center_y, 0.1, -10, 10, exec);
 	ImGui::Separator();
 
 	ImGui::Text("Color");
-	modified |= rfkt::gui::drag_double("Gamma", f.gamma, 0.01, 0, 5);
-	modified |= rfkt::gui::drag_double("Brightness", f.brightness, 0.01, 0, 100);
-	modified |= rfkt::gui::drag_double("Vibrancy", f.vibrancy, 0.1, 0, 100);
+	modified |= rfkt::gui::drag_double("Gamma", f.gamma, 0.01, 0, 5, exec);
+	modified |= rfkt::gui::drag_double("Brightness", f.brightness, 0.01, 0, 100, exec);
+	modified |= rfkt::gui::drag_double("Vibrancy", f.vibrancy, 0.1, 0, 100, exec);
 	ImGui::Separator();
 
 	f.for_each_xform([&](int xid, rfkt::xform& xf) {
@@ -86,26 +142,26 @@ bool flame_editor(rfkt::flamedb& fdb, rfkt::flame& f) {
 		std::string xf_name = (xid == -1) ? "Final Xform" : fmt::format("Xform {}", xid);
 
 		if (ImGui::CollapsingHeader(xf_name.c_str())) {
-			modified |= rfkt::gui::drag_double("Weight", xf.weight, 0.01, 0, 50);
-			modified |= rfkt::gui::drag_double("Color", xf.color, 0.001, 0, 1);
-			modified |= rfkt::gui::drag_double("Color Speed", xf.color_speed, 0.001, 0, 1);
-			modified |= rfkt::gui::drag_double("Opacity", xf.opacity, 0.001, 0, 1);
+			modified |= rfkt::gui::drag_double("Weight", xf.weight, 0.01, 0, 50, exec);
+			modified |= rfkt::gui::drag_double("Color", xf.color, 0.001, 0, 1, exec);
+			modified |= rfkt::gui::drag_double("Color Speed", xf.color_speed, 0.001, 0, 1, exec);
+			modified |= rfkt::gui::drag_double("Opacity", xf.opacity, 0.001, 0, 1, exec);
 
 			if (ImGui::BeginTabBar("Vchain")) {
 				for (int i = 0; i < xf.vchain.size(); i++) {
 					if (ImGui::BeginTabItem(std::format("{}", i).c_str())) {
-						ImGui::BeginChild(std::format("vchain{}", i).c_str(), ImVec2(0, 200));
+						//ImGui::BeginChild(std::format("vchain{}", i).c_str(), ImVec2(0, 200));
 
 						auto& vl = xf.vchain[i];
 						{
 							rfkt::gui::id_scope vl_scope{ &vl };
 
-							modified |= rfkt::gui::drag_double("Affine A", vl.transform.a, 0.001, -5, 5);
-							modified |= rfkt::gui::drag_double("Affine B", vl.transform.b, 0.001, -5, 5);
-							modified |= rfkt::gui::drag_double("Affine C", vl.transform.c, 0.001, -5, 5);
-							modified |= rfkt::gui::drag_double("Affine D", vl.transform.d, 0.001, -5, 5);
-							modified |= rfkt::gui::drag_double("Affine E", vl.transform.e, 0.001, -5, 5);
-							modified |= rfkt::gui::drag_double("Affine F", vl.transform.f, 0.001, -5, 5);
+							modified |= rfkt::gui::drag_double("Affine A", vl.transform.a, 0.001, -5, 5, exec);
+							modified |= rfkt::gui::drag_double("Affine B", vl.transform.b, 0.001, -5, 5, exec);
+							modified |= rfkt::gui::drag_double("Affine C", vl.transform.c, 0.001, -5, 5, exec);
+							modified |= rfkt::gui::drag_double("Affine D", vl.transform.d, 0.001, -5, 5, exec);
+							modified |= rfkt::gui::drag_double("Affine E", vl.transform.e, 0.001, -5, 5, exec);
+							modified |= rfkt::gui::drag_double("Affine F", vl.transform.f, 0.001, -5, 5, exec);
 							ImGui::Separator();
 							static bool just_opened = false;
 							static char filter[128] = { 0 };
@@ -119,35 +175,50 @@ bool flame_editor(rfkt::flamedb& fdb, rfkt::flame& f) {
 							if (ImGui::BeginPopup("add_variation")) {
 								if (just_opened) {
 									just_opened = false;
-									ImGui::SetKeyboardFocusHere(-1);
+									ImGui::SetKeyboardFocusHere(1);
 								}
 
-								ImGui::InputText("##filter", filter, sizeof(filter));
+								bool enter_pressed = ImGui::InputText("##filter", filter, sizeof(filter), ImGuiInputTextFlags_EnterReturnsTrue);
 								std::string_view selected_var{};
 
 								if (ImGui::BeginListBox("##vlist", ImVec2(-FLT_MIN, 10 * ImGui::GetTextLineHeightWithSpacing()))) {
 									for (const auto& var : fdb.variations()) {
 										if (!vl.has_variation(var.name) && (strlen(filter) < 2 || var.name.find(filter) != std::string::npos)) {
-											if (ImGui::Selectable(var.name.c_str())) {
+											if (ImGui::Selectable(var.name.c_str()) || (enter_pressed && fdb.is_variation(filter))) {
 												selected_var = var.name;
+												ImGui::CloseCurrentPopup();
 											}
 										}
 									}
 									ImGui::EndListBox();
 								}
 								ImGui::EndPopup();
-							}
 
-							for (auto& [vname, vd] : vl) {
-								ImGui::Separator();
-								modified |= rfkt::gui::drag_double(vname.c_str(), vd.weight, 0.001, -50, 50);
-
-								for (auto& [pname, val] : vd) {
-									modified |= rfkt::gui::drag_double(std::format("{}_{}", vname, pname).c_str(), val, 0.001, -50, 50);
+								if (!selected_var.empty()) {
+									vl.add_variation(fdb.make_vardata(selected_var));
 								}
 							}
+
+							std::string_view removed_var = {};
+							for (auto& [vname, vd] : vl) {
+								rfkt::gui::id_scope var_scope{ &vd };
+								ImGui::Separator();
+								modified |= rfkt::gui::drag_double(vname.c_str(), vd.weight, 0.001, -50, 50, exec);
+								
+								if (vl.size_variations() > 1) {
+									ImGui::SameLine(ImGui::GetContentRegionAvail().x - 10);
+									if (ImGui::Button("X")) removed_var = vname;
+								}
+
+								for (auto& [pname, val] : vd) {
+									modified |= rfkt::gui::drag_double(std::format("{}_{}", vname, pname).c_str(), val, 0.001, -50, 50, exec);
+								}
+							}
+							if (!removed_var.empty()) {
+								vl.remove_variation(removed_var);
+							}
 						}
-						ImGui::EndChild();
+						//ImGui::EndChild();
 						ImGui::EndTabItem();
 					}
 				}
@@ -243,9 +314,14 @@ private:
 	std::map<unsigned int, RtMidiIn> inputs;
 };
 
+bool shortcut_pressed(ImGuiKey mod, ImGuiKey key) {
+	return ImGui::IsKeyPressed(key, false) && ImGui::IsKeyDown(mod);
+}
+
 void main_thread(rfkt::cuda::context ctx, std::stop_source stop) {
 
-
+	auto c_exec = command_executor{};
+	std::move_only_function<void(thunk_t&&, thunk_t&&)> exec = [&c_exec](thunk_t&& redo, thunk_t&& undo) { return c_exec.execute(std::move(redo), std::move(undo)); };
 
 	namespace ccpp = concurrencpp;
 
@@ -258,7 +334,7 @@ void main_thread(rfkt::cuda::context ctx, std::stop_source stop) {
 	auto zlib = std::make_shared<ezrtc::cache_adaptors::zlib>(std::make_shared<ezrtc::cache_adaptors::guarded>(kernel_cache));
 
 	ezrtc::compiler kc{ zlib };
-	kc.find_system_cuda();
+	//kc.find_system_cuda();
 
 	rfkt::flame_compiler fc(kc);
 	auto tm = rfkt::tonemapper{ kc };
@@ -289,10 +365,10 @@ void main_thread(rfkt::cuda::context ctx, std::stop_source stop) {
 			return out_buf;
 	};
 
-	auto flame = rfkt::import_flam3(fdb, rfkt::fs::read_string("assets/flames_test/electricsheep.247.47670.flam3"));
+	auto flame = rfkt::import_flam3(fdb, rfkt::fs::read_string("assets/flames/electricsheep.247.47670.flam3"));
 
 	rfkt::gl::make_current();
-	rfkt::gl::set_target_fps(60);
+	rfkt::gl::set_target_fps(144);
 	bool should_exit = false;
 
 	ccpp::runtime runtime;
@@ -318,6 +394,9 @@ void main_thread(rfkt::cuda::context ctx, std::stop_source stop) {
 			thunk_executor->loop_once();
 		}
 
+		if (shortcut_pressed(ImGuiKey_ModCtrl, ImGuiKey_Z)) c_exec.undo();
+		if (shortcut_pressed(ImGuiKey_ModCtrl, ImGuiKey_Y)) c_exec.redo();
+
 		ImGui::DockSpaceOverViewport(ImGui::GetMainViewport(), ImGuiDockNodeFlags_PassthruCentralNode);
 
 		ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
@@ -327,7 +406,7 @@ void main_thread(rfkt::cuda::context ctx, std::stop_source stop) {
 				ImGui::MenuItem("New");
 
 				if (ImGui::MenuItem("Open...")) {
-					runtime.background_executor()->enqueue([ctx, &fdb, &thunk_executor, &cur_flame = flame]() mutable {
+					runtime.background_executor()->enqueue([ctx, &c_exec, &fdb, &thunk_executor, &cur_flame = flame]() mutable {
 						ctx.make_current_if_not();
 
 						std::string filename = rfkt::gl::show_open_dialog("Flames\0*.flam3\0");
@@ -339,12 +418,23 @@ void main_thread(rfkt::cuda::context ctx, std::stop_source stop) {
 							SPDLOG_ERROR("could not open flame: {}", filename);
 						}
 
-						thunk_executor->enqueue([flame = std::move(flame), &cur_flame]() mutable {
+						thunk_executor->enqueue([&c_exec, flame = std::move(flame), &cur_flame]() mutable {
+							c_exec.clear();
 							cur_flame = std::move(flame);
 						});
 					});
 				}
 
+				ImGui::EndMenu();
+			}
+
+			if (ImGui::BeginMenu("Edit")) {
+				if (ImGui::MenuItem("Undo", "CTRL+Z", false, c_exec.can_undo())) {
+					c_exec.undo();
+				}
+				if (ImGui::MenuItem("Redo", "CTRL+Y", false, c_exec.can_redo())) {
+					c_exec.redo();
+				}
 				ImGui::EndMenu();
 			}
 
@@ -372,11 +462,11 @@ void main_thread(rfkt::cuda::context ctx, std::stop_source stop) {
 		ImGui::PopStyleColor();
 
 		if (ImGui::Begin("Flame Options")) {
-			flame_editor(fdb, flame.value());
+			flame_editor(fdb, flame.value(), exec);
 		}
 		ImGui::End();
 
-		ImGui::ShowDemoWindow();
+		//ImGui::ShowDemoWindow();
 		draw_status_bar();
 
 		prev_panel.show(fdb, flame.value());

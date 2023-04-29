@@ -22,3 +22,5 @@
 #include <spdlog/spdlog.h>
 #include <librefrakt/util.h>
 #include <nlohmann/json.hpp>
+
+using thunk_t = std::move_only_function<void()>;

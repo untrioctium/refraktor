@@ -35,6 +35,8 @@ namespace rfkt::gl {
 		std::unordered_map<ImGuiMouseCursor, GLFWcursor*> cursors;
 		bool cursor_enabled = true;
 
+		std::atomic<bool> minimized = false;
+
 	} gl_state;
 }
 
@@ -368,6 +370,7 @@ bool rfkt::gl::init(int width, int height)
 	window_size_atomic().store(window_size);
 
 	glfwSetWindowSizeCallback(gl_state.window, [](GLFWwindow*, int width, int height) {
+		if (width == 0 || height == 0) return;
 		window_size_atomic().store({ width, height });
 	});
 
@@ -414,6 +417,10 @@ bool rfkt::gl::init(int width, int height)
 
 	glfwSetScrollCallback(gl_state.window, [](GLFWwindow* window, double x, double y) {
 		push_event(rfkt::events::scroll{ x, y });
+	});
+
+	glfwSetWindowIconifyCallback(gl_state.window, [](GLFWwindow* window, int iconified) {
+		gl_state.minimized = iconified == GLFW_TRUE;
 	});
 
 	glfwMakeContextCurrent(gl_state.window);
@@ -612,7 +619,7 @@ void preciseSleep(double seconds) {
 void rfkt::gl::end_frame(bool render)
 {
 	ImGui::Render();
-	if (render)
+	if (render && !gl_state.minimized)
 	{
 		ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
 		glfwSwapBuffers(gl_state.window);

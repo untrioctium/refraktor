@@ -186,23 +186,39 @@ void rfkt::gui::set_style(std::size_t idx) {
 	}
 }
 
-bool rfkt::gui::drag_double(std::string_view name, double& v, float speed, double min, double max) {
+bool rfkt::gui::drag_double(std::string_view name, double& v, float speed, double min, double max, std::move_only_function<void(thunk_t&&, thunk_t&&)>& exec) {
 
 	static bool dragging = false;
 	static ImVec2 drag_position = {};
+	static double drag_start = 0.0;
+	static ImGuiID dragging_id = 0;
 
+	auto iv = v;
 	auto changed = ImGui::DragScalar(name.data(), ImGuiDataType_Double, &v, speed, &min, &max);
+	auto cur_id = ImGui::GetID(name.data());
+
+	if (dragging && dragging_id != cur_id) return changed;
 
 	const bool mouse_down = ImGui::IsMouseDown(ImGuiMouseButton_Left);
 	const bool hovered = ImGui::IsItemHovered();
 
 	if (!mouse_down && dragging) {
 		dragging = false;
+
+		exec(
+			[&ref = v, v]() mutable { SPDLOG_INFO("redoing to {}", v);  ref = v; },
+			[&ref = v, iv = drag_start]() mutable { SPDLOG_INFO("undoing to {}", iv); ref = iv; }
+		);
+
+		dragging_id = 0;
 		rfkt::gl::set_mouse_position(drag_position.x, drag_position.y);
 		rfkt::gl::set_cursor_enabled(true);
 	}
 	else if (mouse_down && !dragging && hovered) {
+		SPDLOG_INFO("Starting drag: {}", cur_id);
 		dragging = true;
+		dragging_id = cur_id;
+		drag_start = iv;
 		rfkt::gl::set_cursor_enabled(false);
 		drag_position = ImGui::GetMousePos();
 	}

@@ -1,4 +1,4 @@
-#define USE_ASYNC_MEMCPY
+//#define USE_ASYNC_MEMCPY
 
 #ifdef USE_ASYNC_MEMCPY
 #include <cooperative_groups/memcpy_async.h>
@@ -114,8 +114,8 @@ void queue_shuffle_load(uint32 pass_idx) {
 		my_shuffle_vote() = my_rand().rand() % num_shuf_bufs;
 	}
 	
-	#ifdef USE_ASYNC_MEMCPY
 	fl::sync_block();
+	#ifdef USE_ASYNC_MEMCPY
 	cg::memcpy_async(cg::this_thread_block(), 
 		state.ts.shuffle, 
 		shuf_bufs + threads_per_block * state.ts.shuffle_vote[pass_idx % threads_per_block], 
@@ -222,11 +222,11 @@ vec4<Real> flame_pass(unsigned int pass_idx) {
 	state.ts.iterators.y[my_shuffle()] = out_local.y;
 	state.ts.iterators.color[my_shuffle()] = out_local.z;
 	#else
+	fl::sync_block();
 	const auto shuf = shuf_bufs[threads_per_block * state.ts.shuffle_vote[pass_idx % threads_per_block] + fl::block_rank()];
 	state.ts.iterators.x[shuf] = out_local.x;
 	state.ts.iterators.y[shuf] = out_local.y;
 	state.ts.iterators.color[shuf] = out_local.z;
-	fl::sync_block();
 	#endif
 
 	queue_shuffle_load(pass_idx + 1);

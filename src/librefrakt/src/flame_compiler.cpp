@@ -691,9 +691,9 @@ auto rfkt::flame_compiler::make_opts(precision prec, const flame& f)->std::pair<
         }
     }
 
-    while (exec_configs[most_blocks_idx].grid > 300) {
-        most_blocks_idx--;
-    }
+    //while (exec_configs[most_blocks_idx].grid > 300) {
+    //    most_blocks_idx--;
+    //}
 
     auto& most_blocks = exec_configs[most_blocks_idx];
 

@@ -55,7 +55,7 @@ bool preview_panel::show(const rfkt::flamedb& fdb, rfkt::flame& flame)
 			auto out_tex = rfkt::gl::texture{ preview_size.x, preview_size.y };
 			cuda_map = out_tex.map_to_cuda();
 
-			std::vector<rfkt::flame> samples = needs_clear ? gen_samples2(flame, 0, 1.0 / 150) : std::vector<rfkt::flame>{};
+			std::vector<rfkt::flame> samples = needs_clear ? gen_samples2(flame, 0, 1.0 / 15000000000) : std::vector<rfkt::flame>{};
 
 			auto promise = std::promise<rfkt::gl::texture>();
 			auto future = promise.get_future();
@@ -110,6 +110,14 @@ uint2 preview_panel::gui_logic(rfkt::flame& flame) {
 	uint2 preview_size = { 0, 0 };
 	bool preview_hovered = false;
 	if (ImGui::Begin("Render")) {
+
+		auto avail_before = ImGui::GetContentRegionAvail();
+		//if (ImGui::BeginMenuBar()) {
+			ImGui::Text("Preview quality: %f", current_state ? current_state->quality : 0.0);
+
+		//	ImGui::EndMenuBar();
+		//}
+
 		auto avail = ImGui::GetContentRegionAvail();
 
 		preview_size = { static_cast<unsigned int>(avail.x), static_cast<unsigned int>(avail.y) };

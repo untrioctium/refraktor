@@ -143,7 +143,7 @@ struct flame_t {
         xform_@xform.id@.do_precalc(rs);
         <# endfor #>
     }
-
+    /*
     void print_debug() {
         printf("flame_t\n");
         printf("  screen_space: { a: %f, d: %f, b: %f, e: %f, c: %f, f: %f }\n", screen_space.a, screen_space.d, screen_space.b, screen_space.e, screen_space.c, screen_space.f);
@@ -175,7 +175,7 @@ struct flame_t {
         <# endfor #> 
         <# endfor #>
         <# endfor #>
-    }
+    }*/
 };
 
 //static_assert(sizeof(flame_t<Real>) == flame_size_bytes);
