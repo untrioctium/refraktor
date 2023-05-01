@@ -132,10 +132,24 @@ uint2 preview_panel::gui_logic(rfkt::flame& flame) {
 
 	if (!dragging && preview_hovered && ImGui::IsMouseDown(ImGuiMouseButton_Left) && !ImGui::IsMouseDragging(ImGuiMouseButton_Left)) {
 		dragging = true;
+		drag_start = { flame.center_x, flame.center_y };
 		last_delta = ImGui::GetMouseDragDelta();
 	}
 	else if (dragging) {
-		if (!ImGui::IsMouseDown(ImGuiMouseButton_Left)) dragging = false;
+		if (!ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
+			dragging = false;
+
+			cmd_exec({
+				[&flame, new_value = double2(flame.center_x, flame.center_y)]() mutable {
+					flame.center_x = new_value.x;
+					flame.center_y = new_value.y;
+				},
+				[&flame, old_value = drag_start]() mutable {
+					flame.center_x = old_value.x;
+					flame.center_y = old_value.y;
+				}
+			});
+		}
 		else {
 			auto delta = ImGui::GetMouseDragDelta();
 			auto drag_dist = delta - last_delta;
@@ -158,7 +172,8 @@ uint2 preview_panel::gui_logic(rfkt::flame& flame) {
 		ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
 	}
 
-	if (auto scroll = ImGui::GetIO().MouseWheel; scroll != 0 && preview_hovered) {
+	if (auto scroll = ImGui::GetIO().MouseWheel; scroll != 0 && preview_hovered && !dragging) {
+		SPDLOG_INFO("scroll: {}", scroll);
 		flame.scale *= std::pow(1.1, scroll);
 	}
 

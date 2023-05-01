@@ -408,6 +408,12 @@ namespace rfkt {
 			}
 			if (final_xform) t(-1, *final_xform);
 		}
+
+		xform* get_xform(int index) noexcept {
+			if (index == -1) return final_xform ? &*final_xform : nullptr;
+			if (index < 0 || index >= xforms.size()) return nullptr;
+			return &xforms[index];
+		}
 	};
 
 	class flamedb;

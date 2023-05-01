@@ -24,14 +24,14 @@ public:
 
 	command_executor() : current_command{ command_stack.end() } {}
 
-	void execute(thunk_t&& execute, thunk_t&& undo) {
-		execute();
+	void execute(std::pair<thunk_t, thunk_t>&& funcs) {
+		funcs.first();
 
 		if (can_redo()) {
 			command_stack.erase(current_command, command_stack.end());
 		}
 
-		command_stack.push_back({ std::move(undo), std::move(execute) });
+		command_stack.push_back({ std::move(funcs.second), std::move(funcs.first) });
 		current_command = command_stack.end();
 	}
 
@@ -118,22 +118,78 @@ void draw_status_bar() {
 	}*/
 }
 
-bool flame_editor(rfkt::flamedb& fdb, rfkt::flame& f, std::move_only_function<void(thunk_t&&, thunk_t&&)>& exec) {
+std::pair<thunk_t, thunk_t> make_flame_undoer(rfkt::flame& f, double rfkt::flame::* ptr, double new_value, double old_value) {
+	return {
+		[&f, new_value, ptr]() mutable { f.*ptr = new_value; },
+		[&f, old_value, ptr]() mutable { f.*ptr = old_value; }
+	};
+}
+
+std::pair<thunk_t, thunk_t> make_xform_undoer(rfkt::flame& f, int xid, double rfkt::xform::* ptr, double new_value, double old_value) {
+	return {
+		[&f, xid, new_value, ptr]() mutable { f.get_xform(xid)->*ptr = new_value; },
+		[&f, xid, old_value, ptr]() mutable { f.get_xform(xid)->*ptr = old_value; }
+	};
+}
+
+std::pair<thunk_t, thunk_t> make_vlink_undoer(rfkt::flame& f, int xid, int vid, double rfkt::vlink::* ptr, double new_value, double old_value) {
+	return {
+		[&f, xid, vid, new_value, ptr]() mutable { f.get_xform(xid)->vchain[vid].*ptr = new_value; },
+		[&f, xid, vid, old_value, ptr]() mutable { f.get_xform(xid)->vchain[vid].*ptr = old_value; }
+	};
+}
+
+std::pair<thunk_t, thunk_t> make_transform_undoer(rfkt::flame& f, int xid, int vid, double rfkt::affine::* ptr, double new_value, double old_value) {
+	return {
+		[&f, xid, vid, new_value, ptr]() mutable { f.get_xform(xid)->vchain[vid].transform.*ptr = new_value; },
+		[&f, xid, vid, old_value, ptr]() mutable { f.get_xform(xid)->vchain[vid].transform.*ptr = old_value; }
+	};
+}
+
+std::pair<thunk_t, thunk_t> make_vardata_undoer(rfkt::flame& f, int xid, int vid, std::string_view vname, double rfkt::vardata::* ptr, double new_value, double old_value) {
+	return {
+		[&f, xid, vid, vname = std::string{vname}, new_value, ptr]() mutable { f.get_xform(xid)->vchain[vid][vname].*ptr = new_value; },
+		[&f, xid, vid, vname = std::string{vname}, old_value, ptr]() mutable { f.get_xform(xid)->vchain[vid][vname].*ptr = old_value; }
+	};
+}
+
+std::pair<thunk_t, thunk_t> make_parameter_undoer(rfkt::flame& f, int xid, int vid, std::string_view vname, std::string_view pname, double new_value, double old_value) {
+	return {
+		[&f, xid, vid, vname = std::string{vname}, pname = std::string{pname}, new_value]() mutable { f.get_xform(xid)->vchain[vid][vname][pname] = new_value; },
+		[&f, xid, vid, vname = std::string{vname}, pname = std::string{pname}, old_value]() mutable { f.get_xform(xid)->vchain[vid][vname][pname] = old_value; }
+	};
+}
+
+bool flame_editor(rfkt::flamedb& fdb, rfkt::flame& f, std::move_only_function<void(std::pair<thunk_t, thunk_t>&&)>& exec) {
 	bool modified = false;
 
 	rfkt::gui::id_scope flame_scope{ &f };
 
 	ImGui::Text("Display");
-	modified |= rfkt::gui::drag_double("Rotate", f.rotate, 0.01, -360, 360, exec);
-	modified |= rfkt::gui::drag_double("Scale", f.scale, 0.1, 0, 10'000, exec);
-	modified |= rfkt::gui::drag_double("Center X", f.center_x, 0.1, -10, 10, exec);
-	modified |= rfkt::gui::drag_double("Center Y", f.center_y, 0.1, -10, 10, exec);
+	if(auto drag_start = rfkt::gui::drag_double("Rotate", f.rotate, 0.01, -360, 360); drag_start)
+		exec(make_flame_undoer(f, &rfkt::flame::rotate, f.rotate, drag_start.value()));
+
+	if(auto drag_start = rfkt::gui::drag_double("Scale", f.scale, 0.1, 0, 10'000); drag_start)
+		exec(make_flame_undoer(f, &rfkt::flame::scale, f.scale, drag_start.value()));
+
+	if(auto drag_start = rfkt::gui::drag_double("Center X", f.center_x, 0.1, -10, 10); drag_start)
+		exec(make_flame_undoer(f, &rfkt::flame::center_x, f.center_x, drag_start.value()));
+
+	if(auto drag_start = rfkt::gui::drag_double("Center Y", f.center_y, 0.1, -10, 10); drag_start)
+		exec(make_flame_undoer(f, &rfkt::flame::center_y, f.center_y, drag_start.value()));
+
 	ImGui::Separator();
 
 	ImGui::Text("Color");
-	modified |= rfkt::gui::drag_double("Gamma", f.gamma, 0.01, 0, 5, exec);
-	modified |= rfkt::gui::drag_double("Brightness", f.brightness, 0.01, 0, 100, exec);
-	modified |= rfkt::gui::drag_double("Vibrancy", f.vibrancy, 0.1, 0, 100, exec);
+	if(auto drag_start = rfkt::gui::drag_double("Gamma", f.gamma, 0.01, 0, 5); drag_start)
+		exec(make_flame_undoer(f, &rfkt::flame::gamma, f.gamma, drag_start.value()));
+
+	if(auto drag_start = rfkt::gui::drag_double("Brightness", f.brightness, 0.01, 0, 100); drag_start)
+		exec(make_flame_undoer(f, &rfkt::flame::brightness, f.brightness, drag_start.value()));
+
+	if(auto drag_start = rfkt::gui::drag_double("Vibrancy", f.vibrancy, 0.1, 0, 100); drag_start)
+		exec(make_flame_undoer(f, &rfkt::flame::vibrancy, f.vibrancy, drag_start.value()));
+
 	ImGui::Separator();
 
 	f.for_each_xform([&](int xid, rfkt::xform& xf) {
@@ -142,10 +198,17 @@ bool flame_editor(rfkt::flamedb& fdb, rfkt::flame& f, std::move_only_function<vo
 		std::string xf_name = (xid == -1) ? "Final Xform" : fmt::format("Xform {}", xid);
 
 		if (ImGui::CollapsingHeader(xf_name.c_str())) {
-			modified |= rfkt::gui::drag_double("Weight", xf.weight, 0.01, 0, 50, exec);
-			modified |= rfkt::gui::drag_double("Color", xf.color, 0.001, 0, 1, exec);
-			modified |= rfkt::gui::drag_double("Color Speed", xf.color_speed, 0.001, 0, 1, exec);
-			modified |= rfkt::gui::drag_double("Opacity", xf.opacity, 0.001, 0, 1, exec);
+			if(auto drag_start = rfkt::gui::drag_double("Weight", xf.weight, 0.01, 0, 50); drag_start)
+				exec(make_xform_undoer(f, xid, &rfkt::xform::weight, xf.weight, drag_start.value()));
+
+			if(auto drag_start = rfkt::gui::drag_double("Color", xf.color, 0.001, 0, 1); drag_start)
+				exec(make_xform_undoer(f, xid, &rfkt::xform::color, xf.color, drag_start.value()));
+
+			if(auto drag_start = rfkt::gui::drag_double("Color Speed", xf.color_speed, 0.001, 0, 1))
+				exec(make_xform_undoer(f, xid, &rfkt::xform::color_speed, xf.color_speed, drag_start.value()));
+
+			if(auto drag_start = rfkt::gui::drag_double("Opacity", xf.opacity, 0.001, 0, 1); drag_start)
+				exec(make_xform_undoer(f, xid, &rfkt::xform::opacity, xf.opacity, drag_start.value()));
 
 			if (ImGui::BeginTabBar("Vchain")) {
 				for (int i = 0; i < xf.vchain.size(); i++) {
@@ -156,12 +219,24 @@ bool flame_editor(rfkt::flamedb& fdb, rfkt::flame& f, std::move_only_function<vo
 						{
 							rfkt::gui::id_scope vl_scope{ &vl };
 
-							modified |= rfkt::gui::drag_double("Affine A", vl.transform.a, 0.001, -5, 5, exec);
-							modified |= rfkt::gui::drag_double("Affine B", vl.transform.b, 0.001, -5, 5, exec);
-							modified |= rfkt::gui::drag_double("Affine C", vl.transform.c, 0.001, -5, 5, exec);
-							modified |= rfkt::gui::drag_double("Affine D", vl.transform.d, 0.001, -5, 5, exec);
-							modified |= rfkt::gui::drag_double("Affine E", vl.transform.e, 0.001, -5, 5, exec);
-							modified |= rfkt::gui::drag_double("Affine F", vl.transform.f, 0.001, -5, 5, exec);
+							if(auto drag_start = rfkt::gui::drag_double("Affine A", vl.transform.a, 0.001, -5, 5); drag_start)
+								exec(make_transform_undoer(f, xid, i, &rfkt::affine::a, vl.transform.a, drag_start.value()));
+
+							if(auto drag_start = rfkt::gui::drag_double("Affine B", vl.transform.b, 0.001, -5, 5); drag_start)
+								exec(make_transform_undoer(f, xid, i, &rfkt::affine::b, vl.transform.b, drag_start.value()));
+
+							if(auto drag_start = rfkt::gui::drag_double("Affine C", vl.transform.c, 0.001, -5, 5); drag_start)
+								exec(make_transform_undoer(f, xid, i, &rfkt::affine::c, vl.transform.c, drag_start.value()));
+
+							if(auto drag_start = rfkt::gui::drag_double("Affine D", vl.transform.d, 0.001, -5, 5); drag_start)
+								exec(make_transform_undoer(f, xid, i, &rfkt::affine::d, vl.transform.d, drag_start.value()));
+
+							if(auto drag_start = rfkt::gui::drag_double("Affine E", vl.transform.e, 0.001, -5, 5); drag_start)
+								exec(make_transform_undoer(f, xid, i, &rfkt::affine::e, vl.transform.e, drag_start.value()));
+
+							if(auto drag_start = rfkt::gui::drag_double("Affine F", vl.transform.f, 0.001, -5, 5); drag_start)
+								exec(make_transform_undoer(f, xid, i, &rfkt::affine::f, vl.transform.f, drag_start.value()));
+
 							ImGui::Separator();
 							static bool just_opened = false;
 							static char filter[128] = { 0 };
@@ -195,7 +270,14 @@ bool flame_editor(rfkt::flamedb& fdb, rfkt::flame& f, std::move_only_function<vo
 								ImGui::EndPopup();
 
 								if (!selected_var.empty()) {
-									vl.add_variation(fdb.make_vardata(selected_var));
+									exec({
+										[&f, xid, i, &fdb, name = std::string{ selected_var }]() {
+											f.get_xform(xid)->vchain[i].add_variation(fdb.make_vardata(name));
+										},
+										[&f, xid, i, name = std::string{ selected_var }]() {
+											f.get_xform(xid)->vchain[i].remove_variation(name);
+										}
+									});
 								}
 							}
 
@@ -203,19 +285,28 @@ bool flame_editor(rfkt::flamedb& fdb, rfkt::flame& f, std::move_only_function<vo
 							for (auto& [vname, vd] : vl) {
 								rfkt::gui::id_scope var_scope{ &vd };
 								ImGui::Separator();
-								modified |= rfkt::gui::drag_double(vname.c_str(), vd.weight, 0.001, -50, 50, exec);
-								
+								if (auto drag_start = rfkt::gui::drag_double(vname.c_str(), vd.weight, 0.001, -50, 50); drag_start)
+									exec(make_vardata_undoer(f, xid, i, vname, &rfkt::vardata::weight, vd.weight, drag_start.value()));
+							
 								if (vl.size_variations() > 1) {
 									ImGui::SameLine(ImGui::GetContentRegionAvail().x - 10);
 									if (ImGui::Button("X")) removed_var = vname;
 								}
 
 								for (auto& [pname, val] : vd) {
-									modified |= rfkt::gui::drag_double(std::format("{}_{}", vname, pname).c_str(), val, 0.001, -50, 50, exec);
+									if (auto drag_start = rfkt::gui::drag_double(std::format("{}_{}", vname, pname).c_str(), val, 0.001, -50, 50); drag_start)
+										exec(make_parameter_undoer(f, xid, i, vname, pname, val, drag_start.value()));
 								}
 							}
 							if (!removed_var.empty()) {
-								vl.remove_variation(removed_var);
+								exec({
+									[&f, xid, i, name = std::string{ removed_var }]() {
+										f.get_xform(xid)->vchain[i].remove_variation(name);
+									},
+									[&f, xid, i, name = std::string{ removed_var }, vdata = vl[removed_var]] {
+										f.get_xform(xid)->vchain[i].add_variation({ name, vdata });
+									}
+								});
 							}
 						}
 						//ImGui::EndChild();
@@ -321,7 +412,7 @@ bool shortcut_pressed(ImGuiKey mod, ImGuiKey key) {
 void main_thread(rfkt::cuda::context ctx, std::stop_source stop) {
 
 	auto c_exec = command_executor{};
-	std::move_only_function<void(thunk_t&&, thunk_t&&)> exec = [&c_exec](thunk_t&& redo, thunk_t&& undo) { return c_exec.execute(std::move(redo), std::move(undo)); };
+	std::move_only_function<void(std::pair<thunk_t, thunk_t>&&)> exec = [&c_exec](std::pair<thunk_t, thunk_t>&& funcs) { return c_exec.execute(std::move(funcs)); };
 
 	namespace ccpp = concurrencpp;
 
@@ -384,7 +475,7 @@ void main_thread(rfkt::cuda::context ctx, std::stop_source stop) {
 	auto thunk_executor = runtime.make_manual_executor();
 	thunk_executor->post([&ctx]() {ctx.make_current(); });
 
-	auto prev_panel = preview_panel{render_stream, fc, executor, renderer};
+	auto prev_panel = preview_panel{render_stream, fc, executor, renderer, exec};
 
 	while (!should_exit) {
 		rfkt::gl::begin_frame();
@@ -416,6 +507,7 @@ void main_thread(rfkt::cuda::context ctx, std::stop_source stop) {
 						auto flame = rfkt::import_flam3(fdb, rfkt::fs::read_string(filename));
 						if (!flame) {
 							SPDLOG_ERROR("could not open flame: {}", filename);
+							return;
 						}
 
 						thunk_executor->enqueue([&c_exec, flame = std::move(flame), &cur_flame]() mutable {
