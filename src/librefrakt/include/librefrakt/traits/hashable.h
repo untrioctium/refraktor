@@ -12,5 +12,6 @@ namespace rfkt::traits {
 			self.add_to_hash(state);
 			return state.digest();
 		}
+
 	};
 }

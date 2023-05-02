@@ -133,12 +133,12 @@ namespace rfkt {
 			CUDA_SAFE_CALL(cuMemsetD8Async(ptr_, 0, size_bytes(), stream));
 		}
 
-		void to_host(std::span<Contained> dest_host) {
+		void to_host(std::span<Contained> dest_host) const {
 			if (size_ == 0) return;
 			CUDA_SAFE_CALL(cuMemcpyDtoH(dest_host.data(), ptr_, min_size(dest_host.size())));
 		}
 
-		void to_host(std::span<Contained> dest_host, CUstream stream) {
+		void to_host(std::span<Contained> dest_host, CUstream stream) const {
 			if (size_ == 0) return;
 			CUDA_SAFE_CALL(cuMemcpyDtoHAsync(dest_host.data(), ptr_, min_size(dest_host.size()), stream));
 		}

@@ -525,6 +525,13 @@ std::string annotate_source(std::string src) {
     return fmt::format("{:>4}| ", 1) + src;
 }
 
+void rfkt::flame_compiler::add_to_hash(rfkt::hash::state_t& state)
+{
+    state.update(rfkt::fs::last_modified("assets/kernels/refactor.cu"));
+    state.update(rfkt::fs::last_modified("assets/kernels/include/refrakt/random.h"));
+    state.update(rfkt::fs::last_modified("assets/kernels/include/refrakt/flamelib.h"));
+}
+
 auto rfkt::flame_compiler::get_flame_kernel(const flamedb& fdb, precision prec, const flame& f) -> result
 {
     auto start = std::chrono::high_resolution_clock::now();

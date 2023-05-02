@@ -1,4 +1,5 @@
 #include <librefrakt/util/cuda.h>
+#include <librefrakt/util/filesystem.h>
 
 #include "gui.h"
 #include "gl.h"
@@ -31,6 +32,8 @@ namespace rfkt::gl {
 		std::optional<unsigned int> target_fps;
 		timepoint_t frame_start;
 		timepoint_t frame_end;
+
+		std::string imgui_ini_path;
 
 		std::unordered_map<ImGuiMouseCursor, GLFWcursor*> cursors;
 		bool cursor_enabled = true;
@@ -205,11 +208,16 @@ namespace rfkt {
 		struct set_cursor_enabled {
 			bool enabled;
 		};
+
+		struct set_window_title {
+			std::string title;
+		};
 	}
 	using signal = std::variant<
 		signals::set_cursor,
 		signals::set_mouse_position,
 		signals::set_cursor_enabled,
+		signals::set_window_title,
 		signals::set_clipboard,
 		signals::get_clipboard>;
 
@@ -307,7 +315,7 @@ rfkt::gl::texture::cuda_map::cuda_map(texture& tex) : cuda_res(tex.cuda_res)
 	CUDA_SAFE_CALL(cuGraphicsMapResources(1, &cuda_res, 0));
 	CUDA_SAFE_CALL(cuGraphicsSubResourceGetMappedArray(&arr, cuda_res, 0, 0));
 
-	memset(&copy_params, 0, sizeof(copy_params));
+	std::memset(&copy_params, 0, sizeof(copy_params));
 	copy_params.srcXInBytes = 0;
 	copy_params.srcY = 0;
 	copy_params.srcMemoryType = CU_MEMORYTYPE_DEVICE;
@@ -436,7 +444,10 @@ bool rfkt::gl::init(int width, int height)
 	ImGui::CreateContext();
 	ImPlot::CreateContext();
 
+	gl_state.imgui_ini_path = (rfkt::fs::user_local_directory() / "imgui.ini").string();
+
 	ImGuiIO& io = ImGui::GetIO();
+	io.IniFilename = gl_state.imgui_ini_path.c_str();
 	io.ConfigFlags |= ImGuiConfigFlags_DockingEnable | ImGuiConfigFlags_NavEnableSetMousePos;
 	io.BackendFlags |= ImGuiBackendFlags_HasMouseCursors | ImGuiBackendFlags_HasSetMousePos;
 	
@@ -484,16 +495,21 @@ ImGuiKey translate_glfw_key(int key, const char* key_name)
 	return glfw_to_imgui_key(key);
 }
 
+
+void update_key_modifiers(ImGuiIO& io, int mods) {
+	io.AddKeyEvent(ImGuiMod_Ctrl, mods & GLFW_MOD_CONTROL);
+	io.AddKeyEvent(ImGuiMod_Shift, mods & GLFW_MOD_SHIFT);
+	io.AddKeyEvent(ImGuiMod_Alt, mods & GLFW_MOD_ALT);
+	io.AddKeyEvent(ImGuiMod_Super, mods & GLFW_MOD_SUPER);
+}
+
 template<>
 void event_visitor<rfkt::events::key>(rfkt::events::key event, ImGuiIO& io) {
 	if (event.action != GLFW_PRESS && event.action != GLFW_RELEASE) {
 		return;
 	}
 
-	io.AddKeyEvent(ImGuiMod_Ctrl, event.mods & GLFW_MOD_CONTROL);
-	io.AddKeyEvent(ImGuiMod_Shift, event.mods & GLFW_MOD_SHIFT);
-	io.AddKeyEvent(ImGuiMod_Alt, event.mods & GLFW_MOD_ALT);
-	io.AddKeyEvent(ImGuiMod_Super, event.mods & GLFW_MOD_SUPER);
+	update_key_modifiers(io, event.mods);
 
 	auto keycode = translate_glfw_key(event.key, event.key_name);
 	io.AddKeyEvent(keycode, event.action == GLFW_PRESS);
@@ -507,10 +523,7 @@ void event_visitor<rfkt::events::mouse_move>(rfkt::events::mouse_move event, ImG
 
 template<>
 void event_visitor<rfkt::events::mouse_button>(rfkt::events::mouse_button event, ImGuiIO& io) {
-	io.AddKeyEvent(ImGuiMod_Ctrl, event.mods & GLFW_MOD_CONTROL);
-	io.AddKeyEvent(ImGuiMod_Shift, event.mods & GLFW_MOD_SHIFT);
-	io.AddKeyEvent(ImGuiMod_Alt, event.mods & GLFW_MOD_ALT);
-	io.AddKeyEvent(ImGuiMod_Super, event.mods & GLFW_MOD_SUPER);
+	update_key_modifiers(io, event.mods);
 
 	if (event.button >= 0 && event.button < ImGuiMouseButton_COUNT) {
 		io.AddMouseButtonEvent(event.button, event.action == GLFW_PRESS);
@@ -525,17 +538,6 @@ void event_visitor<rfkt::events::char_input>(rfkt::events::char_input event, ImG
 template<>
 void event_visitor<rfkt::events::scroll>(rfkt::events::scroll event, ImGuiIO& io) {
 	io.AddMouseWheelEvent((float)event.xoffset, (float)event.yoffset);
-}
-
-template<>
-void event_visitor<rfkt::events::destroy_texture>(rfkt::events::destroy_texture event, ImGuiIO&) {
-	CUDA_SAFE_CALL(cuGraphicsUnregisterResource(event.cuda_res));
-	glDeleteTextures(1, &event.tex_id);
-}
-
-template<>
-void event_visitor<rfkt::events::destroy_cuda_map>(rfkt::events::destroy_cuda_map event, ImGuiIO&) {
-	CUDA_SAFE_CALL(cuGraphicsUnmapResources(1, &event.cuda_res, 0));
 }
 
 void rfkt::gl::begin_frame()
@@ -673,6 +675,11 @@ void signal_visitor<rfkt::signals::set_cursor_enabled>(rfkt::signals::set_cursor
 	glfwSetInputMode(rfkt::gl::gl_state.window, GLFW_CURSOR, sig.enabled ? GLFW_CURSOR_NORMAL : GLFW_CURSOR_DISABLED);
 }
 
+template<>
+void signal_visitor<rfkt::signals::set_window_title>(rfkt::signals::set_window_title sig) {
+	glfwSetWindowTitle(rfkt::gl::gl_state.window, sig.title.c_str());
+}
+
 void rfkt::gl::set_clipboard(std::string contents)
 {
 	rfkt::push_signal(rfkt::signals::set_clipboard{std::move(contents)});
@@ -694,6 +701,10 @@ void rfkt::gl::set_mouse_position(double x, double y)
 void rfkt::gl::set_cursor_enabled(bool enabled) {
 	gl_state.cursor_enabled = enabled;
 	rfkt::push_signal(rfkt::signals::set_cursor_enabled{ enabled });
+}
+
+void rfkt::gl::set_window_title(std::string_view title) {
+	rfkt::push_signal(rfkt::signals::set_window_title{ std::string{title} });
 }
 
 bool rfkt::gl::close_requested() {

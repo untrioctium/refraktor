@@ -109,7 +109,7 @@ uint2 preview_panel::gui_logic(rfkt::flame& flame) {
 
 	uint2 preview_size = { 0, 0 };
 	bool preview_hovered = false;
-	if (ImGui::Begin("Render")) {
+	if (auto window_scope = rfkt::gui::scope::window("Render"); window_scope) {
 
 		auto avail_before = ImGui::GetContentRegionAvail();
 		//if (ImGui::BeginMenuBar()) {
@@ -128,7 +128,6 @@ uint2 preview_panel::gui_logic(rfkt::flame& flame) {
 			preview_hovered = ImGui::IsItemHovered();
 		}
 	}
-	ImGui::End();
 
 	if (!dragging && preview_hovered && ImGui::IsMouseDown(ImGuiMouseButton_Left) && !ImGui::IsMouseDragging(ImGuiMouseButton_Left)) {
 		dragging = true;
@@ -182,7 +181,7 @@ uint2 preview_panel::gui_logic(rfkt::flame& flame) {
 
 rfkt::hash_t preview_panel::get_value_hash(const rfkt::flame& flame)
 {
-	const auto buffer_size = 4 + flame.size_reals();
+	const auto buffer_size = 7 + flame.size_reals();
 	auto buffer = std::vector<double>(buffer_size);
 
 	auto packer = [buf_view = std::span{ buffer }, counter = 0](double v) mutable {
@@ -195,15 +194,16 @@ rfkt::hash_t preview_panel::get_value_hash(const rfkt::flame& flame)
 	packer(flame.scale);
 	packer(flame.rotate);
 
+	packer(flame.gamma);
+	packer(flame.brightness);
+	packer(flame.vibrancy);
+
 	flame.pack(packer);
 
 	rfkt::hash::state_t state;
 
-	state.update(buffer.data(), buffer.size() * sizeof(double));
-
-	const auto palette_size_bytes = sizeof(decltype(flame.palette)::value_type) * flame.palette.size();
-
-	state.update(flame.palette.data(), palette_size_bytes);
+	state.update(buffer);
+	state.update(flame.palette);
 
 	return state.digest();
 }

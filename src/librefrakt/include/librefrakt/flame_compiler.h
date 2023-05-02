@@ -99,7 +99,7 @@ namespace rfkt {
 
 	static_assert(std::move_constructible<flame_kernel>);
 
-	class flame_compiler {
+	class flame_compiler: public traits::noncopyable, public traits::hashable {
 	public:
 
 		struct result: public traits::noncopyable {
@@ -122,6 +122,8 @@ namespace rfkt {
 				return *this;
 			}
 		};
+
+		void add_to_hash(rfkt::hash::state_t& state);
 
 		static_assert(std::move_constructible<result>);
 

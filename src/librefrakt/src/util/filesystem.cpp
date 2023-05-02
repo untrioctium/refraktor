@@ -1,9 +1,51 @@
 #include <filesystem>
 #include <fstream>
 
+#ifdef _WIN32
+#include <ShlObj.h>
+#endif
+
 #include <librefrakt/util/filesystem.h>
 
 using path = rfkt::fs::path;
+
+path& working_directory_global() {
+	static path working_directory = std::filesystem::current_path();
+	return working_directory;
+}
+
+void rfkt::fs::set_working_directory(const path& path) {
+	working_directory_global() = path;
+}
+
+const path& rfkt::fs::working_directory() {
+	return working_directory_global();
+}
+
+const path& rfkt::fs::user_local_directory() {
+	const static path local_dir = []() -> path {
+		path local_path{};
+#ifdef _WIN32
+		PWSTR base_path = nullptr;
+		if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_LocalAppData, 0, NULL, &base_path))) {
+			local_path = base_path;
+		}
+		else {
+			local_path = std::filesystem::current_path();
+		}
+		CoTaskMemFree(base_path);
+#endif
+
+		local_path /= "refrakt";
+		if (!fs::exists(local_path)) {
+			fs::create_directory(local_path);
+		}
+
+		return local_path;
+	}();
+
+	return local_dir;
+}
 
 auto rfkt::fs::read_bytes(const path& file_path) -> std::vector<char>
 {

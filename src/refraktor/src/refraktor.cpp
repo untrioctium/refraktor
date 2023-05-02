@@ -429,7 +429,7 @@ int main() {
 	rfkt::initialize(fdb, "config");
 	
 	auto stream = rfkt::cuda_stream{};
-	auto kernel = std::make_shared<ezrtc::sqlite_cache>("kernel.sqlite3");
+	auto kernel = std::make_shared<ezrtc::sqlite_cache>((rfkt::fs::user_local_directory() / "kernel.sqlite3").string());
 	auto zlib = std::make_shared<ezrtc::cache_adaptors::zlib>(kernel);
 	auto km = ezrtc::compiler{ zlib };
 	km.find_system_cuda();

@@ -29,6 +29,7 @@ namespace rfkt::gl {
 	void set_mouse_position(double x, double y);
 	void set_cursor_enabled(bool enabled);
 	bool cursor_enabled();
+	void set_window_title(std::string_view title);
 
 	void set_target_fps(unsigned int fps = 0);
 

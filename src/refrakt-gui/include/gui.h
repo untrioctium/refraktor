@@ -96,12 +96,19 @@ namespace rfkt::gui {
 		class [[nodiscard]] window {
 		public:
 			window(const std::string& name, bool* open = nullptr, ImGuiWindowFlags flags = 0) {
-				ImGui::Begin(name.c_str(), open, flags);
+				shown = ImGui::Begin(name.c_str(), open, flags);
 			}
 
 			~window() {
 				ImGui::End();
 			}
+
+			explicit(false) operator bool() const {
+				return shown;
+			}
+
+		private:
+			bool shown = false;
 		};
 
 		class [[nodiscard]] enabled {

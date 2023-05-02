@@ -6,7 +6,12 @@ namespace rfkt::fs {
 
 	using path = std::filesystem::path;
 
-	auto read_bytes( const path& file_path ) -> std::vector<char>;
+	void set_working_directory(const path& path);
+	const path& working_directory();
+
+	const path& user_local_directory();
+
+	auto read_bytes(const path& file_path) -> std::vector<char>;
 	auto read_string(const path& file_path) -> std::string;
 
 	bool write( const path& file_path, const char* bytes, std::size_t length, bool append = false );
