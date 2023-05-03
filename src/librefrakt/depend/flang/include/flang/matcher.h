@@ -46,7 +46,7 @@ template<flang::detail::matcher_concept L, flang::detail::matcher_concept R>
 template<flang::detail::matcher_concept M>
 [[nodiscard]] consteval auto operator!(M) noexcept {
 	return [](const flang::ast_node* node) -> bool {
-		return M{}(node);
+		return !M{}(node);
 	};
 }
 

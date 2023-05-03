@@ -18,6 +18,8 @@
 #include <librefrakt/image/tonemapper.h>
 #include <librefrakt/image/converter.h>
 
+#include <flang/grammar.h>
+
 bool break_loop = false;
 
 /*int mux(const rfkt::fs::path& in, const rfkt::fs::path& out, double fps) {
@@ -420,7 +422,7 @@ namespace rfkt {
 }
 
 
-int main() {
+/*int main() {
 
 	auto ctx = rfkt::cuda::init();
 	rfkt::denoiser::init(ctx);
@@ -447,7 +449,7 @@ int main() {
 	const auto sample_width = degrees_per_frame / (sample_count - 3);
 
 
-	for (const auto& fname : rfkt::fs::list("assets/flames_test/", rfkt::fs::filter::has_extension(".flam3"))) {
+	for (const auto& fname : rfkt::fs::list("assets/flames/", rfkt::fs::filter::has_extension(".flam3"))) {
 	//const std::filesystem::path fname = "assets/flames_test/electricsheep.247.27244.flam3";
 		auto fxml = rfkt::fs::read_string(fname);
 		auto f = rfkt::import_flam3(fdb, fxml);
@@ -480,7 +482,7 @@ int main() {
 
 		auto out = pp.make_output_buffer(stream);
 		auto state = k.kernel->warmup(stream, samples, pp.input_dims(), 0xDEADBEEF, 100);
-		auto q = k.kernel->bin(stream, state, { .millis = 100000, .quality = 2000 }).get();
+		auto q = k.kernel->bin(stream, state, { .millis = 1000, .quality = 2000 }).get();
 		auto res = pp.post_process(state.bins, out, q.quality, f->gamma, f->brightness, f->vibrancy, true, stream).get();
 
 		SPDLOG_INFO("{}: {}, {} miters/ms {} mdraws/ms", fname.filename().string(), q.quality, q.total_passes / (1'000'000 * q.elapsed_ms), q.total_draws / (1'000'000 * q.elapsed_ms));
@@ -493,4 +495,77 @@ int main() {
 	SPDLOG_INFO("initialized flame system (hash: {})", fdb.hash().str16());
 
 	return 0;
+}*/
+
+std::string create_lua_source(const flang::ast_node* node);
+
+struct func_info {
+	enum class arg_t {
+		decimal,
+		integer,
+		boolean
+	};
+
+	using arg_value = std::variant<int, double, bool>;
+
+	std::map<std::string, arg_t> args;
+	std::string source;
+};
+
+class function_table {
+public:
+
+	bool add_or_update(std::string_view name, func_info&& info) {
+		auto name_hash = rfkt::hash::calc(name).str32();
+		auto source = create_function_source(name_hash, info);
+		auto result = vm.safe_script(source, sol::script_throw_on_error);
+		if (!result.valid()) {
+			SPDLOG_ERROR("failed to compile function '{}': {}", name, result.get<sol::error>().what());
+			return false;
+		}
+
+		funcs.emplace(name, std::pair{ std::move(info), std::move(name_hash) });
+	}
+
+	double call(std::string_view name, const std::vector<func_info::arg_value>& args) {
+		if (!funcs.contains(name)) {
+			SPDLOG_ERROR("function '{}' not found", name);
+			return 0.0;
+		}
+
+		return vm[funcs.find(name)->second.second](sol::as_args(args)).get<double>();
+	}
+
+
+private:
+
+	static std::string create_function_source(std::string_view func_name, const func_info& fi) {
+		std::string args = {};
+		int i = 0;
+		for (const auto& arg : fi.args) {
+			args += arg.first;
+			if (i + 1 != fi.args.size()) args += ", ";
+			i++;
+		}
+
+		return fmt::format("function {}({})\n{}\nend", func_name, args, fi.source);
+	}
+
+	std::map<std::string, std::pair<func_info, std::string>, std::less<>> funcs;
+	sol::state vm;
+};
+
+int main() {
+	auto ft = function_table{};
+	ft.add_or_update("saxpy", {
+		{
+			{"a", func_info::arg_t::decimal},
+			{"x", func_info::arg_t::decimal},
+			{"y", func_info::arg_t::decimal}
+		},
+		"return a * x + y"
+	});
+
+	SPDLOG_INFO("{}", ft.call("saxpy", {4, 10, 2}));
+
 }

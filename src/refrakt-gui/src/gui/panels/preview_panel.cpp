@@ -36,6 +36,12 @@ bool preview_panel::show(const rfkt::flamedb& fdb, rfkt::flame& flame)
 
 	uint2 preview_size = gui_logic(flame);
 
+	static bool first_frame = false;
+	if (first_frame) {
+		preview_size = { 10, 10 };
+		first_frame = false;
+	}
+
 	if (!rendering_texture) {
 
 		const auto given_struct_hash = flame.hash();
@@ -109,7 +115,7 @@ uint2 preview_panel::gui_logic(rfkt::flame& flame) {
 
 	uint2 preview_size = { 0, 0 };
 	bool preview_hovered = false;
-	if (auto window_scope = rfkt::gui::scope::window("Render"); window_scope) {
+	if (ImGui::Begin("Render")) {
 
 		auto avail_before = ImGui::GetContentRegionAvail();
 		//if (ImGui::BeginMenuBar()) {
@@ -120,6 +126,9 @@ uint2 preview_panel::gui_logic(rfkt::flame& flame) {
 
 		auto avail = ImGui::GetContentRegionAvail();
 
+		if (avail.x < 0) avail.x = 10;
+		if (avail.y < 0) avail.y = 10;
+
 		preview_size = { static_cast<unsigned int>(avail.x), static_cast<unsigned int>(avail.y) };
 
 		if (displayed_texture.has_value()) {
@@ -128,6 +137,7 @@ uint2 preview_panel::gui_logic(rfkt::flame& flame) {
 			preview_hovered = ImGui::IsItemHovered();
 		}
 	}
+	ImGui::End();
 
 	if (!dragging && preview_hovered && ImGui::IsMouseDown(ImGuiMouseButton_Left) && !ImGui::IsMouseDragging(ImGuiMouseButton_Left)) {
 		dragging = true;
