@@ -35,8 +35,8 @@ namespace rfkt::gui {
 
 	std::optional<double> drag_double(std::string_view name, double& v, float speed, double min, double max);
 
-	inline void tooltip(const std::string& tip) {
-		ImGui::TextDisabled("(?)");
+	inline void tooltip(const std::string& tip, bool show_icon = true) {
+		if(show_icon) ImGui::TextDisabled("(?)");
 		if (ImGui::IsItemHovered())
 		{
 			ImGui::BeginTooltip();

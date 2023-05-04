@@ -10,7 +10,7 @@ public:
 
 	using command_executor_t = std::move_only_function<void(std::pair<thunk_t, thunk_t>&&)>;
 	using executor_t = std::function<void(std::move_only_function<void(void)>&&)>;
-	using renderer_t = std::function<rfkt::cuda_buffer<uchar4>(rfkt::cuda_stream&, const rfkt::flame_kernel&, rfkt::flame_kernel::saved_state&, rfkt::flame_kernel::bailout_args, double3)>;
+	using renderer_t = std::function<rfkt::cuda_buffer<uchar4>(rfkt::cuda_stream&, const rfkt::flame_kernel&, rfkt::flame_kernel::saved_state&, rfkt::flame_kernel::bailout_args, double3, bool)>;
 
 	preview_panel() = delete;
 	preview_panel(rfkt::cuda_stream& stream, rfkt::flame_compiler& compiler, executor_t& submitter, renderer_t& renderer, command_executor_t& cmd_exec) :
@@ -53,7 +53,10 @@ private:
 	uint2 render_dims = { 0, 0 };
 	double target_quality = 128;
 
+	bool render_options_changed = false;
+	bool upscale = false;
 	bool dragging = false;
+	double current_time = 0.0;
 	ImVec2 last_delta = { 0, 0 };
 	double2 drag_start = { 0, 0 };
 

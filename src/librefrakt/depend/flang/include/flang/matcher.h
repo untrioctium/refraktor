@@ -72,7 +72,7 @@ namespace flang::matchers {
 	};
 
 	template<flang::detail::matcher_concept Pred>
-	[[nodiscard]] consteval auto with_child(Pred) noexcept {
+	consteval auto with_child(Pred) noexcept {
 		return [](const flang::ast_node* node) -> bool {
 			constexpr static auto pred = Pred{};
 			for (const auto* c : *node) {
@@ -85,7 +85,7 @@ namespace flang::matchers {
 	}
 
 	template<int Rank, flang::detail::matcher_concept Pred>
-	[[nodiscard]] consteval auto with_child_at(Pred) noexcept {
+	consteval auto with_child_at(Pred) noexcept {
 		return [](const flang::ast_node* node) -> bool {
 			constexpr static auto pred = Pred{};
 			return node->size() > Rank && pred(node->nth(Rank));
@@ -93,7 +93,7 @@ namespace flang::matchers {
 	}
 
 	template<flang::detail::matcher_concept Pred>
-	[[nodiscard]] consteval auto with_parent(Pred) noexcept {
+	consteval auto with_parent(Pred) noexcept {
 		return [](const flang::ast_node* node) -> bool {
 			constexpr static auto pred = Pred{};
 			return pred(node->parent());
@@ -101,7 +101,7 @@ namespace flang::matchers {
 	}
 
 	template<flang::detail::matcher_concept Pred>
-	[[nodiscard]] consteval auto with_sibling(Pred) noexcept {
+	consteval auto with_sibling(Pred) noexcept {
 		return [](const flang::ast_node* node) -> bool {
 			constexpr static auto pred = Pred{};
 			if (node->parent() == nullptr) {

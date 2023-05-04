@@ -430,26 +430,31 @@ void main_thread(rfkt::cuda::context ctx, std::stop_source stop) {
 	rfkt::flame_compiler fc(kc);
 	auto tm = rfkt::tonemapper{ kc };
 	auto dn = rfkt::denoiser{ {2560, 1440}, false };
+	auto up_dn = rfkt::denoiser{ {2560, 1440}, true };
 	auto conv = rfkt::converter{ kc };
 
-	preview_panel::renderer_t renderer = [&tm, &dn, &conv](
+	preview_panel::renderer_t renderer = [&tm, &dn, &up_dn, &conv](
 		rfkt::cuda_stream& stream, const rfkt::flame_kernel& kernel,
 		rfkt::flame_kernel::saved_state& state,
-		rfkt::flame_kernel::bailout_args bo, double3 gbv) {
+		rfkt::flame_kernel::bailout_args bo, double3 gbv, bool upscale) {
 
 			const auto total_bins = state.bin_dims.x * state.bin_dims.y;
 
-			auto out_buf = rfkt::cuda_buffer<uchar4>{ total_bins, stream };
+			const auto output_dims = (upscale) ? uint2{ state.bin_dims.x * 2, state.bin_dims.y * 2 } : state.bin_dims;
+			const auto output_bins = output_dims.x * output_dims.y;
+
 			auto tonemapped = rfkt::cuda_buffer<half3>{ total_bins, stream };
-			auto denoised = rfkt::cuda_buffer<half3>{ total_bins, stream };
+			auto denoised = rfkt::cuda_buffer<half3>{ output_bins, stream };
+			auto out_buf = rfkt::cuda_buffer<uchar4>{ output_bins, stream };
 
 			auto bin_info = kernel.bin(stream, state, bo).get();
 			state.quality += bin_info.quality;
 
 			tm.run(state.bins, tonemapped, state.bin_dims, state.quality, gbv.x, gbv.y, gbv.z, stream);
-			dn.denoise(state.bin_dims, tonemapped, denoised, stream);
+			auto& denoiser = upscale ? up_dn : dn;
+			denoiser.denoise(output_dims, tonemapped, denoised, stream);
 			tonemapped.free_async(stream);
-			conv.to_24bit(denoised, out_buf, state.bin_dims, false, stream);
+			conv.to_24bit(denoised, out_buf, output_dims, false, stream);
 			denoised.free_async(stream);
 			stream.sync();
 
@@ -530,7 +535,7 @@ void main_thread(rfkt::cuda::context ctx, std::stop_source stop) {
 				ImGui::EndMenu();
 			}
 
-			/*if (ImGui::BeginMenu("Style")) {
+			if (ImGui::BeginMenu("Style")) {
 				auto styles = rfkt::gui::get_styles();
 
 				for (const auto& style : styles) {
@@ -539,7 +544,7 @@ void main_thread(rfkt::cuda::context ctx, std::stop_source stop) {
 					}
 				}
 				ImGui::EndMenu();
-			}*/
+			}
 
 			if (ImGui::BeginMenu("Debug")) {
 				if (ImGui::MenuItem("Copy flame source")) {
@@ -558,7 +563,7 @@ void main_thread(rfkt::cuda::context ctx, std::stop_source stop) {
 		}
 		ImGui::End();
 
-		//ImGui::ShowDemoWindow();
+		ImGui::ShowDemoWindow();
 		draw_status_bar();
 
 		prev_panel.show(fdb, flame.value());
