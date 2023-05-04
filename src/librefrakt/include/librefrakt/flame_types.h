@@ -128,6 +128,26 @@ namespace rfkt {
 			if (path == "f") return &self.f;
 			return typed_nullptr<double>;
 		}
+
+		static constexpr std::string_view ptr_to_name(double affine::* ptr) noexcept {
+			if (ptr == &affine::a) return "a";
+			if (ptr == &affine::b) return "b";
+			if (ptr == &affine::c) return "c";
+			if (ptr == &affine::d) return "d";
+			if (ptr == &affine::e) return "e";
+			if (ptr == &affine::f) return "f";
+			return {};
+		}
+
+		static constexpr double affine::* name_to_ptr(std::string_view name) noexcept {
+			if (name == "a") return &affine::a;
+			if (name == "b") return &affine::b;
+			if (name == "c") return &affine::c;
+			if (name == "d") return &affine::d;
+			if (name == "e") return &affine::e;
+			if (name == "f") return &affine::f;
+			return nullptr;
+		}
 	};
 
 	class flamedb;
@@ -172,6 +192,10 @@ namespace rfkt {
 			return typed_nullptr<double>;
 		}
 
+		bool has_parameter(std::string_view pname) const noexcept {
+			return parameters_.find(pname) != parameters_.end();
+		}
+
 		vardata() = delete;
 		vardata(vardata&&) = default;
 		vardata(const vardata&) = default;
@@ -180,6 +204,16 @@ namespace rfkt {
 		vardata& operator=(const vardata&) = default;
 
 		~vardata() = default;
+
+		constexpr static std::string_view ptr_to_name(double vardata::* ptr) noexcept {
+			if (ptr == &vardata::weight) return "weight";
+			return {};
+		}
+
+		constexpr static double vardata::* name_to_ptr(std::string_view name) noexcept {
+			if (name == "weight") return &vardata::weight;
+			return nullptr;
+		}
 
 	private:
 
@@ -194,6 +228,7 @@ namespace rfkt {
 	class vlink : public traits::hashable {
 	public:
 		affine transform;
+
 		double per_loop = 0;
 
 		auto& operator[](this auto&& self, std::string_view name) {
@@ -257,6 +292,16 @@ namespace rfkt {
 			return typed_nullptr<double>;
 		}
 
+		constexpr static std::string_view ptr_to_name(double vlink::* ptr) noexcept {
+			if (ptr == &vlink::per_loop) return "per_loop";
+			return {};
+		}
+
+		constexpr static double vlink::* name_to_ptr(std::string_view name) noexcept {
+			if (name == "per_loop") return &vlink::per_loop;
+			return nullptr;
+		}
+
 	private:
 		std::map<std::string, vardata, std::less<>> variations_;
 	};
@@ -308,6 +353,22 @@ namespace rfkt {
 			}
 
 			return typed_nullptr<double>;
+		}
+
+		constexpr static std::string_view ptr_to_name(double xform::* ptr) noexcept {
+			if (ptr == &xform::weight) return "weight";
+			if (ptr == &xform::color) return "color";
+			if (ptr == &xform::color_speed) return "color_speed";
+			if (ptr == &xform::opacity) return "opacity";
+			return {};
+		}
+
+		constexpr static double xform::* name_to_ptr(std::string_view name) noexcept {
+			if (name == "weight") return &xform::weight;
+			if (name == "color") return &xform::color;
+			if (name == "color_speed") return &xform::color_speed;
+			if (name == "opacity") return &xform::opacity;
+			return nullptr;
 		}
 	};
 
@@ -413,6 +474,28 @@ namespace rfkt {
 			if (index == -1) return final_xform ? &*final_xform : nullptr;
 			if (index < 0 || index >= xforms.size()) return nullptr;
 			return &xforms[index];
+		}
+
+		constexpr static std::string_view ptr_to_name(double flame::* ptr) {
+			if (ptr == &flame::center_x) return "center_x";
+			if (ptr == &flame::center_y) return "center_y";
+			if (ptr == &flame::scale) return "scale";
+			if (ptr == &flame::rotate) return "rotate";
+			if (ptr == &flame::gamma) return "gamma";
+			if (ptr == &flame::brightness) return "brightness";
+			if (ptr == &flame::vibrancy) return "vibrancy";
+			return {};
+		}
+
+		constexpr static double flame::* name_to_ptr(std::string_view name) {
+			if (name == "center_x") return &flame::center_x;
+			if (name == "center_y") return &flame::center_y;
+			if (name == "scale") return &flame::scale;
+			if (name == "rotate") return &flame::rotate;
+			if (name == "gamma") return &flame::gamma;
+			if (name == "brightness") return &flame::brightness;
+			if (name == "vibrancy") return &flame::vibrancy;
+			return nullptr;
 		}
 	};
 

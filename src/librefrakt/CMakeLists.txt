@@ -17,6 +17,7 @@ set(HEADER_LIST
 	"include/librefrakt/image/tonemapper.h"
 	"include/librefrakt/image/denoiser.h"
 	"include/librefrakt/image/converter.h"
+	"include/librefrakt/anima.h"
 )
 
 add_library(librefrakt STATIC
@@ -34,6 +35,7 @@ add_library(librefrakt STATIC
 	"src/image/tonemapper.cpp"
 	"src/image/denoiser.cpp"
 	"src/image/converter.cpp"
+	"src/anima.cpp"
 	${HEADER_LIST}
 )
 
