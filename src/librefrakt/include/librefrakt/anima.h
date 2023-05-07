@@ -1,9 +1,12 @@
 #include <variant>
+#include <sol/sol.hpp>
+#include <spdlog/spdlog.h>
+#include <ranges>
 
 #include <librefrakt/flame_types.h>
 
 namespace rfkt {
-
+	/*
 	namespace descriptors {
 		struct flame {
 			double rfkt::flame::* p;
@@ -104,41 +107,78 @@ namespace rfkt {
 		descriptors::parameter
 	>;
 
+	bool operator==(const descriptor& lhs, const descriptor& rhs) noexcept {
+		return std::visit([&](auto&& lhs, auto&& rhs) -> bool {
+			if constexpr (std::same_as<decltype(lhs), decltype(rhs)>)
+				return lhs == rhs;
+			else 
+				return false;
+		}, lhs, rhs);
+	}
+
 	double* access(rfkt::flame& flame, const descriptor& desc) noexcept {
 		return std::visit([&](auto&& arg) -> double* {
 			return arg.access(flame);
 		}, desc);
 	}
+	*/
 
-	class anima {
-	public:
-		enum class target {
-			flame,
-			xform,
-			vlink,
-			transform,
-			vardata,
-			parameter
+	struct func_info {
+		enum class arg_t {
+			decimal,
+			integer,
+			boolean
 		};
 
-		flame generate_sample(const flame& base, double t) const noexcept {
-			flame result = base;
+		std::map<std::string, std::pair<arg_t, anima::arg_t>> args;
+		std::string source;
+	};
 
-			for (auto& [desc, args] : animators) {
-				auto ptr = access(result, desc);
-				if (!ptr) continue;
+	class function_table {
+	public:
 
+		function_table();
 
+		bool add_or_update(std::string_view name, func_info&& info) {
+			auto name_hash = std::format("af_{}", rfkt::hash::calc(name).str32());
+			auto source = create_function_source(name_hash, info);
+			auto result = vm.safe_script(source, sol::script_throw_on_error);
+			if (!result.valid()) {
+				SPDLOG_ERROR("failed to compile function '{}': {}", name, result.get<sol::error>().what());
+				return false;
 			}
+
+			funcs.emplace(name, std::pair{ std::move(info), std::move(name_hash) });
 		}
 
+		double call(std::string_view name, double t, double iv, const rfkt::anima::arg_map_t& args);
+
+		rfkt::anima::call_info_t make_default(std::string_view name) const noexcept {
+			if(!funcs.contains(name)) return std::nullopt;
+
+			const auto& def_args = funcs.find(name)->second.first.args;
+			auto ret = std::make_optional(rfkt::anima::call_info_t::value_type{});
+			ret->first = std::string{ name };
+			for (const auto& [arg_name, arg_type] : def_args) {
+				ret->second.emplace(arg_name, arg_type.second);
+			}
+
+			return ret;
+		}
+
+		auto names() const noexcept {
+			return std::views::keys(funcs);
+		}
+
+		auto functions() const noexcept {
+			return funcs;
+		}
 	private:
 
-		struct func_info {
-			std::string name;
-			std::map<std::string, std::variant<int, double, bool>> args;
-		};
+		static std::string create_function_source(std::string_view func_name, const func_info& fi);
 
-		std::map<descriptor, func_info> animators;
+		std::map<std::string, std::pair<func_info, std::string>, std::less<>> funcs;
+		sol::state vm;
 	};
+
 }

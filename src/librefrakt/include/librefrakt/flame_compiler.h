@@ -62,7 +62,7 @@ namespace rfkt {
 		};
 
 		auto bin(cuda_stream& stream, flame_kernel::saved_state& state, const bailout_args&) const-> std::future<bin_result>;
-		auto warmup(cuda_stream& stream, std::span<const flame> samples, uint2 dims, std::uint32_t seed, std::uint32_t count) const->flame_kernel::saved_state;
+		auto warmup(cuda_stream& stream, std::span<double> samples, uint2 dims, std::uint32_t seed, std::uint32_t count) const->flame_kernel::saved_state;
 
 		flame_kernel(flame_kernel&& o) noexcept {
 			*this = std::move(o);

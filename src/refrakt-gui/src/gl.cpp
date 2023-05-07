@@ -378,11 +378,13 @@ bool rfkt::gl::init(int width, int height)
 	window_size_atomic().store(window_size);
 
 	glfwSetWindowSizeCallback(gl_state.window, [](GLFWwindow*, int width, int height) {
+		SPDLOG_INFO("Setting window size to {}x{}", width, height);
 		if (width == 0 || height == 0) return;
 		window_size_atomic().store({ width, height });
 	});
 
 	glfwSetWindowPosCallback(gl_state.window, [](GLFWwindow*, int x, int y) {
+		SPDLOG_INFO("Setting window position to {}, {}", x, y);
 		window_pos_atomic().store({ x, y });
 	});
 

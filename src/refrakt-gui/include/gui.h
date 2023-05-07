@@ -33,7 +33,7 @@ namespace rfkt::gui {
 		~id_scope() { ImGui::PopID(); }
 	};
 
-	std::optional<double> drag_double(std::string_view name, double& v, float speed, double min, double max);
+	std::optional<double> drag_double(std::string_view name, double& v, float speed, double min = -DBL_MAX, double max = DBL_MAX);
 
 	inline void tooltip(const std::string& tip, bool show_icon = true) {
 		if(show_icon) ImGui::TextDisabled("(?)");

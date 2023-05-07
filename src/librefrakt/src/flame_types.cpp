@@ -89,7 +89,7 @@ rfkt::xform from_flam3_xml(const rfkt::flamedb& fdb, const pugi::xml_node& node)
 			cur_vl[vname][pname] = attr.as_double();
 		}
 		else if (aname == "animate") {
-			if(attr.as_double() == 1) vlinks[1].per_loop = 360.0;
+			if (attr.as_double() == 1) vlinks[1].mod_rotate.call_info = { "increase", {{"per_loop", 360.0}} };
 		}
 		else {
 			SPDLOG_WARN("Unknown xform attribute: {}", aname);

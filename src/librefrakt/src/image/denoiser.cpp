@@ -8,6 +8,11 @@
 #include <optix_stubs.h>
 #include <optix_function_table_definition.h>
 
+#undef min
+#undef max
+
+#include <optix_denoiser_tiling.h>
+
 #define CHECK_OPTIX(expr) if(auto result = expr; result != OPTIX_SUCCESS) { SPDLOG_CRITICAL("'{}' failed with '{}'", #expr, optixGetErrorName(result)); exit(1); }
 
 
@@ -61,6 +66,8 @@ public:
 		CUDA_SAFE_CALL(cuMemAlloc(&d.state_buffer, d.szs.stateSizeInBytes));
 		CUDA_SAFE_CALL(cuMemAlloc(&d.scratch_buffer, d.szs.withoutOverlapScratchSizeInBytes));
 
+		SPDLOG_INFO("Denoiser state sizes: {}mb, {}mb", d.szs.stateSizeInBytes / (1024 * 1024), d.szs.withoutOverlapScratchSizeInBytes / (1024 * 1024));
+
 		CHECK_OPTIX(optixDenoiserSetup(d.handle, 0, max_dims.x, max_dims.y, d.state_buffer, d.szs.stateSizeInBytes, d.scratch_buffer, d.szs.withoutOverlapScratchSizeInBytes));
 
 		d.dp.blendFactor = 0;
@@ -102,6 +109,7 @@ public:
 			});
 
 		//CHECK_OPTIX(optixDenoiserComputeIntensity(handle, stream, &layer.input, dp.hdrIntensity, scratch_buffer, szs.withoutOverlapScratchSizeInBytes));
+
 		CHECK_OPTIX(optixDenoiserInvoke(handle, stream, &dp, state_buffer, szs.stateSizeInBytes, &guide_layer, &layer, 1, 0, 0, scratch_buffer, szs.withoutOverlapScratchSizeInBytes));
 
 		stream.host_func(

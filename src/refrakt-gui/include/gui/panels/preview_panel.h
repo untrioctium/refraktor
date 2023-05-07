@@ -1,6 +1,7 @@
 #include <future>
 
 #include <librefrakt/flame_compiler.h>
+#include <librefrakt/anima.h>
 
 #include "gui.h"
 #include "gl.h"
@@ -22,7 +23,7 @@ public:
 
 	~preview_panel();
 
-	bool show(const rfkt::flamedb& fdb, rfkt::flame& flame);
+	bool show(const rfkt::flamedb& fdb, rfkt::flame& flame, rfkt::function_table& ft);
 
 private:
 

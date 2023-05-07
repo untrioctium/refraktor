@@ -22,23 +22,6 @@
 
 using json = nlohmann::json;
 
-std::vector<rfkt::flame> gen_samples(const rfkt::flame& f, double t, double loops_per_frame) {
-	std::vector<rfkt::flame> samples{};
-	for (int i = 0; i < 4; i++) {
-		auto sample = f;
-		for (auto& x : sample.xforms) {
-			for (auto& vl : x.vchain) {
-				if (vl.per_loop > 0) {
-					const auto base = t * vl.per_loop;
-					vl.transform = vl.transform.rotated(base + vl.per_loop * loops_per_frame * (i - 1));
-				}
-			}
-		}
-		samples.emplace_back(std::move(sample));
-	}
-	return samples;
-}
-
 template<size_t N>
 struct StringLiteral {
 	constexpr StringLiteral(const char(&str)[N]) {

@@ -46,7 +46,7 @@ public:
 	void undo() {
 		if (!can_undo())
 			return;
-		SPDLOG_INFO("undoing");
+
 		--current_command;
 		current_command->undo();
 	}
@@ -54,7 +54,7 @@ public:
 	void redo() {
 		if (!can_redo())
 			return;
-		SPDLOG_INFO("redoing");
+
 		current_command->redo();
 		++current_command;
 	}
@@ -118,78 +118,125 @@ void draw_status_bar() {
 	}*/
 }
 
-std::pair<thunk_t, thunk_t> make_flame_undoer(rfkt::flame& f, double rfkt::flame::* ptr, double new_value, double old_value) {
+std::pair<thunk_t, thunk_t> make_undoer(rfkt::flame& f, const rfkt::descriptor& desc, rfkt::anima&& new_value, rfkt::anima&& old_value) {
 	return {
-		[&f, new_value, ptr]() mutable { f.*ptr = new_value; },
-		[&f, old_value, ptr]() mutable { f.*ptr = old_value; }
+		[&f, desc, new_value = std::move(new_value)]() mutable { *desc.access(f) = new_value; },
+		[&f, desc, old_value = std::move(old_value)]() mutable { *desc.access(f) = old_value; }
 	};
 }
 
-std::pair<thunk_t, thunk_t> make_xform_undoer(rfkt::flame& f, int xid, double rfkt::xform::* ptr, double new_value, double old_value) {
-	return {
-		[&f, xid, new_value, ptr]() mutable { f.get_xform(xid)->*ptr = new_value; },
-		[&f, xid, old_value, ptr]() mutable { f.get_xform(xid)->*ptr = old_value; }
+auto make_animator_button(rfkt::flame& f, const rfkt::function_table& ft, std::move_only_function<void(std::pair<thunk_t, thunk_t>&&)>& exec) {
+	return [&ft, &exec, &f](const rfkt::descriptor& desc, float width) {
+
+		auto& ani = *desc.access(f);
+
+		if (ImGui::Button(ani.call_info ? "A" : "-", { width , 0 })) {
+			ImGui::OpenPopup("animation_editor");
+		}
+
+		if (!ImGui::BeginPopup("animation_editor")) { return; }
+
+		std::string cur_selected = ani.call_info ? ani.call_info->first : "none";
+		std::optional<std::string_view> selection = std::nullopt;
+
+		if (ImGui::BeginCombo("##a_type", cur_selected.c_str())) {
+			if (ImGui::Selectable("none")) selection = "none";
+			if (!ani.call_info) ImGui::SetItemDefaultFocus();
+
+			for (auto& name : ft.names()) {
+				bool is_selected = cur_selected == name;
+				if (ImGui::Selectable(name.c_str(), &is_selected))
+					selection = name;
+				if (is_selected) ImGui::SetItemDefaultFocus();
+			}
+			ImGui::EndCombo();
+		}
+
+		if (selection.has_value() && selection != cur_selected) {
+			rfkt::anima::call_info_t new_call_info = selection == "none" ? std::nullopt : ft.make_default(*selection);
+			rfkt::anima::call_info_t old_call_info = ani.call_info;
+
+			exec(make_undoer(f, desc, { ani.t0, std::move(new_call_info) }, { ani.t0, std::move(old_call_info) }));
+		}
+
+		if (ani.call_info) {
+			bool changed = false;
+			rfkt::anima::call_info_t old_call_info = ani.call_info;
+			for (auto& [name, arg] : ani.call_info->second) {
+				changed |= std::visit([&name]<typename T>(T & argv) {
+					if constexpr (std::same_as<T, double>) {
+						return ImGui::InputDouble(name.c_str(), &argv);
+					}
+					else if constexpr (std::same_as<T, int>) {
+						return ImGui::InputInt(name.c_str(), &argv);
+					}
+					else if constexpr (std::same_as<T, bool>) {
+						return ImGui::Checkbox(name.c_str(), &argv);
+					}
+					else {
+						SPDLOG_ERROR("Unhandled case: {}", typeid(T).name());
+					}
+				}, arg);
+			}
+
+			if (changed) {
+				rfkt::anima::call_info_t new_call_info = ani.call_info;
+
+				exec(make_undoer(f, desc, { ani.t0, std::move(new_call_info) }, { ani.t0, std::move(old_call_info) }));
+			}
+		}
+		
+
+		ImGui::EndPopup();
 	};
 }
 
-std::pair<thunk_t, thunk_t> make_vlink_undoer(rfkt::flame& f, int xid, int vid, double rfkt::vlink::* ptr, double new_value, double old_value) {
-	return {
-		[&f, xid, vid, new_value, ptr]() mutable { f.get_xform(xid)->vchain[vid].*ptr = new_value; },
-		[&f, xid, vid, old_value, ptr]() mutable { f.get_xform(xid)->vchain[vid].*ptr = old_value; }
+struct edit_bounds {
+	double min = -DBL_MAX;
+	double max = DBL_MAX;
+
+	edit_bounds() = default;
+	explicit(false) edit_bounds(double min): min{min} {}
+	edit_bounds(double min, double max): min{min}, max{max} {}
+};
+
+auto make_flame_drag_edit(rfkt::flame& f, std::move_only_function<void(std::pair<thunk_t, thunk_t>&&)>& exec, const rfkt::function_table& ft) {
+	auto min_button_width = ImGui::CalcTextSize("A").x + ImGui::GetStyle().FramePadding.x * 2.0f;
+	auto animator_button = make_animator_button(f, ft, exec);
+	return[&f, &exec, animator_button = std::move(animator_button), min_button_width](const rfkt::descriptor& desc, std::string_view text, float step, const edit_bounds& eb = {}) mutable {
+		rfkt::gui::id_scope drag_scope{ desc.hash().str16().c_str() };
+
+		auto* ptr = desc.access(f);
+		animator_button(desc, min_button_width);
+		ImGui::SameLine();
+		if (auto drag_start = rfkt::gui::drag_double(text, ptr->t0, step, eb.min, eb.max); drag_start) {
+			rfkt::anima new_value = { ptr->t0, f.rotate.call_info };
+			rfkt::anima old_value = { drag_start.value(), f.rotate.call_info };
+			exec(make_undoer(f, desc, std::move(new_value), std::move(old_value)));
+		}
 	};
 }
 
-std::pair<thunk_t, thunk_t> make_transform_undoer(rfkt::flame& f, int xid, int vid, double rfkt::affine::* ptr, double new_value, double old_value) {
-	return {
-		[&f, xid, vid, new_value, ptr]() mutable { f.get_xform(xid)->vchain[vid].transform.*ptr = new_value; },
-		[&f, xid, vid, old_value, ptr]() mutable { f.get_xform(xid)->vchain[vid].transform.*ptr = old_value; }
-	};
-}
-
-std::pair<thunk_t, thunk_t> make_vardata_undoer(rfkt::flame& f, int xid, int vid, std::string_view vname, double rfkt::vardata::* ptr, double new_value, double old_value) {
-	return {
-		[&f, xid, vid, vname = std::string{vname}, new_value, ptr]() mutable { f.get_xform(xid)->vchain[vid][vname].*ptr = new_value; },
-		[&f, xid, vid, vname = std::string{vname}, old_value, ptr]() mutable { f.get_xform(xid)->vchain[vid][vname].*ptr = old_value; }
-	};
-}
-
-std::pair<thunk_t, thunk_t> make_parameter_undoer(rfkt::flame& f, int xid, int vid, std::string_view vname, std::string_view pname, double new_value, double old_value) {
-	return {
-		[&f, xid, vid, vname = std::string{vname}, pname = std::string{pname}, new_value]() mutable { f.get_xform(xid)->vchain[vid][vname][pname] = new_value; },
-		[&f, xid, vid, vname = std::string{vname}, pname = std::string{pname}, old_value]() mutable { f.get_xform(xid)->vchain[vid][vname][pname] = old_value; }
-	};
-}
-
-bool flame_editor(rfkt::flamedb& fdb, rfkt::flame& f, std::move_only_function<void(std::pair<thunk_t, thunk_t>&&)>& exec) {
+bool flame_editor(rfkt::flamedb& fdb, rfkt::flame& f, std::move_only_function<void(std::pair<thunk_t, thunk_t>&&)>& exec, rfkt::function_table& ft) {
 	bool modified = false;
+
+	namespace fdesc = rfkt::descriptors;
 
 	rfkt::gui::id_scope flame_scope{ &f };
 
+	auto flame_drag_edit = make_flame_drag_edit(f, exec, ft);
+
 	ImGui::Text("Display");
-	if(auto drag_start = rfkt::gui::drag_double("Rotate", f.rotate, 0.01, -360, 360); drag_start)
-		exec(make_flame_undoer(f, &rfkt::flame::rotate, f.rotate, drag_start.value()));
-
-	if(auto drag_start = rfkt::gui::drag_double("Scale", f.scale, 0.1, 0, 10'000); drag_start)
-		exec(make_flame_undoer(f, &rfkt::flame::scale, f.scale, drag_start.value()));
-
-	if(auto drag_start = rfkt::gui::drag_double("Center X", f.center_x, 0.1, -10, 10); drag_start)
-		exec(make_flame_undoer(f, &rfkt::flame::center_x, f.center_x, drag_start.value()));
-
-	if(auto drag_start = rfkt::gui::drag_double("Center Y", f.center_y, 0.1, -10, 10); drag_start)
-		exec(make_flame_undoer(f, &rfkt::flame::center_y, f.center_y, drag_start.value()));
-
+	flame_drag_edit(fdesc::flame{ &rfkt::flame::rotate}, "Rotate", 0.01);
+	flame_drag_edit(fdesc::flame{ &rfkt::flame::scale }, "Scale", 0.1, 0.0001);
+	flame_drag_edit(fdesc::flame{ &rfkt::flame::center_x }, "Center X", 0.1);
+	flame_drag_edit(fdesc::flame{ &rfkt::flame::center_y }, "Center Y", 0.1);
 	ImGui::Separator();
 
 	ImGui::Text("Color");
-	if(auto drag_start = rfkt::gui::drag_double("Gamma", f.gamma, 0.01, 0, 5); drag_start)
-		exec(make_flame_undoer(f, &rfkt::flame::gamma, f.gamma, drag_start.value()));
-
-	if(auto drag_start = rfkt::gui::drag_double("Brightness", f.brightness, 0.01, 0, 100); drag_start)
-		exec(make_flame_undoer(f, &rfkt::flame::brightness, f.brightness, drag_start.value()));
-
-	if(auto drag_start = rfkt::gui::drag_double("Vibrancy", f.vibrancy, 0.1, 0, 100); drag_start)
-		exec(make_flame_undoer(f, &rfkt::flame::vibrancy, f.vibrancy, drag_start.value()));
-
+	flame_drag_edit(fdesc::flame{ &rfkt::flame::gamma }, "Gamma", 0.01, 0.1);
+	flame_drag_edit(fdesc::flame{ &rfkt::flame::brightness }, "Brightness", 0.01, 0.1);
+	flame_drag_edit(fdesc::flame{ &rfkt::flame::vibrancy }, "Vibrancy", 0.01);
 	ImGui::Separator();
 
 	f.for_each_xform([&](int xid, rfkt::xform& xf) {
@@ -198,17 +245,10 @@ bool flame_editor(rfkt::flamedb& fdb, rfkt::flame& f, std::move_only_function<vo
 		std::string xf_name = (xid == -1) ? "Final Xform" : fmt::format("Xform {}", xid);
 
 		if (ImGui::CollapsingHeader(xf_name.c_str())) {
-			if(auto drag_start = rfkt::gui::drag_double("Weight", xf.weight, 0.01, 0, 50); drag_start)
-				exec(make_xform_undoer(f, xid, &rfkt::xform::weight, xf.weight, drag_start.value()));
-
-			if(auto drag_start = rfkt::gui::drag_double("Color", xf.color, 0.001, 0, 1); drag_start)
-				exec(make_xform_undoer(f, xid, &rfkt::xform::color, xf.color, drag_start.value()));
-
-			if(auto drag_start = rfkt::gui::drag_double("Color Speed", xf.color_speed, 0.001, 0, 1))
-				exec(make_xform_undoer(f, xid, &rfkt::xform::color_speed, xf.color_speed, drag_start.value()));
-
-			if(auto drag_start = rfkt::gui::drag_double("Opacity", xf.opacity, 0.001, 0, 1); drag_start)
-				exec(make_xform_undoer(f, xid, &rfkt::xform::opacity, xf.opacity, drag_start.value()));
+			flame_drag_edit(fdesc::xform{ xid, &rfkt::xform::weight }, "Weight", 0.01, 0);
+			flame_drag_edit(fdesc::xform{ xid, &rfkt::xform::color }, "Color", 0.001, { 0, 1 });
+			flame_drag_edit(fdesc::xform{ xid, &rfkt::xform::color_speed }, "Color Speed", 0.001, { 0, 1 });
+			flame_drag_edit(fdesc::xform{ xid, &rfkt::xform::opacity }, "Opacity", 0.001, { 0, 1 });
 
 			if (ImGui::BeginTabBar("Vchain")) {
 				for (int i = 0; i < xf.vchain.size(); i++) {
@@ -219,25 +259,19 @@ bool flame_editor(rfkt::flamedb& fdb, rfkt::flame& f, std::move_only_function<vo
 						{
 							rfkt::gui::id_scope vl_scope{ &vl };
 
-							if(auto drag_start = rfkt::gui::drag_double("Affine A", vl.transform.a, 0.001, -5, 5); drag_start)
-								exec(make_transform_undoer(f, xid, i, &rfkt::affine::a, vl.transform.a, drag_start.value()));
-
-							if(auto drag_start = rfkt::gui::drag_double("Affine B", vl.transform.b, 0.001, -5, 5); drag_start)
-								exec(make_transform_undoer(f, xid, i, &rfkt::affine::b, vl.transform.b, drag_start.value()));
-
-							if(auto drag_start = rfkt::gui::drag_double("Affine C", vl.transform.c, 0.001, -5, 5); drag_start)
-								exec(make_transform_undoer(f, xid, i, &rfkt::affine::c, vl.transform.c, drag_start.value()));
-
-							if(auto drag_start = rfkt::gui::drag_double("Affine D", vl.transform.d, 0.001, -5, 5); drag_start)
-								exec(make_transform_undoer(f, xid, i, &rfkt::affine::d, vl.transform.d, drag_start.value()));
-
-							if(auto drag_start = rfkt::gui::drag_double("Affine E", vl.transform.e, 0.001, -5, 5); drag_start)
-								exec(make_transform_undoer(f, xid, i, &rfkt::affine::e, vl.transform.e, drag_start.value()));
-
-							if(auto drag_start = rfkt::gui::drag_double("Affine F", vl.transform.f, 0.001, -5, 5); drag_start)
-								exec(make_transform_undoer(f, xid, i, &rfkt::affine::f, vl.transform.f, drag_start.value()));
-
+							ImGui::Text("Affine");
+							flame_drag_edit(fdesc::transform{ xid, i, &rfkt::affine::a }, "A", 0.001);
+							flame_drag_edit(fdesc::transform{ xid, i, &rfkt::affine::b }, "B", 0.001);
+							flame_drag_edit(fdesc::transform{ xid, i, &rfkt::affine::c }, "C", 0.001);
+							flame_drag_edit(fdesc::transform{ xid, i, &rfkt::affine::d }, "D", 0.001);
+							flame_drag_edit(fdesc::transform{ xid, i, &rfkt::affine::e }, "E", 0.001);
+							flame_drag_edit(fdesc::transform{ xid, i, &rfkt::affine::f }, "F", 0.001);
+							flame_drag_edit(fdesc::vlink{xid, i, &rfkt::vlink::mod_rotate}, "Rotate", 0.01);
+							flame_drag_edit(fdesc::vlink{xid, i, &rfkt::vlink::mod_scale}, "Scale", 0.01, 0.0001);
+							flame_drag_edit(fdesc::vlink{xid, i, &rfkt::vlink::mod_x}, "X", 0.01);
+							flame_drag_edit(fdesc::vlink{xid, i, &rfkt::vlink::mod_y}, "Y", 0.01);
 							ImGui::Separator();
+
 							static bool just_opened = false;
 							static char filter[128] = { 0 };
 
@@ -285,8 +319,7 @@ bool flame_editor(rfkt::flamedb& fdb, rfkt::flame& f, std::move_only_function<vo
 							for (auto& [vname, vd] : vl) {
 								rfkt::gui::id_scope var_scope{ &vd };
 								ImGui::Separator();
-								if (auto drag_start = rfkt::gui::drag_double(vname.c_str(), vd.weight, 0.001, -50, 50); drag_start)
-									exec(make_vardata_undoer(f, xid, i, vname, &rfkt::vardata::weight, vd.weight, drag_start.value()));
+								flame_drag_edit(fdesc::vardata{ xid, i, vname, &rfkt::vardata::weight }, vname, 0.001);
 							
 								if (vl.size_variations() > 1) {
 									ImGui::SameLine(ImGui::GetContentRegionAvail().x - 10);
@@ -294,8 +327,8 @@ bool flame_editor(rfkt::flamedb& fdb, rfkt::flame& f, std::move_only_function<vo
 								}
 
 								for (auto& [pname, val] : vd) {
-									if (auto drag_start = rfkt::gui::drag_double(std::format("{}_{}", vname, pname).c_str(), val, 0.001, -50, 50); drag_start)
-										exec(make_parameter_undoer(f, xid, i, vname, pname, val, drag_start.value()));
+									std::string full_name = std::format("{}_{}", vname, pname);
+									flame_drag_edit(fdesc::parameter{ xid, i, vname, pname }, full_name, 0.001);
 								}
 							}
 							if (!removed_var.empty()) {
@@ -423,6 +456,26 @@ void main_thread(rfkt::cuda::context ctx, std::stop_source stop) {
 
 	auto kernel_cache = std::make_shared<ezrtc::sqlite_cache>("kernel.sqlite3");
 	auto zlib = std::make_shared<ezrtc::cache_adaptors::zlib>(std::make_shared<ezrtc::cache_adaptors::guarded>(kernel_cache));
+
+	rfkt::function_table ft;
+	ft.add_or_update("increase", {
+		{{"per_loop", {rfkt::func_info::arg_t::decimal, 360.0}}},
+		"return iv + t * per_loop"
+	});
+
+	ft.add_or_update("sine", {
+			{
+				{"frequency", {rfkt::func_info::arg_t::decimal, 1.0}},
+				{"amplitude", {rfkt::func_info::arg_t::decimal, 1.0}},
+				{"phase", {rfkt::func_info::arg_t::decimal, 0.0}},
+				{"sharpness", {rfkt::func_info::arg_t::decimal, 0.0}},
+				{"absolute", {rfkt::func_info::arg_t::boolean, false}}
+			},
+			"local v = math.sin(t * frequency * math.pi * 2.0 + math.rad(phase))\n"
+			"if sharpness > 0 then v = math.copysign(1.0, v) * (math.abs(v) ^ sharpness) end\n"
+			"if absolute then v = math.abs(v) end\n"
+			"return iv + v * amplitude\n"
+		});
 
 	ezrtc::compiler kc{ zlib };
 	//kc.find_system_cuda();
@@ -559,14 +612,14 @@ void main_thread(rfkt::cuda::context ctx, std::stop_source stop) {
 		ImGui::PopStyleColor();
 
 		if (ImGui::Begin("Flame Options")) {
-			flame_editor(fdb, flame.value(), exec);
+			flame_editor(fdb, flame.value(), exec, ft);
 		}
 		ImGui::End();
 
 		ImGui::ShowDemoWindow();
 		draw_status_bar();
 
-		prev_panel.show(fdb, flame.value());
+		prev_panel.show(fdb, flame.value(), ft);
 
 		rfkt::gl::end_frame(true);
 	}

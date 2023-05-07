@@ -200,7 +200,7 @@ namespace rfkt {
 		const auto& vdef = variations_.find(vname)->second;
 
 		auto precalc_count = std::size_t{ 0 };
-		std::map<std::string, double, std::less<>> params;
+		std::map<std::string, anima, std::less<>> params;
 		for (const auto& [name, param] : vdef.parameters) {
 			if (param.tags.contains("precalc")) {
 				precalc_count++;

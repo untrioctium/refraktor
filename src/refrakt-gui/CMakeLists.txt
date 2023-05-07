@@ -1,4 +1,13 @@
-add_executable(refrakt-gui src/refrakt_gui.cpp src/gl.cpp src/gui_styles.cpp include/gl.h include/gui.h include/pch.h include/gui/panels/preview_panel.h src/gui/panels/preview_panel.cpp)
+add_executable(refrakt-gui 
+  src/refrakt_gui.cpp 
+  src/gl.cpp src/gui_styles.cpp 
+  include/gl.h 
+  include/gui.h 
+  include/pch.h 
+  include/gui/panels/preview_panel.h 
+  src/gui/panels/preview_panel.cpp
+  include/gui/modals/render_modal.h
+  src/gui/modals/render_modal.cpp)
 target_precompile_headers(refrakt-gui PRIVATE include/pch.h)
 target_include_directories(refrakt-gui PRIVATE include/)
 

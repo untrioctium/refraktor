@@ -863,70 +863,26 @@ auto rfkt::flame_kernel::bin(cuda_stream& stream, flame_kernel::saved_state & st
     return future;
 }
 
-/*auto rfkt::flame_kernel::warmup(CUstream stream, const flame& f, uint2 dims, double t, std::uint32_t nseg, double loops_per_frame, std::uint32_t seed, std::uint32_t count) const -> flame_kernel::saved_state
+auto rfkt::flame_kernel::warmup(cuda_stream& stream, std::span<double> samples, uint2 dims, std::uint32_t seed, std::uint32_t count) const -> flame_kernel::saved_state
 {
-    const auto nreals = f.size_reals() + 256ull * 3ull;
-    const auto pack_size_reals = nreals * (nseg + 3ull);
+    const auto sample_size = flame_size_reals + 256 * 3;
+    const auto sample_count = samples.size() / sample_size;
 
-    auto samples_dev = rfkt::cuda_buffer<double>{ pack_size_reals, stream };
-    auto segments_dev = rfkt::cuda_buffer<double>{ pack_size_reals * 4 * nseg, stream };
-
-    auto state = flame_kernel::saved_state{ dims, this->saved_state_size(), stream};
-
-    thread_local pinned_ring_allocator_t<1024 * 1024 * 8> pra{};
-    const auto pack = pra.reserve<double>(pack_size_reals);
-    auto packer = [pack, counter = 0](double v) mutable {
-        pack[counter] = v;
-        counter++;
-    };
-
-    const auto seg_length = (loops_per_frame * 1.2) / (nseg);
-    for (int pos = -1; pos < static_cast<int>(nseg) + 2; pos++) {
-        f.pack(packer);
+    if (samples.size() % sample_size != 0) {
+        SPDLOG_CRITICAL("Invalid sample size: {}", samples.size());
     }
 
-    samples_dev.from_host(pack, stream);
-
-    const auto [grid, block] = this->catmull->kernel().suggested_dims();
-    auto nblocks = (nseg * pack_size_reals) / block;
-    if ((nseg * pack_size_reals) % block > 0) nblocks++;
-    CUDA_SAFE_CALL(
-        this->catmull->kernel().launch(nblocks, block, stream, false)
-        (
-            samples_dev.ptr(),
-            static_cast<std::uint32_t>(nreals), 
-            std::uint32_t{ nseg }, 
-            segments_dev.ptr()
-        ));
-
-
-
-    CUDA_SAFE_CALL(this->mod.kernel("warmup")
-        .launch(this->exec.first, this->exec.second, stream, true)
-        (
-            std::uint32_t{ nseg },
-            segments_dev.ptr(),
-            seed, count, dims.x, dims.y,
-            state.shared.ptr()
-            ));
-
-    segments_dev.free_async(stream);
-    samples_dev.free_async(stream);
-
-    return state;
-}*/
-
-auto rfkt::flame_kernel::warmup(cuda_stream& stream, std::span<const flame> samples, uint2 dims, std::uint32_t seed, std::uint32_t count) const -> flame_kernel::saved_state
-{
-    const auto nseg = static_cast<std::uint32_t>(samples.size() - 3);
-    const auto sample_size = flame_size_reals + samples[0].palette.size() * 3;
-    const auto nreals = samples.size() * sample_size;
+    const auto nseg = static_cast<std::uint32_t>(sample_count - 3);
+    const auto nreals = samples.size();
 
     thread_local pinned_ring_allocator_t<1024 * 1024 * 8> pra{};
 
     auto pinned_samples = pra.reserve<double>(nreals);
 
-    std::size_t pack_index = 0;
+    std::copy(samples.begin(), samples.end(), pinned_samples.begin());
+
+
+    /*std::size_t pack_index = 0;
     auto packer = [pinned_samples, &pack_index](double v) {
 		pinned_samples[pack_index] = v;
 		pack_index++;
@@ -946,7 +902,7 @@ auto rfkt::flame_kernel::warmup(cuda_stream& stream, std::span<const flame> samp
 		}
     }
 
-    assert(pack_index == nreals);
+    assert(pack_index == nreals);*/
 
     auto samples_dev = rfkt::cuda_buffer<double>{ nreals, stream};
     samples_dev.from_host(pinned_samples, stream);

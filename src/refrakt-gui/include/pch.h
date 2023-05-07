@@ -23,4 +23,7 @@
 #include <librefrakt/util.h>
 #include <nlohmann/json.hpp>
 
+#include <librefrakt/flame_types.h>
+
 using thunk_t = std::move_only_function<void()>;
+using cmd_exec_t = std::move_only_function<void(std::pair<thunk_t, thunk_t>&&)>;

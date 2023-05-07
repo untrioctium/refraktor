@@ -6,6 +6,8 @@ namespace rfkt::traits {
 
 	struct hashable {
 	public:
+		hashable() = default;
+		~hashable() = default;
 
 		auto hash(this const auto& self) -> rfkt::hash_t {
 			auto state = rfkt::hash::state_t{};
