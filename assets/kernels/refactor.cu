@@ -1,4 +1,4 @@
-//#define USE_ASYNC_MEMCPY
+#define USE_ASYNC_MEMCPY
 
 #ifdef USE_ASYNC_MEMCPY
 #include <cooperative_groups/memcpy_async.h>
@@ -360,7 +360,7 @@ void bin(
 		
 		fl::sync_block();
 		if(fl::is_block_leader()) {
-			state.should_bail = state.tss_quality > (quality_target / gridDim.x) || (fl::time() - state.tss_start) >= time_bailout || i >= iter_bailout;
+			state.should_bail = state.tss_quality > (double(quality_target) / gridDim.x) || (fl::time() - state.tss_start) >= time_bailout || i >= iter_bailout;
 			state.tss_passes += blockDim.x;
 		}
 		fl::sync_block();

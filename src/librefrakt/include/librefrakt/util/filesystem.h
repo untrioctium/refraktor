@@ -10,6 +10,7 @@ namespace rfkt::fs {
 	const path& working_directory();
 
 	const path& user_local_directory();
+	const path& user_home_directory();
 
 	auto read_bytes(const path& file_path) -> std::vector<char>;
 	auto read_string(const path& file_path) -> std::string;

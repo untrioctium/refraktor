@@ -165,3 +165,55 @@ auto rfkt::import_flam3(const flamedb& fdb, std::string_view content) noexcept -
 
 	return ret;
 }
+
+json rfkt::anima::serialize() const noexcept {
+	if (!call_info) return t0;
+	auto result = json::object();
+	result["t0"] = t0;
+
+	result["call"] = call_info->first;
+	result["args"] = json::object();
+	for (auto& [k, v] : call_info->second) {
+		if (std::holds_alternative<int>(v)) {
+			result["args"][k] = std::get<int>(v);
+		}
+		else if (std::holds_alternative<double>(v)) {
+			result["args"][k] = std::get<double>(v);
+		}
+		else if (std::holds_alternative<bool>(v)) {
+			result["args"][k] = std::get<bool>(v);
+		}
+	}
+
+	return result;
+}
+
+std::optional<rfkt::anima> rfkt::anima::deserialize(const json& js) noexcept {
+	if (js.is_number()) return js.get<double>();
+
+	if (!js.is_object()) return std::nullopt;
+	if (!js.contains("t0") || !js["t0"].is_number()) return std::nullopt;
+
+	auto t0 = js["t0"].get<double>();
+	if (js.contains("call")) {
+		auto call = js["call"].get<std::string>();
+		auto args = js["args"].get<json::object_t>();
+		auto arg_map = arg_map_t();
+		for (auto& [k, v] : args) {
+			if (v.is_number_integer()) {
+				arg_map[k] = v.get<int>();
+			}
+			else if (v.is_number_float()) {
+				arg_map[k] = v.get<double>();
+			}
+			else if (v.is_boolean()) {
+				arg_map[k] = v.get<bool>();
+			}
+		}
+
+		return anima(t0, std::make_pair(call, arg_map));
+	}
+	else {
+		return anima(t0);
+	}
+}

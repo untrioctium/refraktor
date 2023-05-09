@@ -9,6 +9,8 @@
 #include <optional>
 #include <array>
 
+#include <librefrakt/util/filesystem.h>
+
 #define CUDA_SAFE_CALL(x)                                         \
   do {                                                            \
     CUresult result = x;                                          \
@@ -26,6 +28,8 @@ class half3 {
 };
 
 namespace rfkt::cuda {
+
+    std::optional<rfkt::fs::path> check_and_download_cudart();
 
     struct execution_config {
         int grid;

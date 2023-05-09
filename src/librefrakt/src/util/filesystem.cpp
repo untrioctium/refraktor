@@ -47,6 +47,22 @@ const path& rfkt::fs::user_local_directory() {
 	return local_dir;
 }
 
+const path& rfkt::fs::user_home_directory() {
+	const static path home_dir = []() -> path {
+		#ifdef _WIN32
+		PWSTR home_path = nullptr;
+		if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_Documents, 0, NULL, &home_path))) {
+			return home_path;
+		}
+		else {
+			return std::filesystem::current_path();
+		}
+		#endif
+	}();
+
+	return home_dir;
+}
+
 auto rfkt::fs::read_bytes(const path& file_path) -> std::vector<char>
 {
 	auto file_size = rfkt::fs::size(file_path);

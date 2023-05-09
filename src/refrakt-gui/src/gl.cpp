@@ -9,6 +9,7 @@
 #define WIN32_LEAN_AND_MEAN
 #include <Windows.h>
 #include <commdlg.h>
+#include <ShObjIdl_core.h>
 #endif 
 #include <GLFW/glfw3.h>
 #include <GLFW/glfw3native.h>
@@ -40,22 +41,25 @@ namespace rfkt::gl {
 
 		std::atomic<bool> minimized = false;
 
+#ifdef _WIN32
+		ITaskbarList4* taskbar;
+#endif
+
 	} gl_state;
 }
 
-std::string rfkt::gl::show_open_dialog(std::string_view filter)
-{
 #ifdef _WIN32
+template<decltype(&GetOpenFileNameA) func, decltype(OPENFILENAMEA::Flags) flags = 0>
+std::string dialog_impl(std::string_view filter, std::string path) 
+{
 	OPENFILENAMEA open;
 	memset(&open, 0, sizeof(open));
 
 	char filename[512];
 	memset(&filename, 0, sizeof(filename));
 
-	std::string path = (std::filesystem::current_path() / "assets" / "flames").string();
-
 	open.lStructSize = sizeof(open);
-	open.hwndOwner = glfwGetWin32Window(gl_state.window);
+	open.hwndOwner = glfwGetWin32Window(rfkt::gl::gl_state.window);
 	open.lpstrFile = filename;
 	open.lpstrInitialDir = path.c_str();
 	open.nMaxFile = sizeof(filename);
@@ -65,11 +69,25 @@ std::string rfkt::gl::show_open_dialog(std::string_view filter)
 		open.nFilterIndex = 1;
 	}
 
-	open.Flags = OFN_PATHMUSTEXIST | OFN_FILEMUSTEXIST | OFN_NOCHANGEDIR;
+	open.Flags = flags | OFN_NOCHANGEDIR;
 
-	if (GetOpenFileNameA(&open) == TRUE) return open.lpstrFile;
-	if(auto err = CommDlgExtendedError(); err != 0) SPDLOG_ERROR("Dialog error: 0x{:04x}", err);
+	if ((*func)(&open) == TRUE) return open.lpstrFile;
+	if (auto err = CommDlgExtendedError(); err != 0) SPDLOG_ERROR("Dialog error: 0x{:04x}", err);
 	return {};
+}
+#endif
+
+std::string rfkt::gl::show_open_dialog(const rfkt::fs::path& path, std::string_view filter)
+{
+#ifdef _WIN32
+	return dialog_impl<GetOpenFileNameA, OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST>(filter, path.string());
+#endif
+}
+
+std::string rfkt::gl::show_save_dialog(const rfkt::fs::path& path, std::string_view filter)
+{
+#ifdef _WIN32
+	return dialog_impl<GetSaveFileNameA, OFN_OVERWRITEPROMPT>(filter, path.string());
 #endif
 }
 
@@ -150,18 +168,6 @@ namespace rfkt {
 			const char* string;
 		};
 
-		struct unknown {
-			int event;
-		};
-
-		struct destroy_cuda_map {
-			CUgraphicsResource cuda_res;
-		};
-
-		struct destroy_texture {
-			CUgraphicsResource cuda_res;
-			GLuint tex_id;
-		};
 	}
 
 	using event = std::variant<
@@ -180,10 +186,8 @@ namespace rfkt {
 		events::framebuffer_size,
 		events::file_drop,
 		events::joystick,
-		events::clipboard,
-		events::destroy_cuda_map,
-		events::destroy_texture,
-		events::unknown>;
+		events::clipboard
+	>;
 
 	std::optional<event> poll_event();
 
@@ -212,6 +216,15 @@ namespace rfkt {
 		struct set_window_title {
 			std::string title;
 		};
+
+		struct set_taskbar_progress_enabled {
+			bool enabled;
+		};
+
+		struct set_taskbar_progress_value {
+			unsigned long long current;
+			unsigned long long max;
+		};
 	}
 	using signal = std::variant<
 		signals::set_cursor,
@@ -219,7 +232,9 @@ namespace rfkt {
 		signals::set_cursor_enabled,
 		signals::set_window_title,
 		signals::set_clipboard,
-		signals::get_clipboard>;
+		signals::get_clipboard,
+		signals::set_taskbar_progress_enabled,
+		signals::set_taskbar_progress_value>;
 
 	using signal_queue_t = moodycamel::ReaderWriterQueue<signal>;
 
@@ -378,17 +393,15 @@ bool rfkt::gl::init(int width, int height)
 	window_size_atomic().store(window_size);
 
 	glfwSetWindowSizeCallback(gl_state.window, [](GLFWwindow*, int width, int height) {
-		SPDLOG_INFO("Setting window size to {}x{}", width, height);
 		if (width == 0 || height == 0) return;
 		window_size_atomic().store({ width, height });
 	});
 
 	glfwSetWindowPosCallback(gl_state.window, [](GLFWwindow*, int x, int y) {
-		SPDLOG_INFO("Setting window position to {}, {}", x, y);
 		window_pos_atomic().store({ x, y });
 	});
 
-	static auto get_key_modifiers = [](GLFWwindow* window) {
+	constexpr static auto get_key_modifiers = [](GLFWwindow* window) {
 		int mods = 0;
 		if (glfwGetKey(window, GLFW_KEY_LEFT_CONTROL) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_RIGHT_CONTROL) == GLFW_PRESS)
 			mods |= GLFW_MOD_CONTROL;
@@ -469,6 +482,12 @@ bool rfkt::gl::init(int width, int height)
 	ImGui_ImplOpenGL3_Init(glsl_version);
 
 	glfwMakeContextCurrent(nullptr);
+
+#ifdef _WIN32
+	CoInitialize(nullptr);
+
+	CoCreateInstance(CLSID_TaskbarList, nullptr, CLSCTX_INPROC_SERVER, IID_ITaskbarList4, (void**)&gl_state.taskbar);
+#endif
 
 	return true;
 }
@@ -582,7 +601,7 @@ void rfkt::gl::begin_frame()
 		if (!event) break;
 
 		std::visit([](auto&& ev) {
-			event_visitor(std::move(ev), ImGui::GetIO());
+			event_visitor(std::forward<decltype(ev)>(ev), ImGui::GetIO());
 		}, std::move(event.value()));
 	}
 
@@ -682,6 +701,24 @@ void signal_visitor<rfkt::signals::set_window_title>(rfkt::signals::set_window_t
 	glfwSetWindowTitle(rfkt::gl::gl_state.window, sig.title.c_str());
 }
 
+template<>
+void signal_visitor<rfkt::signals::set_taskbar_progress_enabled>(rfkt::signals::set_taskbar_progress_enabled sig) {
+#ifdef _WIN32
+	if (!rfkt::gl::gl_state.taskbar) return;
+	auto handle = glfwGetWin32Window(rfkt::gl::gl_state.window);
+	rfkt::gl::gl_state.taskbar->SetProgressState(handle, sig.enabled ? TBPF_NORMAL : TBPF_NOPROGRESS);
+#endif
+}
+
+template<>
+void signal_visitor<rfkt::signals::set_taskbar_progress_value>(rfkt::signals::set_taskbar_progress_value sig) {
+#ifdef _WIN32
+	if (!rfkt::gl::gl_state.taskbar) return;
+	auto handle = glfwGetWin32Window(rfkt::gl::gl_state.window);
+	rfkt::gl::gl_state.taskbar->SetProgressValue(handle, sig.current, sig.max);
+#endif
+}
+
 void rfkt::gl::set_clipboard(std::string contents)
 {
 	rfkt::push_signal(rfkt::signals::set_clipboard{std::move(contents)});
@@ -709,6 +746,16 @@ void rfkt::gl::set_window_title(std::string_view title) {
 	rfkt::push_signal(rfkt::signals::set_window_title{ std::string{title} });
 }
 
+void rfkt::gl::set_window_progress_enabled(bool enabled)
+{
+	rfkt::push_signal(rfkt::signals::set_taskbar_progress_enabled{ enabled });
+}
+
+void rfkt::gl::set_window_progress_value(unsigned long long current, unsigned long long max)
+{
+	rfkt::push_signal(rfkt::signals::set_taskbar_progress_value{ current, max });
+}
+
 bool rfkt::gl::close_requested() {
 	return glfwWindowShouldClose(gl_state.window);
 }
@@ -727,6 +774,10 @@ void rfkt::gl::event_loop(std::stop_token stoke)
 			}, std::move(sig.value()));
 		}
 	}
+
+#ifdef _WIN32
+	CoUninitialize();
+#endif
 }
 
 ImGuiKey glfw_to_imgui_key(int key)

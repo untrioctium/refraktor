@@ -730,11 +730,11 @@ bool ezrtc::compiler::find_system_cuda(const std::filesystem::path& hint) {
 
 	auto check_and_add = [this](fs::path dir) -> bool {
 		auto ec = std::error_code{};
-		bool exists = fs::exists(dir / "version.json", ec);
+		bool exists = fs::exists(dir / "cuda.h", ec);
 		if (ec or not exists) return false;
 
 		cuda_include_flags = std::vector <std::string>{};
-		cuda_include_flags->emplace_back(std::format("--include-path={}", (dir / "include").string()));
+		cuda_include_flags->emplace_back(std::format("--include-path={}", dir.string()));
 
 		for (auto& flag : cuda_include_flags.value()) {
 			for (auto& c : flag) {
@@ -750,7 +750,7 @@ bool ezrtc::compiler::find_system_cuda(const std::filesystem::path& hint) {
 
 	// check env
 	auto val = std::getenv("CUDA_PATH");
-	if (val && check_and_add(val)) return true;
+	if (val && check_and_add(std::format("{}/include", val))) return true;
 
 	return false;
 }

@@ -1,4 +1,5 @@
 #include <zlib.h>
+#include <zip.h>
 
 #include <librefrakt/util/zlib.h>
 
@@ -32,4 +33,13 @@ std::vector<char> rfkt::zlib::uncompress(const void* data, std::size_t len)
     ret.resize(inflated_size);
     ::uncompress((Bytef*) ret.data(), &inflated_size, (Bytef*) data + sizeof(len), len - sizeof(len));
     return ret;
+}
+
+bool rfkt::zlib::extract_zip(const rfkt::fs::path& zip_path, const rfkt::fs::path& out_path)
+{
+    if (!fs::exists(zip_path) || !fs::exists(out_path) || !fs::is_directory(out_path)) return false;
+
+    int error = zip_extract(zip_path.string().c_str(), out_path.string().c_str(), nullptr, nullptr);
+
+    return error == 0;
 }

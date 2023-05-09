@@ -194,13 +194,16 @@ std::optional<double> rfkt::gui::drag_double(std::string_view name, double& v, f
 	static ImGuiID dragging_id = 0;
 
 	auto iv = v;
-	ImGui::DragScalar(name.data(), ImGuiDataType_Double, &v, speed, &min, &max);
+	ImGui::DragScalar(std::format("##{}", name).c_str(), ImGuiDataType_Double, &v, speed, &min, &max);
 	auto cur_id = ImGui::GetID(name.data());
 
 	if (dragging && dragging_id != cur_id) return std::nullopt;
 
 	const bool mouse_down = ImGui::IsMouseDown(ImGuiMouseButton_Left);
 	const bool hovered = ImGui::IsItemHovered();
+
+	ImGui::SameLine();
+	ImGui::Text(name.data());
 
 	if (!mouse_down && dragging) {
 		dragging = false;

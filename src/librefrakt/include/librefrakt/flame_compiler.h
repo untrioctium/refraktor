@@ -56,7 +56,7 @@ namespace rfkt {
 		};
 
 		struct bailout_args {
-			std::uint32_t iters = 1000000;
+			std::uint32_t iters = 4'000'000'000;
 			std::uint32_t millis = 1000;
 			double quality = 128.0;
 		};

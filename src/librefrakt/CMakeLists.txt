@@ -9,6 +9,7 @@ set(HEADER_LIST
 	"include/librefrakt/util/zlib.h"
 	"include/librefrakt/util/color.h"
 	"include/librefrakt/util/nvjpeg.h"
+	"include/librefrakt/util/http.h"
 	"include/librefrakt/util.h"
 	"include/librefrakt/flame_types.h"
 	"include/librefrakt/flame_info.h"
@@ -29,6 +30,7 @@ add_library(librefrakt STATIC
 	"src/util/color.cpp"
 	"src/util/stb.cpp"
 	"src/util/nvjpeg.cpp"
+	"src/util/http.cpp"
 	"src/flame_types.cpp"
 	"src/flame_info.cpp"
 	"src/flame_compiler.cpp"
@@ -140,8 +142,34 @@ FetchContent_Declare(
   sol2
   GIT_REPOSITORY https://github.com/ThePhD/sol2.git
   GIT_TAG v3.2.2
+  GIT_SHALLOW TRUE
 )
+
 FetchContent_MakeAvailable(sol2)
+
+if(WIN32)
+	set(CURL_USE_SCHANNEL ON CACHE BOOL "" FORCE)
+endif()
+
+set(BUILD_CURL_EXE OFF CACHE BOOL "" FORCE)
+set(HTTP_ONLY ON CACHE BOOL "" FORCE)
+
+FetchContent_Declare(
+  curl
+  GIT_REPOSITORY https://github.com/curl/curl.git
+  GIT_SHALLOW TRUE
+)
+FetchContent_MakeAvailable(curl)
+
+FetchContent_Declare(
+  zip
+  GIT_REPOSITORY https://github.com/kuba--/zip
+  GIT_SHALLOW TRUE
+)
+FetchContent_Populate(zip)
+add_library(zip ${zip_SOURCE_DIR}/src/zip.c ${zip_SOURCE_DIR}/src/zip.h ${zip_SOURCE_DIR}/src/miniz.h)
+target_include_directories(zip PUBLIC ${zip_SOURCE_DIR}/src)
+
 
 target_compile_definitions(librefrakt PUBLIC EZRTC_USE_ZLIB EZRTC_USE_SQLITE)
 
@@ -157,6 +185,8 @@ target_link_libraries(librefrakt PRIVATE
 	xxhash 
 	CUDA::nvjpeg
 	stb
+	zip
+	CURL::libcurl
 )
 
 target_link_libraries(librefrakt PUBLIC

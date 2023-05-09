@@ -14,9 +14,12 @@
 #include <librefrakt/util/filesystem.h>
 #include <librefrakt/util/gpuinfo.h>
 
+#include <librefrakt/util/http.h>
+
 #include "gl.h"
 #include "gui.h"
 
+#include "gui/modals/render_modal.h"
 #include "gui/panels/preview_panel.h"
 
 class command_executor {
@@ -210,8 +213,8 @@ auto make_flame_drag_edit(rfkt::flame& f, std::move_only_function<void(std::pair
 		animator_button(desc, min_button_width);
 		ImGui::SameLine();
 		if (auto drag_start = rfkt::gui::drag_double(text, ptr->t0, step, eb.min, eb.max); drag_start) {
-			rfkt::anima new_value = { ptr->t0, f.rotate.call_info };
-			rfkt::anima old_value = { drag_start.value(), f.rotate.call_info };
+			rfkt::anima new_value = { ptr->t0, ptr->call_info };
+			rfkt::anima old_value = { drag_start.value(), ptr->call_info };
 			exec(make_undoer(f, desc, std::move(new_value), std::move(old_value)));
 		}
 	};
@@ -454,8 +457,15 @@ void main_thread(rfkt::cuda::context ctx, std::stop_source stop) {
 	rfkt::flamedb fdb;
 	rfkt::initialize(fdb, "config");
 
+	auto runtime_path = rfkt::cuda::check_and_download_cudart();
+	if (!runtime_path) {
+		SPDLOG_CRITICAL("Could not find CUDA runtime");
+		return;
+	}
 	auto kernel_cache = std::make_shared<ezrtc::sqlite_cache>("kernel.sqlite3");
 	auto zlib = std::make_shared<ezrtc::cache_adaptors::zlib>(std::make_shared<ezrtc::cache_adaptors::guarded>(kernel_cache));
+	ezrtc::compiler kc{ zlib };
+	kc.find_system_cuda(*runtime_path);
 
 	rfkt::function_table ft;
 	ft.add_or_update("increase", {
@@ -476,9 +486,6 @@ void main_thread(rfkt::cuda::context ctx, std::stop_source stop) {
 			"if absolute then v = math.abs(v) end\n"
 			"return iv + v * amplitude\n"
 		});
-
-	ezrtc::compiler kc{ zlib };
-	//kc.find_system_cuda();
 
 	rfkt::flame_compiler fc(kc);
 	auto tm = rfkt::tonemapper{ kc };
@@ -534,6 +541,8 @@ void main_thread(rfkt::cuda::context ctx, std::stop_source stop) {
 	thunk_executor->post([&ctx]() {ctx.make_current(); });
 
 	auto prev_panel = preview_panel{render_stream, fc, executor, renderer, exec};
+	auto render_modal = rfkt::gui::render_modal{ kc, fc, fdb, ft };
+
 
 	while (!should_exit) {
 		rfkt::gl::begin_frame();
@@ -550,6 +559,9 @@ void main_thread(rfkt::cuda::context ctx, std::stop_source stop) {
 
 		ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
 		ImGui::PushStyleColor(ImGuiCol_MenuBarBg, ImVec4(32 / 255.0f, 32 / 255.0f, 32 / 255.0f, 1.0f));
+
+		bool open_render_modal = false;
+
 		if (ImGui::BeginMainMenuBar()) {
 			if (ImGui::BeginMenu("File")) {
 				ImGui::MenuItem("New");
@@ -558,7 +570,7 @@ void main_thread(rfkt::cuda::context ctx, std::stop_source stop) {
 					runtime.background_executor()->enqueue([ctx, &c_exec, &fdb, &thunk_executor, &cur_flame = flame]() mutable {
 						ctx.make_current_if_not();
 
-						std::string filename = rfkt::gl::show_open_dialog("Flames\0*.flam3\0");
+						std::string filename = rfkt::gl::show_open_dialog(rfkt::fs::working_directory() / "assets" / "flames", "Flames\0 * .flam3\0");
 
 						if (filename.empty()) return;
 
@@ -567,6 +579,8 @@ void main_thread(rfkt::cuda::context ctx, std::stop_source stop) {
 							SPDLOG_ERROR("could not open flame: {}", filename);
 							return;
 						}
+
+						SPDLOG_INFO("flame data:\n{}", flame->serialize().dump(2));
 
 						thunk_executor->enqueue([&c_exec, flame = std::move(flame), &cur_flame]() mutable {
 							c_exec.clear();
@@ -584,6 +598,13 @@ void main_thread(rfkt::cuda::context ctx, std::stop_source stop) {
 				}
 				if (ImGui::MenuItem("Redo", "CTRL+Y", false, c_exec.can_redo())) {
 					c_exec.redo();
+				}
+				ImGui::EndMenu();
+			}
+
+			if (ImGui::BeginMenu("Render")) {
+				if (ImGui::MenuItem("Video")) {
+					open_render_modal = true;
 				}
 				ImGui::EndMenu();
 			}
@@ -620,6 +641,8 @@ void main_thread(rfkt::cuda::context ctx, std::stop_source stop) {
 		draw_status_bar();
 
 		prev_panel.show(fdb, flame.value(), ft);
+		if(open_render_modal) render_modal.show(flame.value());
+		render_modal.frame_logic();
 
 		rfkt::gl::end_frame(true);
 	}
@@ -647,6 +670,8 @@ int main(int argc, char**) {
 	auto render_thread = std::jthread(main_thread, ctx, std::move(stopper));
 
 	rfkt::gl::event_loop(stoke);
+
+	
 
 	return 0;
 }

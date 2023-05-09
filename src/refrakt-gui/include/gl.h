@@ -23,13 +23,18 @@ namespace rfkt::gl {
 
 	void event_loop(std::stop_token);
 
-	std::string show_open_dialog(std::string_view filter = {});
+	std::string show_open_dialog(const rfkt::fs::path& path, std::string_view filter);
+	std::string show_save_dialog(const rfkt::fs::path& path, std::string_view filter);
+
 	void set_clipboard(std::string contents);
 	auto get_clipboard() -> std::future<std::string>;
 	void set_mouse_position(double x, double y);
 	void set_cursor_enabled(bool enabled);
 	bool cursor_enabled();
 	void set_window_title(std::string_view title);
+
+	void set_window_progress_enabled(bool);
+	void set_window_progress_value(unsigned long long current, unsigned long long max);
 
 	void set_target_fps(unsigned int fps = 0);
 

@@ -6,6 +6,9 @@
 #include <string_view>
 #include <variant>
 
+#include <nlohmann/json.hpp>
+using json = nlohmann::json;
+
 #include <librefrakt/traits/hashable.h>
 
 namespace rfkt {
@@ -52,6 +55,10 @@ namespace rfkt {
 		}
 
 		anima() = default;
+
+		json serialize() const noexcept;
+
+		static std::optional<anima> deserialize(const json& js) noexcept;
 	};
 
 
@@ -105,6 +112,28 @@ namespace rfkt {
 
 		static auto identity() noexcept {
 			return affine{ 1, 0, 0, 1, 0, 0 };
+		}
+
+		json serialize() const noexcept {
+			return json::array({ a.serialize(), b.serialize(), c.serialize(), d.serialize(), e.serialize(), f.serialize() });
+		}
+
+		static std::optional<affine> deserialize(const json& js) noexcept {
+			if (!js.is_array()) return std::nullopt;
+
+			auto arr = js.get<json::array_t>();
+			if (arr.size() != 6) return std::nullopt;
+
+			auto a = anima::deserialize(arr[0]);
+			auto b = anima::deserialize(arr[1]);
+			auto c = anima::deserialize(arr[2]);
+			auto d = anima::deserialize(arr[3]);
+			auto e = anima::deserialize(arr[4]);
+			auto f = anima::deserialize(arr[5]);
+
+			if (!a || !b || !c || !d || !e || !f) return std::nullopt;
+
+			return affine{ std::move(*a), std::move(*b), std::move(*c), std::move(*d), std::move(*e), std::move(*f) };
 		}
 
 	};
@@ -167,6 +196,20 @@ namespace rfkt {
 		vardata& operator=(const vardata&) = default;
 
 		~vardata() = default;
+
+		json serialize() const noexcept {
+			if (parameters_.empty()) return weight.serialize();
+
+			json js;
+			js["weight"] = weight.serialize();
+			js["parameters"] = json::object();
+
+			for (const auto& [name, value] : parameters_) {
+				js["parameters"][name] = value.serialize();
+			}
+
+			return js;
+		}
 
 	private:
 
@@ -266,6 +309,22 @@ namespace rfkt {
 			return size;
 		}
 
+		json serialize() const noexcept {
+			json js;
+			js["transform"] = transform.serialize();
+			js["mod_x"] = mod_x.serialize();
+			js["mod_y"] = mod_y.serialize();
+			js["mod_scale"] = mod_scale.serialize();
+			js["mod_rotate"] = mod_rotate.serialize();
+			js["variations"] = json::object();
+
+			for (const auto& [name, value] : variations_) {
+				js["variations"][name] = value.serialize();
+			}
+
+			return js;
+		}
+
 	private:
 		std::map<std::string, vardata, std::less<>> variations_;
 	};
@@ -312,6 +371,21 @@ namespace rfkt {
 				size += vl.size_reals();
 			}
 			return size;
+		}
+
+		json serialize() const noexcept {
+			json js;
+			js["weight"] = weight.serialize();
+			js["color"] = color.serialize();
+			js["color_speed"] = color_speed.serialize();
+			js["opacity"] = opacity.serialize();
+			js["vchain"] = json::array();
+
+			for (const auto& link : vchain) {
+				js["vchain"].push_back(link.serialize());
+			}
+
+			return js;
 		}
 
 	};
@@ -424,6 +498,43 @@ namespace rfkt {
 			if (index == -1) return final_xform ? &*final_xform : nullptr;
 			if (index < 0 || index >= xforms.size()) return nullptr;
 			return &xforms[index];
+		}
+
+		json serialize() const noexcept {
+			json js;
+
+			js["xforms"] = json::array();
+
+			for (const auto& xf : xforms) {
+				js["xforms"].push_back(xf.serialize());
+			}
+
+			if (final_xform) {
+				js["final_xform"] = final_xform->serialize();
+			}
+
+			js["center_x"] = center_x.serialize();
+			js["center_y"] = center_y.serialize();
+			js["scale"] = scale.serialize();
+			js["rotate"] = rotate.serialize();
+
+			js["gamma"] = gamma.serialize();
+			js["brightness"] = brightness.serialize();
+			js["vibrancy"] = vibrancy.serialize();
+
+			std::string palette_string;
+			palette_string.reserve(sizeof(decltype(palette)::value_type) * palette.size() * 2);
+
+			for (const auto& hsv : palette) {
+				for (const auto& c : std::bit_cast<std::array<unsigned char, sizeof(hsv)>>(hsv)) {
+					palette_string += std::format("{:02X}", c);
+				}
+				//js["palette"].push_back({ hue, sat, val });
+			}
+
+			js["palette"] = std::move(palette_string);
+
+			return js;
 		}
 	};
 
