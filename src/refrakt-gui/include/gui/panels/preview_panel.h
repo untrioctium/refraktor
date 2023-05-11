@@ -3,7 +3,6 @@
 #include <librefrakt/flame_compiler.h>
 #include <librefrakt/anima.h>
 
-#include "gui.h"
 #include "gl.h"
 
 class preview_panel {

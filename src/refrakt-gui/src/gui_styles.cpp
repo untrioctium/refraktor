@@ -185,7 +185,7 @@ void rfkt::gui::set_style(std::size_t idx) {
 		}
 	}
 }
-
+/*
 std::optional<double> rfkt::gui::drag_double(std::string_view name, double& v, float speed, double min, double max) {
 
 	static bool dragging = false;
@@ -208,11 +208,6 @@ std::optional<double> rfkt::gui::drag_double(std::string_view name, double& v, f
 	if (!mouse_down && dragging) {
 		dragging = false;
 
-		/*exec(
-			[&ref = v, v]() mutable { SPDLOG_INFO("redoing to {}", v);  ref = v; },
-			[&ref = v, iv = drag_start]() mutable { SPDLOG_INFO("undoing to {}", iv); ref = iv; }
-		);*/
-
 		dragging_id = 0;
 		rfkt::gl::set_mouse_position(drag_position.x, drag_position.y);
 		rfkt::gl::set_cursor_enabled(true);
@@ -229,3 +224,4 @@ std::optional<double> rfkt::gui::drag_double(std::string_view name, double& v, f
 
 	return std::nullopt;
 }
+*/

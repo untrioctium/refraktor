@@ -27,6 +27,7 @@ namespace rfkt::gui {
 	std::vector<style_info> get_styles();
 	void set_style(std::size_t id);
 
+	/*
 	template<typename T>
 	struct [[nodiscard]] id_scope {
 		id_scope(T id) { ImGui::PushID(id); }
@@ -130,5 +131,5 @@ namespace rfkt::gui {
 		private:
 			bool pop = false;
 		};
-	}
+	}*/
 }

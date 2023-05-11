@@ -1,10 +1,12 @@
 #include <librefrakt/util/cuda.h>
 #include <librefrakt/util/filesystem.h>
 
-#include "gui.h"
+//#include "gui.h"
 #include "gl.h"
 
-#ifdef _WIN32
+#include <cudaGL.h>
+
+/*#ifdef _WIN32
 #define GLFW_EXPOSE_NATIVE_WIN32
 #define WIN32_LEAN_AND_MEAN
 #include <Windows.h>
@@ -12,9 +14,9 @@
 #include <ShObjIdl_core.h>
 #endif 
 #include <GLFW/glfw3.h>
-#include <GLFW/glfw3native.h>
+#include <GLFW/glfw3native.h>*/
 
-
+/*
 #include <cudaGL.h>
 
 #include <readerwriterqueue.h>
@@ -301,7 +303,7 @@ std::optional<rfkt::event> rfkt::poll_event() {
 void push_event(rfkt::event&& event) {
 	event_queue().enqueue(std::move(event));
 }
-
+*/
 rfkt::gl::texture::texture(std::size_t w, std::size_t h) : width_(w), height_(h)
 {
 	glGenTextures(1, &tex_id);
@@ -353,7 +355,7 @@ rfkt::gl::texture::cuda_map::~cuda_map()
 	CUDA_SAFE_CALL(cuGraphicsUnmapResources(1, &cuda_res, 0));
 	//push_event(rfkt::events::destroy_cuda_map{ cuda_res });
 }
-
+/*
 bool rfkt::gl::init(int width, int height)
 {
 	glfwSetErrorCallback([](int error, const char* description) {
@@ -654,7 +656,7 @@ void rfkt::gl::end_frame(bool render)
 		preciseSleep(sleep_seconds);
 		//std::this_thread::sleep_until(gl_state.frame_end - std::chrono::milliseconds(1));
 
-		//while (state::clock_t::now() < gl_state.frame_end) { /* busy loop */ }
+		//while (state::clock_t::now() < gl_state.frame_end) { }
 	}
 }
 
@@ -757,7 +759,7 @@ void rfkt::gl::set_window_progress_value(unsigned long long current, unsigned lo
 }
 
 bool rfkt::gl::close_requested() {
-	return glfwWindowShouldClose(gl_state.window);
+	return (gl_state.window);
 }
 
 void rfkt::gl::event_loop(std::stop_token stoke)
@@ -891,4 +893,4 @@ ImGuiKey glfw_to_imgui_key(int key)
 	case GLFW_KEY_F12: return ImGuiKey_F12;
 	default: return ImGuiKey_None;
 	}
-}
+}*/

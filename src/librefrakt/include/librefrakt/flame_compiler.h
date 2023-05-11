@@ -130,7 +130,23 @@ namespace rfkt {
 		auto get_flame_kernel(const flamedb& fdb, precision prec, const flame& f)-> result;
 		std::string make_source(const flamedb& fdb, const rfkt::flame& f);
 
-		flame_compiler(ezrtc::compiler& k_manager);
+		explicit flame_compiler(ezrtc::compiler& k_manager);
+
+		flame_compiler& operator=(flame_compiler&& o) noexcept {
+			*this = std::move(o);
+			return *this;
+		}
+
+		flame_compiler(flame_compiler&& o) noexcept : km(o.km) {
+			std::swap(shuf_bufs, o.shuf_bufs);
+			std::swap(exec_configs, o.exec_configs);
+			std::swap(num_shufs, o.num_shufs);
+			std::swap(catmull, o.catmull);
+			std::swap(compiled_variations, o.compiled_variations);
+			std::swap(compiled_common, o.compiled_common);
+			std::swap(last_flamedb_hash, o.last_flamedb_hash);
+		}
+
 	private:
 
 		auto smem_per_block(precision prec, int flame_real_bytes, int threads_per_block) {

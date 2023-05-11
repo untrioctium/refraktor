@@ -1,3 +1,7 @@
+#include <numbers>
+
+#include <imftw/gui.h>
+
 #include "gui/panels/preview_panel.h"
 
 preview_panel::~preview_panel()
@@ -36,7 +40,7 @@ bool preview_panel::show(const rfkt::flamedb& fdb, rfkt::flame& flame, rfkt::fun
 			|| render_options_changed
 			|| (given_value_hash != flame_value_hash)
 			|| !displayed_texture
-			|| (displayed_texture && (preview_size.x != render_dims.x || preview_size.y != render_dims.y));
+			|| (displayed_texture && (preview_size.x != render_dims.x || preview_size.y != render_dims.y) && preview_size.x && preview_size.y);
 
 		bool needs_render = needs_clear || (current_state && current_state->quality < target_quality);
 
@@ -127,27 +131,23 @@ uint2 preview_panel::gui_logic(rfkt::flame& flame) {
 	uint2 preview_size = { 0, 0 };
 	bool preview_hovered = false;
 	bool render_changed = false;
-	if (ImGui::Begin("Render", nullptr, ImGuiWindowFlags_MenuBar)) {
-
-		auto avail_before = ImGui::GetContentRegionAvail();
-		if (ImGui::BeginMenuBar()) {
-			if (ImGui::BeginMenu("Render options")) {
+	IMFTW_WINDOW("Render", ImGuiWindowFlags_MenuBar) {
+		IMFTW_MENU_BAR() {
+			IMFTW_MENU("Render options") {
 				if (ImGui::MenuItem("Upscale 2x", nullptr, &this->upscale)) { 
 					render_options_changed = true;
 				}
-				rfkt::gui::tooltip("Enables upscaling; improves performance but reduces quality.", false);
-				ImGui::EndMenu();
+				imftw::tooltip("Enables upscaling; improves performance but reduces quality.", false);
 			}
 
-			const static std::vector<std::pair<std::string, double>> qualities {
-				{"Low", 32},
-				{"Medium", 128},
-				{"High", 512},
-				{"Ultra", 2048},
-				{"Unlimited", std::pow(2.0, 31.0)}
-			};
-
-			if (ImGui::BeginMenu("Quality")) {
+			IMFTW_MENU("Quality") {
+				const static std::vector<std::pair<std::string, double>> qualities{
+					{"Low", 32},
+					{"Medium", 128},
+					{"High", 512},
+					{"Ultra", 2048},
+					{"Unlimited", std::pow(2.0, 31.0)}
+				};
 
 				for (const auto& [name, quality]: qualities) {
 					if (ImGui::MenuItem(name.c_str())) {
@@ -155,12 +155,9 @@ uint2 preview_panel::gui_logic(rfkt::flame& flame) {
 						render_options_changed = true;
 					}
 				}
-				ImGui::EndMenu();
 			}
 
 			ImGui::Text("Preview quality: %d", current_state ? int(current_state->quality) : 0);
-
-			ImGui::EndMenuBar();
 		}
 
 		static double tmin = 0.0;
@@ -184,7 +181,6 @@ uint2 preview_panel::gui_logic(rfkt::flame& flame) {
 			preview_hovered = ImGui::IsItemHovered();
 		}
 	}
-	ImGui::End();
 
 	if (!dragging && preview_hovered && ImGui::IsMouseDown(ImGuiMouseButton_Left) && !ImGui::IsMouseDragging(ImGuiMouseButton_Left)) {
 		dragging = true;
@@ -208,10 +204,10 @@ uint2 preview_panel::gui_logic(rfkt::flame& flame) {
 		}
 		else {
 			auto delta = ImGui::GetMouseDragDelta();
-			auto drag_dist = delta - last_delta;
+			auto drag_dist = ImVec2{ delta.x - last_delta.x, delta.y - last_delta.y };
 			if (drag_dist.x != 0 || drag_dist.y != 0) {
 				auto scale = flame.scale.t0;
-				auto rot = -flame.rotate.t0 * IM_PI / 180;
+				auto rot = -flame.rotate.t0 * std::numbers::pi / 180;
 
 				double2 vector = { drag_dist.x / (scale * preview_size.y) , drag_dist.y / (scale * preview_size.y) };
 				double2 rotated = { vector.x * cos(rot) - vector.y * sin(rot), vector.x * sin(rot) + vector.y * cos(rot) };
