@@ -70,6 +70,7 @@ target_include_directories(xxhash PUBLIC ${xxhash_SOURCE_DIR})
 
 set(ZLIB_ENABLE_TESTS OFF)
 set(ZLIB_COMPAT ON)
+set(BUILD_SHARED_LIBS ON)
 # zlib
 FetchContent_Declare(
   zlib
@@ -77,7 +78,7 @@ FetchContent_Declare(
   GIT_TAG stable
 )
 FetchContent_MakeAvailable(zlib)
-target_include_directories(zlib PUBLIC ${zlib_SOURCE_DIR} ${zlib_BINARY_DIR})
+set(BUILD_SHARED_LIBS OFF)
 
 # sqlite
 FetchContent_Declare(
@@ -202,6 +203,6 @@ target_link_libraries(librefrakt PUBLIC
 	sol2
 	yaml-cpp
 	SQLite3
-	zlibstatic
+	zlib
 	pugixml
 )

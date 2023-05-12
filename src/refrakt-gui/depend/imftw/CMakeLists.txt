@@ -9,12 +9,14 @@ add_library(imftw STATIC
     include/imftw/gui.h
     include/imftw/imftw.h
     include/imftw/signals.h
+    include/imftw/kvstore.h
     src/events.cpp
     src/events.h
     src/imftw_internal.h
     src/imftw.cpp
     src/signals_internal.h
-    src/signals.cpp)
+    src/signals.cpp
+    src/kvstore.cpp)
 
 target_include_directories(imftw PUBLIC include)
 
@@ -37,6 +39,16 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(glad)
 
+#set(BUILD_SHARED_LIBS ON)
+# freetype
+FetchContent_Declare(
+  freetype
+  GIT_REPOSITORY https://gitlab.freedesktop.org/freetype/freetype.git
+  GIT_TAG VER-2-13-0
+)
+FetchContent_MakeAvailable(freetype)
+#set(BUILD_SHARED_LIBS OFF)
+
 #imgui
 FetchContent_Declare(
   imgui
@@ -46,12 +58,15 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(imgui)
 file(GLOB IMGUI_SOURCES
   ${imgui_SOURCE_DIR}/*.cpp
+#  ${imgui_SOURCE_DIR}/misc/freetype/imgui_freetype.cpp
   ${imgui_SOURCE_DIR}/backends/imgui_impl_glfw.cpp
   ${imgui_SOURCE_DIR}/backends/imgui_impl_opengl3.cpp
 )
 add_library(imgui STATIC ${IMGUI_SOURCES})
 target_include_directories(imgui PUBLIC ${imgui_SOURCE_DIR})
 target_include_directories(imgui PUBLIC ${imgui_SOURCE_DIR}/backends)
+#target_include_directories(imgui PRIVATE ${imgui_SOURCE_DIR}/misc/freetype)
+#target_compile_definitions(imgui PRIVATE IMGUI_ENABLE_FREETYPE)
 target_link_libraries(imgui PRIVATE glfw glad)
 
 # concurrentqueue

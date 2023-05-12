@@ -93,7 +93,9 @@ void setup_imgui(imftw::context_t& ctx) {
 	ctx.cursors[ImGuiMouseCursor_NotAllowed] = glfwCreateStandardCursor(GLFW_ARROW_CURSOR);
 
 	io.ConfigWindowsMoveFromTitleBarOnly = true;
-	io.Fonts->AddFontFromFileTTF("assets/fonts/Roboto-Medium.ttf", 13);
+	io.Fonts->AddFontFromFileTTF("assets/fonts/Roboto-Regular.ttf", 14);
+	io.Fonts->AddFontFromFileTTF("assets/fonts/OpenSans-Medium.ttf", 16);
+	io.Fonts->AddFontFromFileTTF("assets/fonts/Montserrat-Thin.ttf", 14);
 
 	ImGui_ImplOpenGL3_Init("#version 460");
 }

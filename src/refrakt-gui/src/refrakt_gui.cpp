@@ -481,6 +481,7 @@ void main_thread() {
 	imftw::sig::set_window_size(1280, 720).get();
 	imftw::sig::set_window_position(monitor_pos.first + (monitor_size.first - 1280) / 2, monitor_pos.second + (monitor_size.second - 720) / 2).get();
 	imftw::sig::set_window_visible(true).get();
+	imftw::sig::set_vsync_enabled(true);
 
 	imftw::begin_frame();
 	const ImGuiViewport* viewport = ImGui::GetMainViewport();
@@ -543,6 +544,8 @@ void main_thread() {
 	auto up_dn = show_splash("Creating upscaling denoiser", [] { return rfkt::denoiser{ {2560, 1440}, true }; });
 	auto conv = show_splash("Creating converter", [&kc] { return rfkt::converter{ kc }; });
 
+	//ImGui::GetIO().Fonts->Build();
+
 	preview_panel::renderer_t renderer = [&tm, &dn, &up_dn, &conv](
 		rfkt::cuda_stream& stream, const rfkt::flame_kernel& kernel,
 		rfkt::flame_kernel::saved_state& state,
@@ -573,8 +576,8 @@ void main_thread() {
 
 	auto flame = rfkt::import_flam3(fdb, rfkt::fs::read_string("assets/flames/electricsheep.247.47670.flam3"));
 
-	imftw::sig::set_target_framerate(144);
-	imftw::sig::set_vsync_enabled(false);
+	//imftw::sig::set_target_framerate(144);
+	//imftw::sig::set_vsync_enabled(false);
 	bool should_exit = false;
 
 	ccpp::runtime runtime;
