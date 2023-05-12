@@ -1,3 +1,5 @@
+project(librefrakt LANGUAGES CXX)
+
 set(HEADER_LIST 
 	"include/librefrakt/traits/hashable.h"
 	"include/librefrakt/traits/noncopyable.h"
@@ -154,6 +156,7 @@ endif()
 
 set(BUILD_CURL_EXE OFF CACHE BOOL "" FORCE)
 set(HTTP_ONLY ON CACHE BOOL "" FORCE)
+set(CURL_ENABLE_EXPORT_TARGET OFF)
 
 FetchContent_Declare(
   curl

@@ -93,9 +93,16 @@ void setup_imgui(imftw::context_t& ctx) {
 	ctx.cursors[ImGuiMouseCursor_NotAllowed] = glfwCreateStandardCursor(GLFW_ARROW_CURSOR);
 
 	io.ConfigWindowsMoveFromTitleBarOnly = true;
-	io.Fonts->AddFontFromFileTTF("assets/fonts/Roboto-Regular.ttf", 14);
-	io.Fonts->AddFontFromFileTTF("assets/fonts/OpenSans-Medium.ttf", 16);
-	io.Fonts->AddFontFromFileTTF("assets/fonts/Montserrat-Thin.ttf", 14);
+	float font_size = 16.0f;
+	io.Fonts->AddFontFromFileTTF("C:/windows/fonts/segoeui.ttf", font_size);
+
+	static const ImWchar icons_ranges[] = { 0xe000, 0x10fffd, 0 };
+	ImFontConfig icons_config;
+	icons_config.MergeMode = true;
+	icons_config.PixelSnapH = true;
+	icons_config.GlyphMinAdvanceX = font_size;
+	icons_config.GlyphOffset.y = 4.0f;
+	io.Fonts->AddFontFromFileTTF("assets/fonts/MaterialIconsOutlined-Regular.otf", icons_config.GlyphMinAdvanceX, &icons_config, icons_ranges);
 
 	ImGui_ImplOpenGL3_Init("#version 460");
 }

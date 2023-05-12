@@ -131,7 +131,7 @@ uint2 preview_panel::gui_logic(rfkt::flame& flame) {
 	uint2 preview_size = { 0, 0 };
 	bool preview_hovered = false;
 	bool render_changed = false;
-	IMFTW_WINDOW("Render", ImGuiWindowFlags_MenuBar) {
+	IMFTW_WINDOW("\xee\xa9\x83" " Render##preview_panel", ImGuiWindowFlags_MenuBar) {
 		IMFTW_MENU_BAR() {
 			IMFTW_MENU("Render options") {
 				if (ImGui::MenuItem("Upscale 2x", nullptr, &this->upscale)) { 

@@ -134,7 +134,7 @@ auto make_animator_button(rfkt::flame& f, const rfkt::function_table& ft, std::m
 
 		auto& ani = *desc.access(f);
 
-		if (ImGui::Button(ani.call_info ? "A" : "-", { width , 0 })) {
+		if (ImGui::Button(ani.call_info ? "A" : "\xee\x97\x92", { width , 0 })) {
 			ImGui::OpenPopup("animation_editor");
 		}
 
@@ -205,7 +205,7 @@ struct edit_bounds {
 };
 
 auto make_flame_drag_edit(rfkt::flame& f, std::move_only_function<void(std::pair<thunk_t, thunk_t>&&)>& exec, const rfkt::function_table& ft) {
-	auto min_button_width = ImGui::CalcTextSize("A").x + ImGui::GetStyle().FramePadding.x * 2.0f;
+	auto min_button_width = ImGui::CalcTextSize("\xee\x97\x8f").x + ImGui::GetStyle().FramePadding.x * 2.0f;
 	auto animator_button = make_animator_button(f, ft, exec);
 	return[&f, &exec, animator_button = std::move(animator_button), min_button_width](const rfkt::descriptor& desc, std::string_view text, float step, const edit_bounds& eb = {}) mutable {
 		imftw::scope::id drag_scope{ desc.hash().str16() };
@@ -574,7 +574,7 @@ void main_thread() {
 			return out_buf;
 	};
 
-	auto flame = rfkt::import_flam3(fdb, rfkt::fs::read_string("assets/flames/electricsheep.247.47670.flam3"));
+	auto flame = rfkt::import_flam3(fdb, rfkt::fs::read_string("assets/flames_test/electricsheep.247.47670.flam3"));
 
 	//imftw::sig::set_target_framerate(144);
 	//imftw::sig::set_vsync_enabled(false);
@@ -621,7 +621,7 @@ void main_thread() {
 			IMFTW_MENU("File") {
 				ImGui::MenuItem("New");
 
-				if (ImGui::MenuItem("Open...")) {
+				if (ImGui::MenuItem("\xee\xab\xb3" " Open...")) {
 					runtime.background_executor()->enqueue([ctx, &c_exec, &fdb, &thunk_executor, &cur_flame = flame]() mutable {
 						ctx.make_current_if_not();
 
@@ -643,19 +643,21 @@ void main_thread() {
 						});
 					});
 				}
+
+				ImGui::MenuItem("\xee\x85\xa1" " Save", "Ctrl+S");
 			}
 
 			IMFTW_MENU("Edit") {
-				if (ImGui::MenuItem("Undo", "CTRL+Z", false, c_exec.can_undo())) {
+				if (ImGui::MenuItem("\xee\x85\xa6" " Undo", "Ctrl+Z", false, c_exec.can_undo())) {
 					c_exec.undo();
 				}
-				if (ImGui::MenuItem("Redo", "CTRL+Y", false, c_exec.can_redo())) {
+				if (ImGui::MenuItem("\xee\x85\x9a" " Redo", "Ctrl+Y", false, c_exec.can_redo())) {
 					c_exec.redo();
 				}
 			}
 
 			IMFTW_MENU("Render") {
-				if (ImGui::MenuItem("Video")) {
+				if (ImGui::MenuItem("\xee\xae\x87" " Video")) {
 					open_render_modal = true;
 				}
 			}
@@ -671,7 +673,7 @@ void main_thread() {
 			}
 
 			IMFTW_MENU("Debug") {
-				if (ImGui::MenuItem("Copy flame source")) {
+				if (ImGui::MenuItem("\xee\xab\x93" " Copy flame source")) {
 					imftw::sig::set_clipboard(fc.make_source(fdb, flame.value()));
 				}
 			}
@@ -679,7 +681,7 @@ void main_thread() {
 		ImGui::PopStyleVar();
 		//ImGui::PopStyleColor();
 
-		IMFTW_WINDOW("Flame Options") {
+		IMFTW_WINDOW("\xee\xa2\xb8" "Flame Options") {
 			flame_editor(fdb, flame.value(), exec, ft);
 		}
 

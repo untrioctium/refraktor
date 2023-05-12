@@ -5,6 +5,8 @@ project(imftw LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 23)
 
+find_package(ZLIB)
+
 add_library(imftw STATIC
     include/imftw/gui.h
     include/imftw/imftw.h
@@ -39,7 +41,6 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(glad)
 
-#set(BUILD_SHARED_LIBS ON)
 # freetype
 FetchContent_Declare(
   freetype
@@ -47,7 +48,8 @@ FetchContent_Declare(
   GIT_TAG VER-2-13-0
 )
 FetchContent_MakeAvailable(freetype)
-#set(BUILD_SHARED_LIBS OFF)
+target_include_directories(freetype PRIVATE ${ZLIB_INCLUDE_DIR})
+target_link_libraries(freetype PUBLIC ${ZLIB_LIBRARIES})
 
 #imgui
 FetchContent_Declare(
@@ -58,16 +60,18 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(imgui)
 file(GLOB IMGUI_SOURCES
   ${imgui_SOURCE_DIR}/*.cpp
-#  ${imgui_SOURCE_DIR}/misc/freetype/imgui_freetype.cpp
+  ${imgui_SOURCE_DIR}/misc/freetype/imgui_freetype.cpp
   ${imgui_SOURCE_DIR}/backends/imgui_impl_glfw.cpp
   ${imgui_SOURCE_DIR}/backends/imgui_impl_opengl3.cpp
 )
 add_library(imgui STATIC ${IMGUI_SOURCES})
 target_include_directories(imgui PUBLIC ${imgui_SOURCE_DIR})
 target_include_directories(imgui PUBLIC ${imgui_SOURCE_DIR}/backends)
-#target_include_directories(imgui PRIVATE ${imgui_SOURCE_DIR}/misc/freetype)
-#target_compile_definitions(imgui PRIVATE IMGUI_ENABLE_FREETYPE)
+target_include_directories(imgui PRIVATE ${imgui_SOURCE_DIR}/misc/freetype)
+target_compile_definitions(imgui PUBLIC IMGUI_ENABLE_FREETYPE)
+target_compile_definitions(imgui PUBLIC IMGUI_USE_WCHAR32)
 target_link_libraries(imgui PRIVATE glfw glad)
+target_link_libraries(imgui PUBLIC freetype)
 
 # concurrentqueue
 FetchContent_Declare(
