@@ -130,7 +130,7 @@ namespace rfkt {
 		auto get_flame_kernel(const flamedb& fdb, precision prec, const flame& f)-> result;
 		std::string make_source(const flamedb& fdb, const rfkt::flame& f);
 
-		explicit flame_compiler(ezrtc::compiler& k_manager);
+		explicit flame_compiler(std::shared_ptr<ezrtc::compiler> k_manager);
 
 		flame_compiler& operator=(flame_compiler&& o) noexcept {
 			*this = std::move(o);
@@ -156,7 +156,7 @@ namespace rfkt {
 
 		std::pair<cuda::execution_config, ezrtc::spec> make_opts(precision prec, const flame& f);
 
-		ezrtc::compiler& km;
+		std::shared_ptr<ezrtc::compiler> km;
 		std::map<std::size_t, cuda_buffer<unsigned short>> shuf_bufs;
 		decltype(std::declval<cuda::device_t>().concurrent_block_configurations()) exec_configs;
 		std::size_t num_shufs = 4096;

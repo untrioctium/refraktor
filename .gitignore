@@ -46,14 +46,17 @@ assets/fonts
 
 .vscode/
 .bin/
+bin/
 *.swp
 
 assets/kernels/flame_*
 prof.*
-render*
+render/
 imgui.ini
 *.sqlite3
 scripts/
 testrender/
 refrakt-qt/
 webapp/
+*.mp4
+*.h264

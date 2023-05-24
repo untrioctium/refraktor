@@ -35,6 +35,7 @@ namespace rfkt {
 			}
 
 			funcs.emplace(name, std::pair{ std::move(info), std::move(name_hash) });
+			return true;
 		}
 
 		double call(std::string_view name, double t, double iv, const rfkt::anima::arg_map_t& args);
@@ -59,6 +60,13 @@ namespace rfkt {
 		auto functions() const noexcept {
 			return funcs;
 		}
+
+		auto make_invoker() noexcept {
+			return [this](std::string_view name, double t, double iv, const rfkt::anima::arg_map_t& args) {
+				return this->call(name, t, iv, args);
+			};
+		}
+
 	private:
 
 		static std::string create_function_source(std::string_view func_name, const func_info& fi);

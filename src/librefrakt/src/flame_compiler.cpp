@@ -553,7 +553,7 @@ auto rfkt::flame_compiler::get_flame_kernel(const flamedb& fdb, precision prec, 
     opts.header("refrakt/flamelib.h", flamelib_src);
     opts.define("FLAMEDB_HASH", fdb.hash().str32());
 
-    auto compile_result = km.compile(opts);
+    auto compile_result = km->compile(opts);
     auto duration_ms = std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::high_resolution_clock::now() - start).count() / 1'000'000.0;
 
     auto r = result(
@@ -611,7 +611,7 @@ rfkt::cuda_buffer<unsigned short> make_shuffle_buffers(std::size_t ppts, std::si
     return buf;
 }
 
-rfkt::flame_compiler::flame_compiler(ezrtc::compiler& k_manager): km(k_manager)
+rfkt::flame_compiler::flame_compiler(std::shared_ptr<ezrtc::compiler> k_manager): km(k_manager)
 {
     num_shufs = 4096;
 
@@ -664,7 +664,7 @@ rfkt::flame_compiler::flame_compiler(ezrtc::compiler& k_manager): km(k_manager)
 
     const auto catmull_spec = ezrtc::spec::source_file("catmull", "assets/kernels/catmull.cu");
 
-    auto result = km.compile(
+    auto result = km->compile(
         ezrtc::spec::
          source_file("catmull", "assets/kernels/catmull.cu")
         .kernel("generate_sample_coefficients")

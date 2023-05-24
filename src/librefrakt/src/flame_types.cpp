@@ -7,6 +7,8 @@
 #include "librefrakt/flame_info.h"
 #include "librefrakt/flame_types.h"
 #include "librefrakt/util/color.h"
+#include "librefrakt/anima.h"
+#include "librefrakt/util/zlib.h"
 
 std::vector<double> string_to_doubles(std::string_view s) {
 	std::vector<double> ret{};
@@ -166,13 +168,19 @@ auto rfkt::import_flam3(const flamedb& fdb, std::string_view content) noexcept -
 	return ret;
 }
 
-json rfkt::anima::serialize() const noexcept {
+#define CHECK_AND_DESERIALIZE_ANIMA(target, field) \
+	if(!js.contains(#field)) return std::nullopt; \
+	auto field ## _opt = anima::deserialize(js[#field], ft); \
+	if (!field ## _opt) return std::nullopt; \
+	target.field = std::move(*field ## _opt)
+
+ordered_json rfkt::anima::serialize() const noexcept {
 	if (!call_info) return t0;
-	auto result = json::object();
+	auto result = ordered_json::object();
 	result["t0"] = t0;
 
 	result["call"] = call_info->first;
-	result["args"] = json::object();
+	result["args"] = ordered_json::object();
 	for (auto& [k, v] : call_info->second) {
 		if (std::holds_alternative<int>(v)) {
 			result["args"][k] = std::get<int>(v);
@@ -188,7 +196,7 @@ json rfkt::anima::serialize() const noexcept {
 	return result;
 }
 
-std::optional<rfkt::anima> rfkt::anima::deserialize(const json& js) noexcept {
+std::optional<rfkt::anima> rfkt::anima::deserialize(const json& js, const function_table& ft) noexcept {
 	if (js.is_number()) return js.get<double>();
 
 	if (!js.is_object()) return std::nullopt;
@@ -216,4 +224,235 @@ std::optional<rfkt::anima> rfkt::anima::deserialize(const json& js) noexcept {
 	else {
 		return anima(t0);
 	}
+}
+
+std::optional<rfkt::vardata> rfkt::vardata::deserialize(std::string_view name, const json& js, const function_table& ft, const flamedb& fdb)
+{
+	if (!fdb.is_variation(name)) return std::nullopt;
+
+	auto [_, vdata] = fdb.make_vardata(name);
+	
+	// variations with only weight
+	if (js.is_number()) {
+		if (vdata.parameters_.empty()) {
+			vdata.weight = js.get<double>();
+			return vdata;
+		}
+		else return std::nullopt;
+	}
+
+	// variations with only an animated weight
+	if (js.is_object() && js.contains("t0")) {
+		if (vdata.parameters_.empty()) {
+			auto a = anima::deserialize(js, ft);
+			if (!a) return std::nullopt;
+			vdata.weight = std::move(*a);
+			return vdata;
+		}
+		else return std::nullopt;
+	}
+
+	// anything past this point needs an object 
+	if (!js.is_object()) return std::nullopt;
+
+	if (!js.contains("weight")) return std::nullopt;
+	if (auto weight = rfkt::anima::deserialize(js["weight"], ft); weight) {
+		vdata.weight = std::move(*weight);
+	}
+	else return std::nullopt;
+
+	if (!js.contains("parameters")) return vdata;
+	if (!js["parameters"].is_object()) return std::nullopt;
+
+	for (const auto& item : js["parameters"].items()) {
+		if (!vdata.parameters_.contains(item.key())) return std::nullopt;
+
+		auto a = anima::deserialize(item.value(), ft);
+		if (!a) return std::nullopt;
+
+		vdata.parameters_[item.key()] = std::move(*a);
+	}
+
+	return vdata;
+}
+
+std::optional<rfkt::vlink> rfkt::vlink::deserialize(const json& js, const function_table& ft, const flamedb& fdb)
+{
+	if (!js.is_object()) return std::nullopt;
+
+	auto ret = rfkt::vlink{};
+
+	if (!js.contains("transform")) return std::nullopt;
+	auto transform = affine::deserialize(js["transform"], ft);
+	if (!transform) return std::nullopt;
+	ret.transform = std::move(*transform);
+
+	CHECK_AND_DESERIALIZE_ANIMA(ret, mod_x);
+	CHECK_AND_DESERIALIZE_ANIMA(ret, mod_y);
+	CHECK_AND_DESERIALIZE_ANIMA(ret, mod_scale);
+	CHECK_AND_DESERIALIZE_ANIMA(ret, mod_rotate);
+
+	if (!js.contains("variations") || !js["variations"].is_object()) return std::nullopt;
+
+	for (const auto& var : js["variations"].items()) {
+		auto vdata_opt = vardata::deserialize(var.key(), var.value(), ft, fdb);
+		if (!vdata_opt) return std::nullopt;
+
+		ret.variations_.insert_or_assign(var.key(), std::move(*vdata_opt));
+	}
+
+	return ret;
+}
+
+std::optional<rfkt::xform> rfkt::xform::deserialize(const json& js, const function_table& ft, const flamedb& fdb) {
+	if (!js.is_object()) return std::nullopt;
+
+	auto ret = rfkt::xform{};
+
+	CHECK_AND_DESERIALIZE_ANIMA(ret, weight);
+	CHECK_AND_DESERIALIZE_ANIMA(ret, color);
+	CHECK_AND_DESERIALIZE_ANIMA(ret, color_speed);
+	CHECK_AND_DESERIALIZE_ANIMA(ret, opacity);
+
+	if (!js.contains("vchain") || !js["vchain"].is_array()) return std::nullopt;
+
+	for (const auto& link : js["vchain"]) {
+		auto link_opt = vlink::deserialize(link, ft, fdb);
+		if (!link_opt) return std::nullopt;
+
+		ret.vchain.push_back(std::move(*link_opt));
+	}
+
+	return ret;
+}
+
+ordered_json rfkt::flame::serialize() const noexcept {
+	ordered_json js;
+
+	js["center_x"] = center_x.serialize();
+	js["center_y"] = center_y.serialize();
+	js["scale"] = scale.serialize();
+	js["rotate"] = rotate.serialize();
+
+	js["gamma"] = gamma.serialize();
+	js["brightness"] = brightness.serialize();
+	js["vibrancy"] = vibrancy.serialize();
+
+	js["xforms"] = ordered_json::array();
+
+	for (const auto& xf : xforms) {
+		js["xforms"].emplace_back(xf.serialize());
+	}
+
+	if (final_xform) {
+		js["final_xform"] = final_xform->serialize();
+	}
+
+
+
+	constexpr static auto palette_element_size = sizeof(decltype(palette)::value_type);
+	auto total_size_bytes = palette.size() * palette_element_size;
+
+	js["palette"] = zlib::compress_b64(palette.data(), total_size_bytes);
+
+	return js;
+}
+
+std::optional<rfkt::flame> rfkt::flame::deserialize(const json& js, const function_table& ft, const flamedb& fdb) {
+	if (!js.is_object()) return std::nullopt;
+
+	auto ret = rfkt::flame{};
+
+	CHECK_AND_DESERIALIZE_ANIMA(ret, center_x);
+	CHECK_AND_DESERIALIZE_ANIMA(ret, center_y);
+	CHECK_AND_DESERIALIZE_ANIMA(ret, scale);
+	CHECK_AND_DESERIALIZE_ANIMA(ret, rotate);
+
+	CHECK_AND_DESERIALIZE_ANIMA(ret, gamma);
+	CHECK_AND_DESERIALIZE_ANIMA(ret, brightness);
+	CHECK_AND_DESERIALIZE_ANIMA(ret, vibrancy);
+
+	if (!js.contains("xforms") || !js.is_array()) return std::nullopt;
+
+	for (const auto& xf : js["xforms"]) {
+		auto xf_opt = xform::deserialize(xf, ft, fdb);
+		if (!xf_opt) return std::nullopt;
+		ret.xforms.emplace_back(std::move(*xf_opt));
+	}
+
+	if (js.contains("final_xform")) {
+		auto fxf_opt = xform::deserialize(js["final_xform"], ft, fdb);
+		if (!fxf_opt) return std::nullopt;
+		ret.final_xform = fxf_opt;
+	}
+
+	if (!js.contains("palette") || !js["palette"].is_string()) return std::nullopt;
+
+	auto palette_data = zlib::uncompress_b64(js["palette"]);
+
+	constexpr static auto palette_element_size = sizeof(decltype(palette)::value_type);
+	if (palette_data.size() % palette_element_size != 0) return std::nullopt;
+
+	auto total_elements = palette_data.size() / palette_element_size;
+	ret.palette.resize(total_elements);
+
+	// TODO: use a less evil way not full of potential UB
+	std::memcpy(ret.palette.data(), palette_data.data(), palette_data.size());
+
+	return ret;
+}
+
+rfkt::hash_t rfkt::flame::value_hash() const noexcept
+{
+	rfkt::hash::state_t state;
+
+	auto process = [&state](const rfkt::anima& v) mutable {
+		state.update(v.t0);
+
+		if (v.call_info) {
+			state.update(v.call_info->first);
+			for (const auto& [name, value] : v.call_info->second) {
+				state.update(name);
+				std::visit([&](auto argv) {
+					state.update(argv);
+				}, value);
+			}
+		}
+	};
+
+	process(center_x);
+	process(center_y);
+	process(scale);
+	process(rotate);
+
+	process(gamma);
+	process(brightness);
+	process(vibrancy);
+
+	for_each_xform([&](int xid, const rfkt::xform& xf) {
+		process(xf.weight);
+		process(xf.color);
+		process(xf.color_speed);
+		process(xf.opacity);
+
+		for (const auto& vl : xf.vchain) {
+			vl.transform.pack(process);
+			process(vl.mod_rotate);
+			process(vl.mod_scale);
+			process(vl.mod_x);
+			process(vl.mod_y);
+
+			for (const auto& [vname, vd] : vl) {
+				process(vd.weight);
+
+				for (const auto& [pname, val] : vd) {
+					process(val);
+				}
+			}
+		}
+	});
+
+	state.update(palette);
+
+	return state.digest();
 }

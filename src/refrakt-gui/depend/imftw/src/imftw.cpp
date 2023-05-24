@@ -4,9 +4,11 @@
 #include "events.h"
 
 #include <imgui_impl_opengl3.h>
+#include <imgui_freetype.h>
 
 #ifdef _WIN32
 #include <commdlg.h>
+#include <shellapi.h>
 #endif
 
 namespace imftw {
@@ -93,16 +95,28 @@ void setup_imgui(imftw::context_t& ctx) {
 	ctx.cursors[ImGuiMouseCursor_NotAllowed] = glfwCreateStandardCursor(GLFW_ARROW_CURSOR);
 
 	io.ConfigWindowsMoveFromTitleBarOnly = true;
-	float font_size = 16.0f;
-	io.Fonts->AddFontFromFileTTF("C:/windows/fonts/segoeui.ttf", font_size);
+	float font_size = 17.0f;
+	ImFontGlyphRangesBuilder builder;
+	builder.AddRanges(io.Fonts->GetGlyphRangesDefault());
+	builder.AddChar(0x03BB);
+	builder.AddChar(0x00BA);
+	ImVector<ImWchar> ranges;
+	builder.BuildRanges(&ranges);
+
+	ImFontConfig config;
+	config.FontBuilderFlags = ImGuiFreeTypeBuilderFlags_LightHinting;
+
+	io.Fonts->AddFontFromFileTTF("C:/windows/fonts/segoeui.ttf", font_size, &config, ranges.Data);
 
 	static const ImWchar icons_ranges[] = { 0xe000, 0x10fffd, 0 };
 	ImFontConfig icons_config;
 	icons_config.MergeMode = true;
 	icons_config.PixelSnapH = true;
 	icons_config.GlyphMinAdvanceX = font_size;
+	icons_config.GlyphMaxAdvanceX = font_size;
 	icons_config.GlyphOffset.y = 4.0f;
-	io.Fonts->AddFontFromFileTTF("assets/fonts/MaterialIconsOutlined-Regular.otf", icons_config.GlyphMinAdvanceX, &icons_config, icons_ranges);
+	io.Fonts->AddFontFromFileTTF("assets/fonts/MaterialIcons-Regular.ttf", icons_config.GlyphMinAdvanceX, &icons_config, icons_ranges);
+	io.Fonts->Build();
 
 	ImGui_ImplOpenGL3_Init("#version 460");
 }
@@ -184,6 +198,12 @@ void imftw::run(std::string_view window_title, std::move_only_function<void()>&&
 #endif
 }
 
+void imftw::open_browser(std::string_view url) {
+	#ifdef _WIN32
+	ShellExecuteA(nullptr, "open", url.data(), nullptr, nullptr, SW_SHOWNORMAL);
+	#endif
+}
+
 void imftw::begin_frame(ImVec4 clear_color) {
 	auto& ctx = context();
 
@@ -228,6 +248,12 @@ void imftw::begin_frame(ImVec4 clear_color) {
 
 	ImGui_ImplOpenGL3_NewFrame();
 	ImGui::NewFrame();
+
+	while (true) {
+		auto func = std::move_only_function<void()>{};
+		if (!ctx.deferred_functions.try_dequeue(func)) break;
+		func();
+	}
 }
 
 void precise_sleep(double seconds) {
@@ -277,6 +303,11 @@ void imftw::end_frame(bool render) {
 	}
 }
 
+void imftw::defer(std::move_only_function<void()>&& func)
+{
+	context().deferred_functions.enqueue(std::move(func));
+}
+
 #ifdef _WIN32
 template<decltype(&GetOpenFileNameA) func, decltype(OPENFILENAMEA::Flags) flags = 0>
 std::string dialog_impl(std::string_view filter, std::string path)
@@ -317,4 +348,8 @@ std::string imftw::show_save_dialog(const std::filesystem::path& path, std::stri
 #ifdef _WIN32
 	return dialog_impl<GetSaveFileNameA, OFN_OVERWRITEPROMPT>(filter, path.string());
 #endif
+}
+
+double imftw::time() {
+	return glfwGetTime();
 }

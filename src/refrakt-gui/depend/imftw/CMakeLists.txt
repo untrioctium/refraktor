@@ -67,7 +67,7 @@ file(GLOB IMGUI_SOURCES
 add_library(imgui STATIC ${IMGUI_SOURCES})
 target_include_directories(imgui PUBLIC ${imgui_SOURCE_DIR})
 target_include_directories(imgui PUBLIC ${imgui_SOURCE_DIR}/backends)
-target_include_directories(imgui PRIVATE ${imgui_SOURCE_DIR}/misc/freetype)
+target_include_directories(imgui PUBLIC ${imgui_SOURCE_DIR}/misc/freetype)
 target_compile_definitions(imgui PUBLIC IMGUI_ENABLE_FREETYPE)
 target_compile_definitions(imgui PUBLIC IMGUI_USE_WCHAR32)
 target_link_libraries(imgui PRIVATE glfw glad)

@@ -18,6 +18,39 @@ namespace rfkt {
 		auto str32() const noexcept ->std::string;
 		auto str64() const noexcept ->std::string;
 
+		constexpr auto operator^(const rfkt::hash_t& o) const noexcept -> rfkt::hash_t {
+			return { bytes.first ^ o.bytes.first, bytes.second ^ o.bytes.second };
+		}
+
+		constexpr auto operator&(const rfkt::hash_t& o) const noexcept -> rfkt::hash_t {
+			return { bytes.first & o.bytes.first, bytes.second & o.bytes.second };
+		}
+
+		constexpr auto operator|(const rfkt::hash_t& o) const noexcept -> rfkt::hash_t {
+			return { bytes.first | o.bytes.first, bytes.second | o.bytes.second };
+		}
+
+		constexpr auto operator^=(const rfkt::hash_t& o) noexcept -> rfkt::hash_t& {
+			bytes.first ^= o.bytes.first;
+			bytes.second ^= o.bytes.second;
+
+			return *this;
+		}
+
+		constexpr auto operator&=(const rfkt::hash_t& o) noexcept -> rfkt::hash_t& {
+			bytes.first &= o.bytes.first;
+			bytes.second &= o.bytes.second;
+
+			return *this;
+		}
+
+		constexpr auto operator|=(const rfkt::hash_t& o) noexcept -> rfkt::hash_t& {
+			bytes.first |= o.bytes.first;
+			bytes.second |= o.bytes.second;
+
+			return *this;
+		}
+
 	private:
 		std::pair<value_type, value_type> bytes = { 0, 0 };
 	};

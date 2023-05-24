@@ -7,11 +7,16 @@
 #include <variant>
 
 #include <nlohmann/json.hpp>
-using json = nlohmann::json;
 
 #include <librefrakt/traits/hashable.h>
 
+using json = nlohmann::json;
+using ordered_json = nlohmann::ordered_json;
+
 namespace rfkt {
+
+	class function_table;
+	class flamedb;
 
 	enum class precision { f32, f64 };
 
@@ -56,9 +61,9 @@ namespace rfkt {
 
 		anima() = default;
 
-		json serialize() const noexcept;
+		ordered_json serialize() const noexcept;
 
-		static std::optional<anima> deserialize(const json& js) noexcept;
+		static std::optional<anima> deserialize(const json& js, const function_table& ft) noexcept;
 	};
 
 
@@ -114,31 +119,57 @@ namespace rfkt {
 			return affine{ 1, 0, 0, 1, 0, 0 };
 		}
 
-		json serialize() const noexcept {
-			return json::array({ a.serialize(), b.serialize(), c.serialize(), d.serialize(), e.serialize(), f.serialize() });
+		ordered_json serialize() const noexcept {
+			return ordered_json::array({ a.serialize(), d.serialize(), b.serialize(), e.serialize(), c.serialize(), f.serialize() });
 		}
 
-		static std::optional<affine> deserialize(const json& js) noexcept {
+		static std::optional<affine> deserialize(const json& js, const function_table& ft) noexcept {
 			if (!js.is_array()) return std::nullopt;
 
 			auto arr = js.get<json::array_t>();
 			if (arr.size() != 6) return std::nullopt;
 
-			auto a = anima::deserialize(arr[0]);
-			auto b = anima::deserialize(arr[1]);
-			auto c = anima::deserialize(arr[2]);
-			auto d = anima::deserialize(arr[3]);
-			auto e = anima::deserialize(arr[4]);
-			auto f = anima::deserialize(arr[5]);
+			auto a = anima::deserialize(arr[0], ft);
+			auto d = anima::deserialize(arr[1], ft);
+			auto b = anima::deserialize(arr[2], ft);
+			auto e = anima::deserialize(arr[3], ft);
+			auto c = anima::deserialize(arr[4], ft);
+			auto f = anima::deserialize(arr[5], ft);
 
 			if (!a || !b || !c || !d || !e || !f) return std::nullopt;
 
-			return affine{ std::move(*a), std::move(*b), std::move(*c), std::move(*d), std::move(*e), std::move(*f) };
+			return affine{ std::move(*a), std::move(*d), std::move(*b), std::move(*e), std::move(*c), std::move(*f) };
 		}
 
+		template<typename Invoker>
+		std::pair<double, double> sample(std::pair<double, double> point, double t, Invoker invoker) {
+			return {
+				a.sample(t, invoker) * point.first + b.sample(t, invoker) * point.second + c.sample(t, invoker),
+				d.sample(t, invoker) * point.first + e.sample(t, invoker) * point.second + f.sample(t, invoker)
+			};
+		}
+
+		constexpr static std::string_view pointer_to_name(anima rfkt::affine::* ptr) {
+			if (ptr == &affine::a) return "a";
+			if (ptr == &affine::b) return "b";
+			if (ptr == &affine::c) return "c";
+			if (ptr == &affine::d) return "d";
+			if (ptr == &affine::e) return "e";
+			if (ptr == &affine::f) return "f";
+			return "UNKNOWN";
+		}
+
+		constexpr static anima rfkt::affine::* name_to_pointer(std::string_view name) {
+			if (name == "a") return &affine::a;
+			if (name == "b") return &affine::b;
+			if (name == "c") return &affine::c;
+			if (name == "d") return &affine::d;
+			if (name == "e") return &affine::e;
+			if (name == "f") return &affine::f;
+			return nullptr;
+		}
 	};
 
-	class flamedb;
 	class vardata {
 	public:
 		anima weight;
@@ -197,10 +228,10 @@ namespace rfkt {
 
 		~vardata() = default;
 
-		json serialize() const noexcept {
+		ordered_json serialize() const noexcept {
 			if (parameters_.empty()) return weight.serialize();
 
-			json js;
+			ordered_json js;
 			js["weight"] = weight.serialize();
 			js["parameters"] = json::object();
 
@@ -209,6 +240,18 @@ namespace rfkt {
 			}
 
 			return js;
+		}
+
+		static std::optional<vardata> deserialize(std::string_view name, const json& js, const function_table& ft, const flamedb& fdb);
+
+		constexpr static std::string_view pointer_to_name(anima rfkt::vardata::* ptr) {
+			if (ptr == &vardata::weight) return "weight";
+			return "UNKNOWN";
+		}
+
+		constexpr static anima rfkt::vardata::* name_to_pointer(std::string_view name) {
+			if (name == "weight") return &vardata::weight;
+			return nullptr;
 		}
 
 	private:
@@ -309,20 +352,38 @@ namespace rfkt {
 			return size;
 		}
 
-		json serialize() const noexcept {
-			json js;
+		ordered_json serialize() const noexcept {
+			ordered_json js;
 			js["transform"] = transform.serialize();
 			js["mod_x"] = mod_x.serialize();
 			js["mod_y"] = mod_y.serialize();
 			js["mod_scale"] = mod_scale.serialize();
 			js["mod_rotate"] = mod_rotate.serialize();
-			js["variations"] = json::object();
+			js["variations"] = ordered_json::object();
 
 			for (const auto& [name, value] : variations_) {
 				js["variations"][name] = value.serialize();
 			}
 
 			return js;
+		}
+
+		static std::optional<vlink> deserialize(const json& js, const function_table& ft, const flamedb& fdb);
+
+		constexpr static std::string_view pointer_to_name(anima rfkt::vlink::* ptr) {
+			if (ptr == &vlink::mod_x) return "mod_x";
+			if (ptr == &vlink::mod_y) return "mod_y";
+			if (ptr == &vlink::mod_scale) return "mod_scale";
+			if (ptr == &vlink::mod_rotate) return "mod_rotate";
+			return "UNKNOWN";
+		}
+
+		constexpr static anima rfkt::vlink::* name_to_pointer(std::string_view name) {
+			if (name == "mod_x") return &vlink::mod_x;
+			if (name == "mod_y") return &vlink::mod_y;
+			if (name == "mod_scale") return &vlink::mod_scale;
+			if (name == "mod_rotate") return &vlink::mod_rotate;
+			return nullptr;
 		}
 
 	private:
@@ -373,19 +434,37 @@ namespace rfkt {
 			return size;
 		}
 
-		json serialize() const noexcept {
-			json js;
+		ordered_json serialize() const noexcept {
+			ordered_json js;
 			js["weight"] = weight.serialize();
 			js["color"] = color.serialize();
 			js["color_speed"] = color_speed.serialize();
 			js["opacity"] = opacity.serialize();
-			js["vchain"] = json::array();
+			js["vchain"] = ordered_json::array();
 
 			for (const auto& link : vchain) {
-				js["vchain"].push_back(link.serialize());
+				js["vchain"].emplace_back(link.serialize());
 			}
 
 			return js;
+		}
+
+		static std::optional<xform> deserialize(const json& js, const function_table& ft, const flamedb& fdb);
+
+		constexpr static std::string_view pointer_to_name(anima rfkt::xform::* ptr) {
+			if (ptr == &xform::weight) return "weight";
+			if (ptr == &xform::color) return "color";
+			if (ptr == &xform::color_speed) return "color_speed";
+			if (ptr == &xform::opacity) return "opacity";
+			return "UNKNOWN";
+		}
+
+		constexpr static anima xform::* name_to_pointer(std::string_view name) {
+			if (name == "weight") return &xform::weight;
+			if (name == "color") return &xform::color;
+			if (name == "color_speed") return &xform::color_speed;
+			if (name == "opacity") return &xform::opacity;
+			return nullptr;
 		}
 
 	};
@@ -394,6 +473,9 @@ namespace rfkt {
 
 	class flame : public traits::hashable {
 	public:
+
+		std::string name;
+
 		std::vector<xform> xforms;
 		std::optional<xform> final_xform;
 
@@ -500,48 +582,39 @@ namespace rfkt {
 			return &xforms[index];
 		}
 
-		json serialize() const noexcept {
-			json js;
+		ordered_json serialize() const noexcept;
 
-			js["xforms"] = json::array();
+		static std::optional<flame> deserialize(const json& js, const function_table& ft, const flamedb& fdb);
 
-			for (const auto& xf : xforms) {
-				js["xforms"].push_back(xf.serialize());
-			}
-
-			if (final_xform) {
-				js["final_xform"] = final_xform->serialize();
-			}
-
-			js["center_x"] = center_x.serialize();
-			js["center_y"] = center_y.serialize();
-			js["scale"] = scale.serialize();
-			js["rotate"] = rotate.serialize();
-
-			js["gamma"] = gamma.serialize();
-			js["brightness"] = brightness.serialize();
-			js["vibrancy"] = vibrancy.serialize();
-
-			std::string palette_string;
-			palette_string.reserve(sizeof(decltype(palette)::value_type) * palette.size() * 2);
-
-			for (const auto& hsv : palette) {
-				for (const auto& c : std::bit_cast<std::array<unsigned char, sizeof(hsv)>>(hsv)) {
-					palette_string += std::format("{:02X}", c);
-				}
-				//js["palette"].push_back({ hue, sat, val });
-			}
-
-			js["palette"] = std::move(palette_string);
-
-			return js;
+		constexpr static std::string_view pointer_to_name(anima flame::* ptr) {
+			if (ptr == &flame::center_x) return "center_x";
+			if (ptr == &flame::center_y) return "center_y";
+			if (ptr == &flame::scale) return "scale";
+			if (ptr == &flame::rotate) return "rotate";
+			if (ptr == &flame::gamma) return "gamma";
+			if (ptr == &flame::brightness) return "brightness";
+			if (ptr == &flame::vibrancy) return "vibrancy";
+			return "UNKNOWN";
 		}
+
+		constexpr static anima flame::* name_to_pointer(std::string_view name) {
+			if(name == "center_x") return &flame::center_x;
+			if(name == "center_y") return &flame::center_y;
+			if(name == "scale") return &flame::scale;
+			if(name == "rotate") return &flame::rotate;
+			if(name == "gamma") return &flame::gamma;
+			if(name == "brightness") return &flame::brightness;
+			if(name == "vibrancy") return &flame::vibrancy;
+			return nullptr;
+		}
+
+		rfkt::hash_t value_hash() const noexcept;
 	};
 
 	namespace descriptors {
 		namespace detail {
 			template<typename T, typename Class>
-			auto cast_ptr(T Class::* ptr) noexcept {
+			constexpr auto cast_ptr(T Class::* ptr) noexcept {
 				return std::bit_cast<std::array<char, sizeof(ptr)>>(ptr);
 			}
 		}
@@ -551,14 +624,20 @@ namespace rfkt {
 
 			flame(anima rfkt::flame::* p) noexcept : p(p) { }
 
-			constexpr bool operator==(const flame&) const noexcept = default;
-
 			anima* access(rfkt::flame& flame) const noexcept {
 				return &(flame.*p);
 			}
 
 			void add_to_hash(rfkt::hash::state_t& hs) const {
 				hs.update(detail::cast_ptr(p));
+			}
+
+			std::string to_string() const {
+				return std::format("flame.{}", rfkt::flame::pointer_to_name(p));
+			}
+
+			constexpr std::strong_ordering operator<=>(const flame& o) const noexcept {
+				return detail::cast_ptr(p) <=> detail::cast_ptr(o.p);
 			}
 		};
 
@@ -567,7 +646,6 @@ namespace rfkt {
 			anima rfkt::xform::* p;
 
 			xform(int xid, anima rfkt::xform::* p) noexcept : xid(xid), p(p) { }
-			constexpr bool operator==(const xform&) const noexcept = default;
 
 			anima* access(rfkt::flame& flame) const noexcept {
 				auto ptr = flame.get_xform(xid);
@@ -579,6 +657,15 @@ namespace rfkt {
 				hs.update(xid);
 				hs.update(detail::cast_ptr(p));
 			}
+
+			std::string to_string() const {
+				return std::format("flame.xf[{}].{}", xid, rfkt::xform::pointer_to_name(p));
+			}
+
+			constexpr std::strong_ordering operator<=>(const xform& o) const noexcept {
+				if(auto xid_cmp = xid <=> o.xid; xid_cmp != 0) return xid_cmp;
+				return detail::cast_ptr(p) <=> detail::cast_ptr(o.p);
+			}
 		};
 
 		struct vlink : public traits::hashable {
@@ -587,7 +674,6 @@ namespace rfkt {
 			anima rfkt::vlink::* p;
 
 			vlink(int xid, int vid, anima rfkt::vlink::* p) noexcept : xid(xid), vid(vid), p(p) { }
-			constexpr bool operator==(const vlink&) const noexcept = default;
 
 			anima* access(rfkt::flame& flame) const noexcept {
 				auto ptr = flame.get_xform(xid);
@@ -600,6 +686,16 @@ namespace rfkt {
 				hs.update(xid);
 				hs.update(vid);
 				hs.update(detail::cast_ptr(p));
+			}
+
+			std::string to_string() const {
+				return std::format("flame.xf[{}].vl[{}].{}", xid, vid, rfkt::vlink::pointer_to_name(p));	
+			}
+
+			constexpr std::strong_ordering operator<=>(const vlink& o) const noexcept {
+				if(auto xid_cmp = xid <=> o.xid; xid_cmp != 0) return xid_cmp;
+				if(auto vid_cmp = vid <=> o.vid; vid_cmp != 0) return vid_cmp;
+				return detail::cast_ptr(p) <=> detail::cast_ptr(o.p);
 			}
 		};
 
@@ -623,6 +719,16 @@ namespace rfkt {
 				hs.update(vid);
 				hs.update(detail::cast_ptr(p));
 			}
+
+			std::string to_string() const {
+				return std::format("flame.xf[{}].vl[{}].transform.{}", xid, vid, rfkt::affine::pointer_to_name(p));
+			}
+
+			constexpr std::strong_ordering operator<=>(const transform& o) const noexcept {
+				if(auto xid_cmp = xid <=> o.xid; xid_cmp != 0) return xid_cmp;
+				if(auto vid_cmp = vid <=> o.vid; vid_cmp != 0) return vid_cmp;
+				return detail::cast_ptr(p) <=> detail::cast_ptr(o.p);
+			}
 		};
 
 		struct vardata : public traits::hashable {
@@ -632,7 +738,6 @@ namespace rfkt {
 			anima rfkt::vardata::* p;
 
 			vardata(int xid, int vid, std::string var_name, anima rfkt::vardata::* p) noexcept : xid(xid), vid(vid), var_name(std::move(var_name)), p(p) { }
-			constexpr bool operator==(const vardata&) const noexcept = default;
 
 			anima* access(rfkt::flame& flame) const noexcept {
 				auto ptr = flame.get_xform(xid);
@@ -648,6 +753,17 @@ namespace rfkt {
 				hs.update(var_name);
 				hs.update(detail::cast_ptr(p));
 			}
+
+			std::string to_string() const {
+				return std::format("flame.xf[{}].vl[{}].var[{}].{}", xid, vid, var_name, rfkt::vardata::pointer_to_name(p));
+			}
+
+			constexpr std::strong_ordering operator<=>(const vardata& o) const noexcept {
+				if(auto xid_cmp = xid <=> o.xid; xid_cmp != 0) return xid_cmp;
+				if(auto vid_cmp = vid <=> o.vid; vid_cmp != 0) return vid_cmp;
+				if(auto var_name_cmp = var_name <=> o.var_name; var_name_cmp != 0) return var_name_cmp;
+				return detail::cast_ptr(p) <=> detail::cast_ptr(o.p);
+			}
 		};
 
 		struct parameter : public traits::hashable {
@@ -657,7 +773,6 @@ namespace rfkt {
 			std::string param_name;
 
 			parameter(int xid, int vid, std::string var_name, std::string param_name) noexcept : xid(xid), vid(vid), var_name(std::move(var_name)), param_name(std::move(param_name)) { }
-			constexpr bool operator==(const parameter&) const noexcept = default;
 
 			anima* access(rfkt::flame& flame) const noexcept {
 				auto ptr = flame.get_xform(xid);
@@ -673,6 +788,17 @@ namespace rfkt {
 				hs.update(vid);
 				hs.update(var_name);
 				hs.update(param_name);
+			}
+
+			std::string to_string() const {
+				return std::format("flame.xf[{}].vl[{}].var[{}].{}", xid, vid, var_name, param_name);
+			}
+
+			constexpr std::strong_ordering operator<=>(const parameter& o) const noexcept {
+				if(auto xid_cmp = xid <=> o.xid; xid_cmp != 0) return xid_cmp;
+				if(auto vid_cmp = vid <=> o.vid; vid_cmp != 0) return vid_cmp;
+				if(auto var_name_cmp = var_name <=> o.var_name; var_name_cmp != 0) return var_name_cmp;
+				return param_name <=> o.param_name;
 			}
 		};
 
@@ -691,26 +817,50 @@ namespace rfkt {
 		using descriptor_base::descriptor_base;
 
 		anima* access(rfkt::flame& flame) const noexcept {
-			return std::visit([&](auto&& arg) -> anima* {
+			return std::visit([&flame](const auto& arg) -> anima* {
 				return arg.access(flame);
-				}, *static_cast<const descriptor_base*>(this));
+				}, cast_to_base());
 		}
 
 		void add_to_hash(rfkt::hash::state_t& hs) const {
-			std::visit([&](auto&& arg) {
+			std::visit([&hs](const auto& arg) {
 				arg.add_to_hash(hs);
-			}, *static_cast<const descriptor_base*>(this));
+			}, cast_to_base());
+		}
+
+		std::string_view to_string() const {
+			return std::visit([](const auto& arg) -> std::string {
+				return arg.to_string();
+			}, cast_to_base());
+		}
+
+		constexpr std::strong_ordering operator<=>(const descriptor& o) const noexcept {
+
+			if(auto tag_cmp = cast_to_base().index() <=> o.cast_to_base().index(); tag_cmp != 0)
+				return tag_cmp;
+
+			return std::visit(
+				[]<typename LeftT, typename RightT>(const LeftT& lhs, const RightT& rhs) -> std::strong_ordering {
+					if constexpr (std::same_as<LeftT, RightT>) {
+						return lhs <=> rhs;
+					}
+					else {
+						// assume the types are the same since the tag
+						// has already been compared
+						std::unreachable();
+					}
+				}, cast_to_base(), o.cast_to_base());
+		}
+
+	private:
+		descriptor_base& cast_to_base() {
+			return *static_cast<descriptor_base*>(this);
+		}
+
+		const descriptor_base& cast_to_base() const {
+			return *static_cast<const descriptor_base*>(this);
 		}
 	};
-
-	/*inline bool operator==(const descriptor& lhs, const descriptor& rhs) noexcept {
-		return std::visit([&](auto&& lhs, auto&& rhs) -> bool {
-			if constexpr (std::same_as<decltype(lhs), decltype(rhs)>)
-			return lhs == rhs;
-			else
-				return false;
-			}, lhs, rhs);
-	}*/
 
 	class flamedb;
 

@@ -1,5 +1,8 @@
 #include <zlib.h>
 #include <zip.h>
+#include <base64_url_unpadded.hpp>
+
+using b64_codec = cppcodec::base64_url_unpadded;
 
 #include <librefrakt/util/zlib.h>
 
@@ -21,6 +24,15 @@ std::vector<char> rfkt::zlib::compress(const void* data, std::size_t len, unsign
     return ret;
 }
 
+std::string rfkt::zlib::compress_b64(const std::vector<char>& data, unsigned int level) {
+    return compress_b64(data.data(), data.size(), level);
+}
+
+std::string rfkt::zlib::compress_b64(const void* data, std::size_t len, unsigned int level) {
+    auto binary = compress(data, len, level);
+    return b64_codec::encode((const unsigned char*)binary.data(), binary.size());
+}
+
 std::vector<char> rfkt::zlib::uncompress(const std::vector<char>& data)
 {
     return uncompress(data.data(), data.size());
@@ -33,6 +45,11 @@ std::vector<char> rfkt::zlib::uncompress(const void* data, std::size_t len)
     ret.resize(inflated_size);
     ::uncompress((Bytef*) ret.data(), &inflated_size, (Bytef*) data + sizeof(len), len - sizeof(len));
     return ret;
+}
+
+std::vector<char> rfkt::zlib::uncompress_b64(std::string_view data) {
+    auto binary = b64_codec::decode(data);
+	return uncompress(binary.data(), binary.size());
 }
 
 bool rfkt::zlib::extract_zip(const rfkt::fs::path& zip_path, const rfkt::fs::path& out_path)

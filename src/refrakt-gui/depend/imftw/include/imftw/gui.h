@@ -49,7 +49,7 @@ namespace imftw {
     }
 
     inline void tooltip(std::string_view text, bool show_icon = true) {
-        if (show_icon) ImGui::TextDisabled("(?)");
+        if (show_icon) ImGui::Text("\xee\xa2\x87");
         if (ImGui::IsItemHovered())
         {
 			ImGui::BeginTooltip();
@@ -58,6 +58,13 @@ namespace imftw {
 			ImGui::PopTextWrapPos();
 			ImGui::EndTooltip();
 		}
+    }
+
+    inline void text_centered(std::string_view text) {
+        auto region = ImGui::GetContentRegionAvail();
+        auto size = ImGui::CalcTextSize(text.data());
+        ImGui::SetCursorPosX(region.x / 2 - size.x / 2);
+        ImGui::TextUnformatted(text.data());
     }
 
     template<typename T>

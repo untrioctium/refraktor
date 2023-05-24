@@ -5,6 +5,7 @@
 
 #include <imgui.h>
 #include <imgui_internal.h>
+#include <concurrentqueue.h>
 
 #ifdef _WIN32
 #define GLFW_EXPOSE_NATIVE_WIN32
@@ -58,6 +59,8 @@ namespace imftw {
         decltype(glfwGetTime()) last_time;
 
         std::thread::id opengl_thread_id;
+
+        moodycamel::ConcurrentQueue<std::move_only_function<void()>> deferred_functions;
 
 #ifdef _WIN32
         HWND hwnd;
