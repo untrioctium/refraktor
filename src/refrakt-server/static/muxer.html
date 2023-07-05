@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="description" content="jMuxer - a simple javascript mp4 muxer for non-standard streaming communications protocol">
+    <meta name="keywords" content="h264 player, mp4 player, mse, mp4 muxing, jmuxer, aac player">
+    <title>jMuxer demo</title>
+</head>
+<body style="margin: 0">
+<div id="container" style="margin: 0 auto; text-align: center;">
+    <video style="border: 1px solid #333; max-width: 1920px; margin: 0" controls autoplay muted poster="images/loader-thumb.jpg" id="player"></video>
+</div>
+<script>
+ window.onload = function() {
+    var socketURL = 'ws://localhost:3000/stream';
+	var fps = 30;
+    var jmuxer = new JMuxer({
+        node: 'player',
+		mode: "video",
+        debug: true,
+        flushingTime: 500, // we need 1000 for the demo as server provides a chunk data of 1000ms at a time
+		fps: fps,
+        onError: function(data) {
+            console.log('Buffer error encountered', data);
+        }
+     });
+
+     var ws = new WebSocket(socketURL);
+     ws.binaryType = 'arraybuffer';
+     ws.addEventListener('message',function(event) {
+          var data = event.data;
+          jmuxer.feed({
+			video: new Uint8Array(data)
+		  });
+     });
+
+     ws.addEventListener('error', function(e) {
+        console.log('Socket Error');
+     });
+	 
+	 ws.addEventListener('open',function(event) {
+	    var payload = JSON.stringify({
+			cmd: "begin",
+			flame: "23040",
+			fps: fps,
+			flame: "248.02196",
+			width: 1920,
+			height: 1080
+		});
+		
+		console.log(payload)
+		ws.send(payload);
+     });
+	 
+ }
+ 
+</script>
+<script type="text/javascript" src="https://cdn.jsdelivr.net/npm/jmuxer@2.0.4/dist/jmuxer.min.js"></script>
+</body>
+</html>

@@ -1,0 +1,11 @@
+#define FLT_MAX 3.40282346638528859811704183484516925e+38F
+#define DBL_MAX 1.79769313486231570814527423731704357e+308
+
+namespace std {
+
+    template<typename T>
+    struct numeric_limits {
+        constexpr static bool is_signed = T{0} > (T{0} - 1);
+    };
+
+}

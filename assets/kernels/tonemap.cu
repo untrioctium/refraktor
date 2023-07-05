@@ -1,44 +1,37 @@
 #define DEBUG(...) if(threadIdx.x == 0 && blockIdx.x == 0) {printf(__VA_ARGS__);}
 
-template<bool Planar>
-constexpr auto image_type() {
-	if constexpr(Planar) 
-		return static_cast<unsigned char>(0);
-	else 
-		return uchar4{0};
+using __half = unsigned short;
+struct half3 {
+	__half x, y, z;
+};
+
+__half __float2half(const float a) {
+	__half val;
+	asm("{  cvt.rn.f16.f32 %0, %1;}\n" : "=h"(val) : "f"(a));
+	return val;
 }
 
-template<bool Planar>
-__global__ void tonemap(const float4* __restrict__ bins, decltype(image_type<Planar>())*  __restrict__ image, unsigned int dims_x, unsigned int dims_y, float gamma, float scale_constant, float brightness, float vibrancy) {
+__global__ void tonemap(const float4* __restrict__ bins, half3* __restrict__ image, unsigned int size, float gamma, float scale_constant, float brightness, float vibrancy) {
 
 	//DEBUG("%dx%d (%f,%f,%f,%f)\n", dims_x, dims_y, gamma, scale_constant, brightness, vibrancy);
 
-	const uchar4 background = { 0, 0, 0, 255 };
-	const uint2 pos = {
-		threadIdx.x + blockIdx.x * blockDim.x,
-		threadIdx.y + blockIdx.y * blockDim.y
-	};
+	const half3 background = { 0, 0, 0 };
+	auto bin_idx = blockIdx.x * blockDim.x + threadIdx.x;
 
-	if (pos.x >= dims_x || pos.y >= dims_y) return;
+	if (bin_idx > size) return;
 
-	const unsigned int bin_idx = (pos.y) * dims_x + pos.x;
 	float4 col = bins[bin_idx];
 
 	if(col.w == 0.0) {
-		if constexpr(Planar) {
-			const auto channel_stride = dims_x * dims_y;
-			image[bin_idx] = background.x;
-			image[channel_stride + bin_idx] = background.y;
-			image[2 * channel_stride + bin_idx] = background.z;
-			image[3 * channel_stride + bin_idx] = background.w;
-
-		} else {
-			image[bin_idx] = background;
-		}
+		image[bin_idx] = background;
 		return;
 	}
 
-	col.w += 1;
+	if(col.x > 65536 * 256 || col.y > 65536 * 256 || col.z > 65536 * 256 || col.w > 65536) {
+		printf("clip %f %f %f %f\n", col.x, col.y, col.z, col.w);
+	}
+
+	//col.w += 1;
 	const float factor = (col.w == 0.0f)? 0.0f : 0.5f * brightness * logf(1.0f + col.w * scale_constant) * 0.434294481903251827651128918916f / (col.w);
 	col.x *= factor; col.y *= factor; col.z *= factor; col.w *= factor;
 
@@ -53,19 +46,5 @@ __global__ void tonemap(const float4* __restrict__ bins, decltype(image_type<Pla
 
 	#define interp(left, right, mix) ((left) * (1.0f - (mix)) + (right) * (mix))
 
-	if constexpr(Planar) {
-		const auto channel_stride = dims_x * dims_y;
-		image[bin_idx] = min(255.0f, col.x * 255.0f);
-		image[channel_stride + bin_idx] = min(255.0f, col.y * 255.0f);
-		image[2 * channel_stride + bin_idx] = min(255.0f, col.z * 255.0f);
-		image[3 * channel_stride + bin_idx] = 255;
-	}
-	else {
-		image[bin_idx] = {
-			(unsigned char) min(255.0f, col.x * 255.0f),
-			(unsigned char) min(255.0f, col.y * 255.0f),
-			(unsigned char) min(255.0f, col.z * 255.0f),
-			255//(unsigned char) min(255.0f, col.w * 255.0f)
-		};
-	}
+	image[bin_idx] = { __float2half(col.x), __float2half(col.y), __float2half(col.z) };
 }
