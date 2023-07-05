@@ -11,7 +11,7 @@ preview_panel::~preview_panel()
 {
 	if (rendering_texture) {
 		auto tex = rendering_texture->get();
-		cuda_map = std::nullopt;
+		//cuda_map = std::nullopt;
 	}
 }
 
@@ -20,7 +20,7 @@ bool preview_panel::show(const rfkt::flamedb& fdb, rfkt::flame& flame, rfkt::fun
 
 	if (render_is_ready()) {
 		displayed_texture = rendering_texture->get();
-		cuda_map = std::nullopt;
+		//cuda_map = std::nullopt;
 		rendering_texture = std::nullopt;
 	}
 
@@ -51,9 +51,9 @@ bool preview_panel::show(const rfkt::flamedb& fdb, rfkt::flame& flame, rfkt::fun
 		if (needs_render) {
 			auto state_size = upscale ? uint2{ preview_size.x / 2, preview_size.y / 2 } : preview_size;
 			auto out_tex = rfkt::gl::texture{ preview_size.x, preview_size.y };
-			cuda_map = out_tex.map_to_cuda();
+			//cuda_map = out_tex.map_to_cuda();
 
-			auto invoker = [&ft]<typename... Args>(Args&&... args) { return ft.call(std::forward<Args>(args)...); };
+			auto invoker = ft.make_invoker();
 
 			std::vector<double> samples{};
 			if (needs_clear) {
@@ -61,10 +61,14 @@ bool preview_panel::show(const rfkt::flamedb& fdb, rfkt::flame& flame, rfkt::fun
 
 				const auto loops_per_frame = 1 / 150.0;
 
-				flame.pack_sample(packer, invoker, current_time  - loops_per_frame, state_size.x, state_size.y);
-				flame.pack_sample(packer, invoker, current_time, state_size.x, state_size.y);
-				flame.pack_sample(packer, invoker, current_time + loops_per_frame, state_size.x, state_size.y);
-				flame.pack_sample(packer, invoker, current_time + 2 * loops_per_frame, state_size.x, state_size.y);
+				for (int i = -1; i < 3; i++) {
+					flame.pack_sample(packer, invoker, current_time /* + i * loops_per_frame*/, state_size.x, state_size.y);
+				}
+
+				//flame.pack_sample(packer, invoker, current_time  - loops_per_frame, state_size.x, state_size.y);
+				//flame.pack_sample(packer, invoker, current_time, state_size.x, state_size.y);
+				//flame.pack_sample(packer, invoker, current_time + loops_per_frame, state_size.x, state_size.y);
+				//flame.pack_sample(packer, invoker, current_time + 2 * loops_per_frame, state_size.x, state_size.y);
 			}
 
 			std::optional<rfkt::flame> flame_copy = std::nullopt;
@@ -77,10 +81,14 @@ bool preview_panel::show(const rfkt::flamedb& fdb, rfkt::flame& flame, rfkt::fun
 			auto promise = std::promise<rfkt::gl::texture>();
 			auto future = promise.get_future();
 
-			submitter([promise = std::move(promise),
+			auto cuda_map = out_tex.map_to_cuda();
+
+			submitter([
+				cuda_map = std::move(cuda_map),
+				promise = std::move(promise),
 				flame_copy = std::move(flame_copy),
 				&renderer = this->renderer,
-				out_tex = std::move(out_tex), &cuda_map = this->cuda_map.value(),
+				out_tex = std::move(out_tex),
 				needs_kernel, needs_clear,
 				samples = std::move(samples),
 				&compiler = this->compiler, kernel = this->kernel, &fdb,
@@ -106,11 +114,18 @@ bool preview_panel::show(const rfkt::flamedb& fdb, rfkt::flame& flame, rfkt::fun
 					}
 
 					auto result = renderer(stream, *kernel, *state, { .millis = millis, .quality = target_quality - state->quality }, gbv, upscale);
-					cuda_map.copy_from(result, stream);
+					cuda_map.copy_from(result.operator rfkt::cuda_span<uchar4>(), stream);
 					result.free_async(stream);
-					stream.sync();
-					promise.set_value(std::move(out_tex));
+					
+					auto resolver = [promise = std::move(promise), out_tex = std::move(out_tex), cuda_map = std::move(cuda_map)]() mutable {
+						promise.set_value(std::move(out_tex));
+					};
 
+					stream.host_func([resolver = std::move(resolver)]() mutable {
+						ImFtw::DeferNextFrame([resolver = std::move(resolver)]() mutable {
+							resolver();
+						});
+					});
 				});
 
 			rendering_texture = std::move(future);
@@ -144,7 +159,7 @@ uint2 preview_panel::gui_logic(rfkt::flame& flame, rfkt::function_table& ft) {
 				if (ImGui::MenuItem("Upscale 2x", nullptr, &this->upscale)) { 
 					render_options_changed = true;
 				}
-				imftw::tooltip("Enables upscaling; improves performance but reduces quality.", false);
+				ImFtw::Tooltip("Enables upscaling; improves performance but reduces quality.", false);
 			}
 
 			IMFTW_MENU("Quality") {

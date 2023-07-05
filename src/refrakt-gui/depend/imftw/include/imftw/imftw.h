@@ -8,21 +8,23 @@
 
 #include <span>
 
-namespace imftw {
+namespace ImFtw {
 
-    void run(std::string_view window_title, std::move_only_function<void()>&& main_function);
+    int Run(std::string_view window_title, std::move_only_function<int()>&& main_function);
 
-    void begin_frame(ImVec4 clear_color = ImVec4(0.0f, 0.0f, 0.0f, 1.0f));
-    void end_frame(bool render = true);
+    void BeginFrame(ImVec4 clear_color = ImVec4(0.0f, 0.0f, 0.0f, 1.0f));
+    void EndFrame(bool render = true);
 
-    void defer(std::move_only_function<void()>&&);
+    void DeferNextFrame(std::move_only_function<void()>&&);
 
-    std::string show_open_dialog(const std::filesystem::path& path, std::string_view filter);
-    std::string show_save_dialog(const std::filesystem::path& path, std::string_view filter);
+    bool OnRenderingThread();
 
-    void open_browser(std::string_view url);
+    std::string ShowOpenDialog(const std::filesystem::path& path, std::string_view filter);
+    std::string ShowSaveDialog(const std::filesystem::path& path, std::string_view filter);
 
-    double time();
+    void OpenBrowser(std::string_view url);
 
-    void request_frame();
+    double Time();
+
+    void RequestFrame();
 }

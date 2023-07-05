@@ -11,24 +11,24 @@ __half __float2half(const float a) {
 	return val;
 }
 
-__global__ void tonemap(const float4* __restrict__ bins, half3* __restrict__ image, unsigned int dims_x, unsigned int dims_y, float gamma, float scale_constant, float brightness, float vibrancy) {
+__global__ void tonemap(const float4* __restrict__ bins, half3* __restrict__ image, unsigned int size, float gamma, float scale_constant, float brightness, float vibrancy) {
 
 	//DEBUG("%dx%d (%f,%f,%f,%f)\n", dims_x, dims_y, gamma, scale_constant, brightness, vibrancy);
 
 	const half3 background = { 0, 0, 0 };
-	const uint2 pos = {
-		threadIdx.x + blockIdx.x * blockDim.x,
-		threadIdx.y + blockIdx.y * blockDim.y
-	};
+	auto bin_idx = blockIdx.x * blockDim.x + threadIdx.x;
 
-	if (pos.x >= dims_x || pos.y >= dims_y) return;
+	if (bin_idx > size) return;
 
-	const unsigned int bin_idx = (pos.y) * dims_x + pos.x;
 	float4 col = bins[bin_idx];
 
 	if(col.w == 0.0) {
 		image[bin_idx] = background;
 		return;
+	}
+
+	if(col.x > 65536 * 256 || col.y > 65536 * 256 || col.z > 65536 * 256 || col.w > 65536) {
+		printf("clip %f %f %f %f\n", col.x, col.y, col.z, col.w);
 	}
 
 	//col.w += 1;

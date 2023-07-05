@@ -25,23 +25,38 @@ namespace rfkt {
 			SPDLOG_INFO("Loaded tonemapper kernel: {} regs, {} shared, {} local, {}x{} suggested dims", func.register_count(), func.shared_bytes(), func.local_bytes(), s_grid, s_block);
 
 			tm = std::move(tm_result.module.value());
+			block_size = s_block;
 		}
 
-		void run(cuda_span<float4> bins, cuda_span<half3> out, uint2 dims, double quality, double gamma, double brightness, double vibrancy, cuda_stream& stream) const {
+		struct args_t {
+			double quality;
+			double gamma;
+			double brightness;
+			double vibrancy;
+		};
 
-			CUDA_SAFE_CALL(tm.kernel("tonemap").launch({ dims.x / 8 + 1, dims.y / 8 + 1, 1 }, { 8, 8, 1 }, stream)(
+		void run(cuda_span<float4> bins, cuda_span<half3> out, const args_t& args, cuda_stream& stream) const {
+
+			unsigned int size = bins.size();
+			auto nblocks = size / block_size;
+			if (size % block_size != 0) {
+				nblocks++;
+			}
+
+			CUDA_SAFE_CALL(tm.kernel("tonemap").launch(nblocks, block_size, stream)(
 				bins.ptr(),
 				out,
-				dims.x, dims.y,
-				static_cast<float>(gamma),
-				std::powf(10.0f, -log10f(quality) - 0.5f),
-				static_cast<float>(brightness),
-				static_cast<float>(vibrancy)
+				size,
+				static_cast<float>(args.gamma),
+				std::powf(10.0f, -log10f(args.quality) - 0.5f),
+				static_cast<float>(args.brightness),
+				static_cast<float>(args.vibrancy)
 				));
 
 		}
 
 	private:
 		ezrtc::cuda_module tm;
+		int block_size;
 	};
 }

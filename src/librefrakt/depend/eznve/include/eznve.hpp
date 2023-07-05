@@ -15,7 +15,8 @@ namespace eznve {
 
 	enum class codec {
 		h264,
-		hevc
+		hevc,
+		av1
 	};
 
 	enum class frame_flag {

@@ -44,7 +44,7 @@ void rfkt::gui::render_modal::frame_logic(const rfkt::flame& flame) {
 		can_start &= render_params.max_seconds_per_frame > 0;
 
 		if (ImGui::Button("Browse")) {
-			auto selected = imftw::show_save_dialog(rfkt::fs::user_home_directory(), "MP4 Video\0*.mp4\0");
+			auto selected = ImFtw::ShowSaveDialog(rfkt::fs::user_home_directory(), "MP4 Video\0*.mp4\0");
 			if (!selected.empty()) {
 				render_params.output_file = selected;
 			}
@@ -82,12 +82,12 @@ void rfkt::gui::render_modal::frame_logic(const rfkt::flame& flame) {
 			worker_state->worker.request_stop();
 			worker_state->worker.join();
 			worker_state.reset();
-			imftw::sig::set_window_progress_mode(imftw::sig::progress_mode::disabled);
+			ImFtw::Sig::SetWindowProgressMode(ImFtw::Sig::ProgressMode::Disabled);
 		}
 		else if (worker_state->done.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
 			worker_state->worker.join();
 			worker_state.reset();
-			imftw::sig::set_window_progress_mode(imftw::sig::progress_mode::disabled);
+			ImFtw::Sig::SetWindowProgressMode(ImFtw::Sig::ProgressMode::Disabled);
 		}
 		else {
 			ImGui::SameLine();
@@ -96,7 +96,7 @@ void rfkt::gui::render_modal::frame_logic(const rfkt::flame& flame) {
 			}
 			else ImGui::ProgressBar(done_frames / float(total_frames));
 
-			imftw::sig::set_window_progress_value(done_frames, total_frames);
+			ImFtw::Sig::SetWindowProgressValue(done_frames, total_frames);
 		}
 	}
 
@@ -106,8 +106,8 @@ void rfkt::gui::render_modal::frame_logic(const rfkt::flame& flame) {
 			if (ImGui::Button("Start")) {
 				launch_worker(flame);
 				start_time = std::chrono::steady_clock::now();
-				imftw::sig::set_window_progress_mode(imftw::sig::progress_mode::determinate);
-				imftw::sig::set_window_progress_value(0, total_frames);
+				ImFtw::Sig::SetWindowProgressMode(ImFtw::Sig::ProgressMode::Determinate);
+				ImFtw::Sig::SetWindowProgressValue(0, total_frames);
 				
 			}
 		}
@@ -120,14 +120,17 @@ void rfkt::gui::render_modal::frame_logic(const rfkt::flame& flame) {
 namespace rfkt {
 	class postprocessor {
 	public:
-		postprocessor(ezrtc::compiler& kc, uint2 dims, bool upscale) :
+		postprocessor(ezrtc::compiler& kc, uint2 dims, rfkt::denoiser_flag::flags dn_opts = rfkt::denoiser_flag::none) :
 			tm(kc),
-			dn(dims, upscale),
+			dn(dims, dn_opts),
 			conv(kc),
-			tonemapped((upscale) ? (dims.x * dims.y / 4) : (dims.x * dims.y)),
-			denoised(dims.x* dims.y),
+			tonemapped(dn_opts& rfkt::denoiser_flag::upscale ? dims.x / 2 : dims.x, dn_opts& rfkt::denoiser_flag::upscale ? dims.y / 2 : dims.y),
+			denoised(dims.x, dims.y),
 			dims_(dims),
-			upscale(upscale) {}
+			upscale(upscale)
+		{
+
+		}
 
 		~postprocessor() = default;
 
@@ -174,9 +177,9 @@ namespace rfkt {
 					t.reset();
 				});
 
-			tm.run(in, tonemapped, input_dims(), quality, gamma, brightness, vibrancy, stream);
-			dn.denoise(output_dims(), tonemapped, denoised, stream);
-			conv.to_24bit(denoised, out, output_dims(), planar_output, stream);
+			tm.run(in, tonemapped, { quality, gamma, brightness, vibrancy }, stream);
+			dn.denoise(tonemapped, denoised, stream);
+			conv.to_24bit(denoised, out, planar_output, stream);
 			stream.host_func([&t = perf_timer, p = std::move(promise)]() mutable {
 				p.set_value(t.count());
 				});
@@ -189,8 +192,8 @@ namespace rfkt {
 		rfkt::denoiser dn;
 		rfkt::converter conv;
 
-		rfkt::cuda_buffer<half3> tonemapped;
-		rfkt::cuda_buffer<half3> denoised;
+		rfkt::cuda_image<half3> tonemapped;
+		rfkt::cuda_image<half3> denoised;
 
 		rfkt::timer perf_timer;
 
@@ -344,7 +347,7 @@ void rfkt::gui::render_modal::launch_worker(const rfkt::flame& flame)
 			static_cast<unsigned int>(render_params.dims.y)
 		};
 
-		auto pp = rfkt::postprocessor{ km, dims, false };
+		auto pp = rfkt::postprocessor{ km, dims, rfkt::denoiser_flag::none };
 		auto post_stream = rfkt::cuda_stream{};
 		auto encoder = eznve::encoder{ dims, {static_cast<unsigned int>(render_params.fps), 1}, eznve::codec::hevc, ctx };
 
@@ -374,6 +377,8 @@ void rfkt::gui::render_modal::launch_worker(const rfkt::flame& flame)
 		auto com_queue = com_queue_t{};
 		auto bin_worker = std::jthread(&binning_thread, ctx, total_frames, std::cref(flame), std::cref(render_params), std::ref(ft), std::cref(kernel), std::ref(com_queue));
 
+		int chunks_processed = 0;
+
 		auto& i = *frame_counter;
 		while(i != total_frames) {
 			if (stoke.stop_requested()) {
@@ -388,24 +393,28 @@ void rfkt::gui::render_modal::launch_worker(const rfkt::flame& flame)
 			}
 
 			auto binfo = bin_info{};
-			if (!com_queue.wait_dequeue_timed(binfo, std::chrono::milliseconds(10))) {
+			if (!com_queue.wait_dequeue_timed(binfo, std::chrono::microseconds(100))) {
 				continue;
 			}
 
 			auto encoder_input = rfkt::cuda_span<uchar4>{ encoder.buffer(), encoder.buffer_size() / 4 };
 			pp.post_process(binfo.bins, encoder_input, binfo.quality, binfo.gbv.x, binfo.gbv.y, binfo.gbv.z, false, post_stream).get();
-			auto chunks = encoder.submit_frame((i % render_params.fps == 0) ? eznve::frame_flag::idr : eznve::frame_flag::none);
+			auto chunks = encoder.submit_frame((i % render_params.fps == 0 || i + 1 == total_frames) ? eznve::frame_flag::idr : eznve::frame_flag::none);
 
-			for (auto& chunk : chunks)
-				ffmpeg_process.write((uint8_t*) chunk.data.data(), chunk.data.size());//chunkfile.write(chunk.data.data(), chunk.data.size());
-
+			for (auto& chunk : chunks) {
+				ffmpeg_process.write((uint8_t*)chunk.data.data(), chunk.data.size());//chunkfile.write(chunk.data.data(), chunk.data.size());
+				chunks_processed++;
+			}
 			i++;
 		}
 
 		
 		for (auto chunks = encoder.flush(); auto& chunk : chunks) {
 			ffmpeg_process.write((uint8_t*) chunk.data.data(), chunk.data.size());
+			chunks_processed++;
 		}
+
+		SPDLOG_INFO("processed {} chunks", chunks_processed);
 
 		ffmpeg_process.close(reproc::stream::in);
 		ffmpeg_process.wait(reproc::milliseconds(1000));
@@ -438,6 +447,7 @@ void rfkt::gui::render_modal::binning_thread(std::stop_token stoke, rfkt::cuda::
 		static_cast<unsigned int>(rp.dims.y)
 	};
 
+
 	for (int i = 0; i < total_frames && !stoke.stop_requested(); i++) {
 		const auto t = loops_per_frame * i;
 
@@ -450,6 +460,11 @@ void rfkt::gui::render_modal::binning_thread(std::stop_token stoke, rfkt::cuda::
 
 		auto state = kernel.warmup(stream, samples, dims, 0xdeadbeef, 100);
 		auto bin_result = kernel.bin(stream, state, bailout).get();
+
+		auto miters_per_ms = (bin_result.total_passes / 1'000'000.0) / bin_result.elapsed_ms;
+		auto mdraws_per_ms = (bin_result.total_draws / 1'000'000.0) / bin_result.elapsed_ms;
+
+		SPDLOG_INFO("{} miters/ms, {} mdraws/ms", miters_per_ms, mdraws_per_ms);
 
 		while(queue.size_approx() > 5) { 
 			if (stoke.stop_requested()) return;

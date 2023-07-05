@@ -22,22 +22,36 @@ namespace rfkt {
 			}
 
 			conv = std::move(conv_result.module.value());
+
+			auto [s_grid, s_block] = conv.kernel("convert<false>").suggested_dims();
+			auto [s_grid_planar, s_block_planar] = conv.kernel("convert<true>").suggested_dims();
+
+			block_size = s_block;
+			block_size_planar = s_block_planar;
 		}
 
-		void to_24bit(cuda_span<half3> in, cuda_span<uchar4> out, uint2 dims, bool planar, cuda_stream& stream) const {
+		void to_24bit(cuda_span<half3> in, cuda_span<uchar4> out, bool planar, cuda_stream& stream) const {
 			auto kernel = (planar) ? conv.kernel("convert<true>") : conv.kernel("convert<false>");
 
+			auto b_size = (planar) ? block_size_planar : block_size;
+			unsigned int size = in.size();
+			auto nblocks = size / b_size;
+			if (size % b_size != 0) {
+				nblocks++;
+			}
+
 			CUDA_SAFE_CALL(kernel
-				.launch({ dims.x / 8 + 1, dims.y / 8 + 1, 1 }, { 8, 8, 1 }, stream)
+				.launch(nblocks, b_size, stream)
 				(
 					in.ptr(),
 					out.ptr(),
-					dims.x,
-					dims.y
+					size
 				));
 		}
 
 	private:
 		ezrtc::cuda_module conv;
+		int block_size;
+		int block_size_planar;
 	};
 }

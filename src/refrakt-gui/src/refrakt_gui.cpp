@@ -55,9 +55,9 @@ void draw_status_bar() {
 
 			static auto power_sample_pct = dev.wattage_percent();
 			static auto power_sample_watts = dev.wattage();
-			static auto power_sample_time = imftw::time();
+			static auto power_sample_time = ImFtw::Time();
 
-			auto time = imftw::time();
+			auto time = ImFtw::Time();
 			if (time - power_sample_time > .5) {
 				power_sample_pct = dev.wattage_percent();
 				power_sample_watts = dev.wattage();
@@ -149,7 +149,7 @@ public:
 
 	menu_item* process() {
 		menu_item* selected = nullptr;
-		if (imftw::menu m{ name, !items.empty() }; m) {
+		if (ImFtw::Menu m{ name, !items.empty() }; m) {
 			for (auto& child : items) {
 				if (std::holds_alternative<menu_item>(child)) {
 					if (auto child_result = process_child_item(&std::get<menu_item>(child)); child_result != nullptr) selected = child_result;
@@ -221,7 +221,7 @@ public:
 	}
 
 	menu_item* process() {
-		auto menu_scope = imftw::main_menu{};
+		auto menu_scope = ImFtw::MainMenu{};
 		if (!menu_scope) return nullptr;
 
 		menu_item* selected = nullptr;
@@ -322,7 +322,7 @@ private:
 
 template<typename Func>
 auto show_splash(std::string_view task_name, Func&& f) {
-	imftw::begin_frame();
+	ImFtw::BeginFrame();
 	const ImGuiViewport* viewport = ImGui::GetMainViewport();
 	ImGui::SetNextWindowPos(viewport->Pos);
 	ImGui::SetNextWindowSize(viewport->Size);
@@ -336,12 +336,12 @@ auto show_splash(std::string_view task_name, Func&& f) {
 
 	if constexpr (std::same_as<void, decltype(f())>) {
 		f();
-		imftw::end_frame();
+		ImFtw::EndFrame();
 		return;
 	}
 	else {
 		auto result = f();
-		imftw::end_frame();
+		ImFtw::EndFrame();
 		return result;
 	}
 }
@@ -395,9 +395,9 @@ void about_window() {
 		})->second).data()).x + 5.0;
 
 	IMFTW_POPUP("About", true, ImGuiWindowFlags_AlwaysAutoResize) {
-		imftw::text_centered("Refrakt v0.1.0 by Alex Riley");
+		ImFtw::TextCentered("Refrakt v0.1.0 by Alex Riley");
 		ImGui::PushStyleColor(ImGuiCol_Text, 0xFFB59550);
-		imftw::text_centered("github.com/untrioctium/refraktor");
+		ImFtw::TextCentered("github.com/untrioctium/refraktor");
 		auto min = ImGui::GetItemRectMin();
 		auto max = ImGui::GetItemRectMax();
 		min.y = max.y;
@@ -405,17 +405,17 @@ void about_window() {
 		ImGui::PopStyleColor();
 
 		if (ImGui::IsItemHovered()) ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
-		if (ImGui::IsItemClicked(0)) imftw::open_browser("https://github.com/untrioctium/refraktor");
+		if (ImGui::IsItemClicked(0)) ImFtw::OpenBrowser("https://github.com/untrioctium/refraktor");
 
-		imftw::text_centered("Refrakt is distributed under the MIT License");
+		ImFtw::TextCentered("Refrakt is distributed under the MIT License");
 
 		ImGui::TextUnformatted("");
-		imftw::text_centered("Based on the original flam3 renderer by Scott Draves");
-		imftw::text_centered("Uses CUDA, NVENC, and Optix, which are property of NVIDIA");
-		imftw::text_centered("Distributed with ffmpeg.exe on Windows, which is property of the FFmpeg Project");
-		imftw::text_centered("Material Design Icons provided by Google under the Apache 2.0 license");
+		ImFtw::TextCentered("Based on the original flam3 renderer by Scott Draves");
+		ImFtw::TextCentered("Uses CUDA, NVENC, and Optix, which are property of NVIDIA");
+		ImFtw::TextCentered("Distributed with ffmpeg.exe on Windows, which is property of the FFmpeg Project");
+		ImFtw::TextCentered("Material Design Icons provided by Google under the Apache 2.0 license");
 		ImGui::TextUnformatted("");
-		imftw::text_centered("Refrakt uses the following C/C++ libraries. Thank you to all of the authors and countless contributors!");
+		ImFtw::TextCentered("Refrakt uses the following C/C++ libraries. Thank you to all of the authors and countless contributors!");
 		ImGui::BeginChild("##about_libs", { max_library_name + max_author + max_url + max_license + 20, 400 }, true);
 		ImGui::BeginTable("##libraries", 4);
 		ImGui::TableSetupColumn("Name", 0, max_library_name);
@@ -442,7 +442,7 @@ void about_window() {
 			ImGui::GetWindowDrawList()->AddLine(min, max, 0xFFB59550, 1.0f);
 
 			if (ImGui::IsItemHovered()) ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
-			if (ImGui::IsItemClicked(0)) imftw::open_browser(std::format("https://{}", std::get<1>(info)));
+			if (ImGui::IsItemClicked(0)) ImFtw::OpenBrowser(std::format("https://{}", std::get<1>(info)));
 
 			ImGui::TableNextColumn();
 			ImGui::TextUnformatted(std::get<2>(info).data());
@@ -453,6 +453,10 @@ void about_window() {
 
 		if(ImGui::Button("Close") || ImGui::IsKeyReleased(ImGuiKey_Escape)) ImGui::CloseCurrentPopup();
 	}
+}
+
+namespace rfkt {
+	class project;
 }
 
 struct flame_sequencer : public rfkt::gui::panel::timeline::interface {
@@ -478,6 +482,24 @@ struct flame_sequencer : public rfkt::gui::panel::timeline::interface {
 	time_span::int_t min_frame() const override { return 0; }
 	time_span::int_t max_frame() const override { return 3600 * 60 * 5; }
 
+	std::string_view drag_drop_payload_name(int type) const override {
+		if (type == 0) return "FLAME_ID";
+		else return std::string_view{};
+	}
+
+	void add_from_drag_drop(int id, time_span::int_t time, void* payload) override {
+		if (id == 0 || id == 1) {
+			std::size_t f_id = *reinterpret_cast<std::size_t*>(payload);
+			if (id == 0) flame_tracks.first.insert_segment(time, time + 1000, { f_id });
+			else flame_tracks.second.insert_segment(time, time + 1000, { f_id });
+		}
+	}
+
+	std::string_view item_segment_name(int item_id, int seg_id) const override;
+
+private:
+	friend class rfkt::project;
+	rfkt::project* parent = nullptr;
 };
 
 namespace rfkt {
@@ -489,6 +511,12 @@ namespace rfkt {
 		id_t add_flame(const flame& f) {
 			auto id = id_counter++;
 			flames_[id] = f;
+			return id;
+		}
+
+		id_t add_flame(flame&& f) {
+			auto id = id_counter++;
+			flames_[id] = std::move(f);
 			return id;
 		}
 
@@ -508,14 +536,92 @@ namespace rfkt {
 			return std::views::all(self.flames_);
 		}
 
+		id_t show_flame_list(id_t current) {
+			id_t selected = current;
+
+			ImGui::BeginChild("##flame_list", { 0, 0 }, true);
+
+			for (const auto& [id, f] : flames()) {
+				ImGui::PushID(id);
+
+				if (ImGui::Selectable(f.name.data(), id == current, ImGuiSelectableFlags_AllowDoubleClick) && ImGui::IsMouseDoubleClicked(0)) selected = id;
+
+				if (ImGui::BeginDragDropSource()) {
+					ImGui::SetDragDropPayload("FLAME_ID", &id, sizeof(id));
+					ImGui::TextUnformatted(f.name.data());
+					ImGui::EndDragDropSource();
+				}
+
+				ImGui::PopID();
+			}
+
+			ImGui::EndChild();
+
+			return selected;
+		}
+
+		void show_sequencer() {
+			ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
+			IMFTW_WINDOW("Sequencer") {
+				sequencer.parent = this;
+				auto current_frame = time_span::int_t{ 0 };
+				rfkt::gui::panel::timeline::show(&sequencer, current_frame);
+			}
+			ImGui::PopStyleVar();
+		}
+
+		json serialize() const {
+			auto ret = json::object();
+
+			auto flames = json::object();
+			for (const auto& [id, f] : flames_) {
+				flames[std::format("{}", id)] = f.serialize();
+			}
+			ret["flames"] = flames;
+
+			auto tracks = json::object();
+			
+			auto track1 = json::array();
+			for(int i = 0; i < sequencer.flame_tracks.first.segment_count(); i++) {
+				auto obj = json::object();
+				obj["id"] = sequencer.flame_tracks.first[i].data.id;
+				obj["start"] = sequencer.flame_tracks.first[i].span.start();
+				obj["end"] = sequencer.flame_tracks.first[i].span.end();
+				track1.push_back(obj);
+			}
+			tracks["flame_track1"] = track1;
+
+			auto track2 = json::array();
+			for (int i = 0; i < sequencer.flame_tracks.second.segment_count(); i++) {
+				auto obj = json::object();
+				obj["id"] = sequencer.flame_tracks.second[i].data.id;
+				obj["start"] = sequencer.flame_tracks.second[i].span.start();
+				obj["end"] = sequencer.flame_tracks.second[i].span.end();
+				track2.push_back(obj);
+			}
+			tracks["flame_track2"] = track2;
+
+			ret["tracks"] = tracks;
+			return ret;
+		}
+
 	private:
 
 		id_t id_counter = 0;
 
-		std::map<std::size_t, flame> flames_;
-
+		std::map<id_t, flame> flames_;
 		flame_sequencer sequencer;
 	};
+}
+
+std::string_view flame_sequencer::item_segment_name(int item_id, int seg_id) const {
+	if (item_id == 0 || item_id == 1) {
+		std::size_t flame_id = (item_id == 0) ? flame_tracks.first[seg_id].data.id : flame_tracks.second[seg_id].data.id;
+
+		return parent->get_flame(flame_id).name;
+	}
+
+	else return std::string_view{};
 }
 
 class refrakt_app {
@@ -523,56 +629,67 @@ public:
 
 	refrakt_app() = default;
 
-	void run() {
-		if (!initialize()) return;
+	int run() {
+		if (!initialize()) return 1;
 
-		imftw::sig::set_window_decorated(true).get();
-		imftw::sig::set_window_maximized(true).get();
-		imftw::sig::set_vsync_enabled(false);
-		imftw::sig::set_target_framerate(144);
+		ImFtw::Sig::SetWindowDecorated(true).get();
+		ImFtw::Sig::SetWindowMaximized(true).get();
+		ImFtw::Sig::SetVSyncEnabled(false);
+		ImFtw::Sig::SetTargetFramerate(144);
 
 		while (true) {
-			imftw::begin_frame();
+			ImFtw::BeginFrame();
 
 			ImGui::DockSpaceOverViewport(ImGui::GetMainViewport(), ImGuiDockNodeFlags_PassthruCentralNode);
 
 			if (auto selected = mainm.process(); selected) selected->action();
 
+			IMFTW_WINDOW("Flames") {
+				cur_flame = proj.show_flame_list(cur_flame);
+			}
+
 			IMFTW_WINDOW("\xee\xa2\xb8" "Flame Options") {
-				rfkt::gui::panels::flame_editor(fdb, cur_flame, c_exec, functions);
+				rfkt::gui::panels::flame_editor(fdb, proj.get_flame(cur_flame), c_exec, functions);
 			}
 
 			ImGui::ShowDemoWindow();
+			ImPlot::ShowDemoWindow();
 			draw_status_bar();
 			about_window();
 
-			//ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
-			//IMFTW_WINDOW("Sequencer") {
-				//ImSequencer::Sequencer(&seq, &current_frame, &expanded, &selected_entry, &first_frame, seq_options);
-			//	rfkt::gui::panel::timeline::show(&seq, current_frame, 1);
-			//}
-			//ImGui::PopStyleVar();
+			proj.show_sequencer();
 
-			prev_panel->show(fdb, cur_flame, functions);
-			render_modal->do_frame(cur_flame);
+			prev_panel->show(fdb, proj.get_flame(cur_flame), functions);
+			render_modal->do_frame(proj.get_flame(cur_flame));
 
-			imftw::end_frame();
+			ImFtw::EndFrame();
 		}
+
+		return 0;
 	}
 
 private:
 
 	bool initialize() {
 
-		auto monitor_size = imftw::sig::get_monitor_size().get();
-		auto monitor_pos = imftw::sig::get_monitor_position().get();
-		imftw::sig::set_window_decorated(false).get();
-		imftw::sig::set_window_size(1280, 720).get();
-		imftw::sig::set_window_position(monitor_pos.first + (monitor_size.first - 1280) / 2, monitor_pos.second + (monitor_size.second - 720) / 2).get();
-		imftw::sig::set_window_visible(true).get();
-		imftw::sig::set_vsync_enabled(true);
+		ImPlot::CreateContext();
 
-		ctx = show_splash("Initializing CUDA", []() { return rfkt::cuda::init(); });
+		auto monitor_size = ImFtw::Sig::GetMonitorSize().get();
+		auto monitor_pos = ImFtw::Sig::GetMonitorPosition().get();
+		ImFtw::Sig::SetWindowDecorated(false).get();
+		ImFtw::Sig::SetWindowSize(1280, 720).get();
+		ImFtw::Sig::SetWindowPosition(monitor_pos.first + (monitor_size.first - 1280) / 2, monitor_pos.second + (monitor_size.second - 720) / 2).get();
+		ImFtw::Sig::SetWindowVisible(true).get();
+		ImFtw::Sig::SetVSyncEnabled(true);
+
+		ctx = show_splash("Initializing CUDA", []() { 
+			auto ctx = rfkt::cuda::init(); 
+			auto dev = ctx.device();
+			SPDLOG_INFO("Using CUDA device: {}", dev.name());
+			SPDLOG_INFO("L2 cache size (bytes): {}", dev.l2_cache_size());
+			SPDLOG_INFO("Max persisting L2 size (bytes): {}", dev.max_persist_l2_cache_size());
+			return ctx;
+		});
 		show_splash("Initializing denoising system", [&]() { rfkt::denoiser::init(ctx); });
 		show_splash("Initializing GPU statistics system", []() { rfkt::gpuinfo::init(); });
 		show_splash("Loading variations", [&]() {rfkt::initialize(fdb, "config"); });
@@ -612,8 +729,8 @@ private:
 
 		f_comp = show_splash("Setting up flame compiler", [&]() { return std::make_shared<rfkt::flame_compiler>(k_comp); });
 		tonemap = show_splash("Creating tonemapper", [&] { return std::make_shared<rfkt::tonemapper>( *k_comp ); });
-		denoise_normal = show_splash("Creating denoiser", [] { return std::make_shared<rfkt::denoiser>( uint2{2560, 1440}, false ); });
-		denoise_upscale = show_splash("Creating upscaling denoiser", [] { return std::make_shared<rfkt::denoiser>(uint2{ 2560, 1440 }, true); });
+		denoise_normal = show_splash("Creating denoiser", [] { return std::make_shared<rfkt::denoiser>(uint2{ 512, 512 }, rfkt::denoiser_flag::tiled); });
+		denoise_upscale = show_splash("Creating upscaling denoiser", [] { return std::make_shared<rfkt::denoiser>(uint2{ 512, 512 }, rfkt::denoiser_flag::upscale & rfkt::denoiser_flag::tiled); });
 		convert = show_splash("Creating converter", [&] { return std::make_shared<rfkt::converter>(*k_comp); });
 
 		preview_panel::renderer_t renderer = [&](
@@ -621,23 +738,29 @@ private:
 			rfkt::flame_kernel::saved_state& state,
 			rfkt::flame_kernel::bailout_args bo, double3 gbv, bool upscale) {
 
-				const auto total_bins = state.bin_dims.x * state.bin_dims.y;
+				const auto total_bins = state.bins.area();
 
-				const auto output_dims = (upscale) ? uint2{ state.bin_dims.x * 2, state.bin_dims.y * 2 } : state.bin_dims;
+				const auto output_dims = (upscale) ? uint2{ state.bins.width() * 2, state.bins.height() * 2 } : state.bins.dims();
 				const auto output_bins = output_dims.x * output_dims.y;
 
-				auto tonemapped = rfkt::cuda_buffer<half3>{ total_bins, stream };
-				auto denoised = rfkt::cuda_buffer<half3>{ output_bins, stream };
-				auto out_buf = rfkt::cuda_buffer<uchar4>{ output_bins, stream };
+				auto tonemapped = rfkt::cuda_image<half3>{ state.bins.width(), state.bins.height(), stream};
+				auto denoised = rfkt::cuda_image<half3>{ output_dims.x, output_dims.y, stream };
+				auto out_buf = rfkt::cuda_image<uchar4>{ output_dims.x, output_dims.y, stream };
 
 				auto bin_info = kernel.bin(stream, state, bo).get();
 				state.quality += bin_info.quality;
 
-				tonemap->run(state.bins, tonemapped, state.bin_dims, state.quality, gbv.x, gbv.y, gbv.z, stream);
+				auto mpasses_per_ms = (bin_info.total_passes / 1'000'000.0) / bin_info.elapsed_ms;
+				auto mdraws_per_ms = (bin_info.total_draws / 1'000'000.0) / bin_info.elapsed_ms;
+				auto passes_per_pixel = bin_info.total_passes / (double)total_bins;
+				SPDLOG_INFO("{} mpasses/ms, {} mdraws/ms, {} passes per pixel", mpasses_per_ms, mdraws_per_ms, passes_per_pixel);
+
+				tonemap->run(state.bins, tonemapped, { state.quality, gbv.x, gbv.y, gbv.z }, stream);
+				stream.sync();
 				auto& denoiser = upscale ? denoise_upscale : denoise_normal;
-				denoiser->denoise(output_dims, tonemapped, denoised, stream);
+				denoiser->denoise(tonemapped, denoised, stream);
 				tonemapped.free_async(stream);
-				convert->to_24bit(denoised, out_buf, output_dims, false, stream);
+				convert->to_24bit(denoised, out_buf, false, stream);
 				denoised.free_async(stream);
 				stream.sync();
 
@@ -653,12 +776,14 @@ private:
 		prev_panel = std::make_unique<preview_panel>(*f_comp, std::move(executor), std::move(renderer), c_exec);
 		render_modal = std::make_unique<rfkt::gui::render_modal>(*k_comp, *f_comp, fdb, functions );
 
-		cur_flame = std::move(rfkt::import_flam3(fdb, rfkt::fs::read_string("assets/flames_test/electricsheep.247.47670.flam3")).value());
+		cur_flame = proj.add_flame(std::move(rfkt::import_flam3(fdb, rfkt::fs::read_string("assets/flames_test/electricsheep.247.47670.flam3")).value()));
 
 		auto& file_menu = mainm.add_menu("File");
 		file_menu.add_item("New project");
 		file_menu.add_item("Open project...");
-		file_menu.add_item("Save project");
+		file_menu.add_item("Save project")
+			.set_action([&]() { SPDLOG_INFO("{}", proj.serialize().dump(2)); });
+
 		file_menu.add_item("Save project as...");
 
 		file_menu.add_separator();
@@ -680,19 +805,19 @@ private:
 
 		edit_menu.add_separator();
 		edit_menu.add_item("Copy source")
-			.set_action([&]() { imftw::sig::set_clipboard(f_comp->make_source(fdb, cur_flame)); })
+			.set_action([&]() { ImFtw::Sig::SetClipboard(f_comp->make_source(fdb, proj.get_flame(cur_flame))); })
 			.set_icon(ICON_MD_DATA_OBJECT);
 
 		auto& project_menu = mainm.add_menu("Project");
 		project_menu
 			.add_item("Import flame...")
-			.set_icon(ICON_MD_LOCAL_FIRE_DEPARTMENT)
+			.set_icon(ICON_MD_LOCAL_FIRE_DEPARTMENT, ImVec4(251.0 / 255, 139.0 / 255, 35.0 / 255, 1.0f))
 			.set_shortcut(ImGuiModFlags_Ctrl, ImGuiKey_O)
 			.set_action([&]() {
 				runtime.background_executor()->enqueue([&]() mutable {
 					ctx.make_current_if_not();
 
-					std::string filename = imftw::show_open_dialog(rfkt::fs::working_directory() / "assets" / "flames", "Flames\0 * .flam3\0");
+					std::string filename = ImFtw::ShowOpenDialog(rfkt::fs::working_directory() / "assets" / "flames", "Flames\0 * .flam3\0");
 
 					if (filename.empty()) return;
 
@@ -707,14 +832,14 @@ private:
 					rfkt::hash_t hash;
 					rfkt::timer t;
 					for(int i = 0; i < 10'000; ++i)
-						hash ^= flame->value_hash() | hash;
+						hash ^= flame->value_hash() << (i % 64);
 
 					auto time = t.count() / 10'000.0 * 1'000.0 * 1'000.0;
 					SPDLOG_INFO("hash: {} ({} us per hash)", hash.str64(), time);
 
-					imftw::defer([&, flame = std::move(flame.value())]() mutable {
+					ImFtw::DeferNextFrame([&, flame = std::move(flame.value())]() mutable {
 						c_exec.clear();
-						cur_flame = std::move(flame);
+						cur_flame = proj.add_flame(std::move(flame));
 					});
 				});
 			});
@@ -764,7 +889,8 @@ private:
 	std::unique_ptr<preview_panel> prev_panel;
 	std::unique_ptr<rfkt::gui::render_modal> render_modal;
 
-	rfkt::flame cur_flame;
+	rfkt::project proj;
+	rfkt::project::id_t cur_flame;
 
 	main_menu mainm;
 };
@@ -773,6 +899,6 @@ int main(int argc, char**) {
 
 	auto app = refrakt_app{};
 
-	imftw::run("Refrakt", [&]() { app.run(); });
+	ImFtw::Run("Refrakt", [&]() { return app.run(); });
 	return 0;
 }

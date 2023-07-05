@@ -116,7 +116,7 @@ eznve::encoder::encoder(uint2 dims, uint2 fps, codec c, CUcontext ctx) : dims(di
 	encoder_config.version = NV_ENC_CONFIG_VER;
 	init_params.version = NV_ENC_INITIALIZE_PARAMS_VER;
 
-	init_params.encodeGUID = (c == codec::h264)? NV_ENC_CODEC_H264_GUID : NV_ENC_CODEC_HEVC_GUID;
+	init_params.encodeGUID = (c == codec::h264)? NV_ENC_CODEC_H264_GUID : (c == codec::hevc) ? NV_ENC_CODEC_HEVC_GUID : NV_ENC_CODEC_AV1_GUID;
 	init_params.presetGUID = NV_ENC_PRESET_P7_GUID;
 	init_params.encodeWidth = dims.x;
 	init_params.encodeHeight = dims.y;
@@ -193,6 +193,7 @@ std::vector<eznve::chunk> eznve::encoder::submit_frame(frame_flag flag) {
 	std::cout << "pushing " << current_buffer + 1 << " frames" << std::endl;
 	for (int i = 0; i <= current_buffer; i++) {
 		auto chunk = buffers[i].lock_stream(session);
+		std::cout << "pushing " << chunk.data.size() << " bytes" << std::endl;
 		bytes_encoded += chunk.data.size();
 		chunks.emplace_back(std::move(chunk));
 		buffers[i].unlock_stream(session);
@@ -218,12 +219,13 @@ std::vector<eznve::chunk> eznve::encoder::flush() {
 	if (frame_status == NV_ENC_ERR_NEED_MORE_INPUT) return chunks;
 	CHECK_NVENC(frame_status);
 
-	for (int i = 0; i < current_buffer; i++) {
-		auto chunk = buffers[i].lock_stream(session);
-		bytes_encoded += chunk.data.size();
+	for (int i = 0; i <= current_buffer; i++) {
+		auto chunk = buffers[i].lock_stream(session);\
+		std::cout << "pushing " << chunk.data.size() << " bytes" << std::endl;
+		//bytes_encoded += chunk.data.size();
 		chunks.emplace_back(std::move(chunk));
 		buffers[i].unlock_stream(session);
-		buffers[i].unmap(session);
+		if(i != current_buffer) buffers[i].unmap(session);
 	}
 
 	current_buffer = 0;

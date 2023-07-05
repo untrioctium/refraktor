@@ -18,7 +18,7 @@ consteval auto image_type() {
 
 float __half2float(__half v) {
     float val;
-    asm("{  cvt.f32.f16 %0, %1;}\n" : "=f"(val) : "h"(v));
+    asm("{cvt.f32.f16 %0, %1;}\n" : "=f"(val) : "h"(v));
     return val;
 }
 
@@ -27,24 +27,19 @@ unsigned char half2uchar(__half v) {
 }
 
 template<bool Planar>
-__global__ void convert(const half3* const __restrict__ in, decltype(image_type<Planar>()) __restrict__ out, unsigned int dims_x, unsigned int dims_y) {
+__global__ void convert(const half3* const __restrict__ in, decltype(image_type<Planar>()) __restrict__ out, unsigned int size) {
 
-    const uint2 pos = {
-		threadIdx.x + blockIdx.x * blockDim.x,
-		threadIdx.y + blockIdx.y * blockDim.y
-	};
+    const unsigned int bin_idx = blockIdx.x * blockDim.x + threadIdx.x;
 
-	if (pos.x >= dims_x || pos.y >= dims_y) return;
+	if (bin_idx > size) return;
 
-    const unsigned int bin_idx = (pos.y) * dims_x + pos.x;
-
-    const half3& in_val = in[bin_idx];
+    const half3 in_val = in[bin_idx];
 
     if constexpr (Planar) {
         out[bin_idx] = half2uchar(in_val.x);
-        out[bin_idx + dims_x * dims_y] = half2uchar(in_val.y);
-        out[bin_idx + 2 * dims_x * dims_y] = half2uchar(in_val.z);
-        out[bin_idx + 3 * dims_x * dims_y] = 255;
+        out[bin_idx + size] = half2uchar(in_val.y);
+        out[bin_idx + 2 * size] = half2uchar(in_val.z);
+        out[bin_idx + 3 * size] = 255;
     } else {
         out[bin_idx] = uchar4{half2uchar(in_val.x), half2uchar(in_val.y), half2uchar(in_val.z), 255};
     }

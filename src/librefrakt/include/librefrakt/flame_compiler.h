@@ -30,8 +30,7 @@ namespace rfkt {
 		};
 
 		struct saved_state: public traits::noncopyable {
-			cuda_buffer<float4> bins = {};
-			uint2 bin_dims = {};
+			cuda_image<float4> bins = {};
 			double quality = 0.0;
 			cuda_buffer<> shared = {};
 
@@ -41,15 +40,19 @@ namespace rfkt {
 			}
 			saved_state& operator=(saved_state&& o) noexcept {
 				std::swap(bins, o.bins);
-				std::swap(bin_dims, o.bin_dims);
 				std::swap(shared, o.shared);
 				std::swap(quality, o.quality);
 				return *this;
 			}
 
 			saved_state(uint2 dims, std::size_t nbytes, CUstream stream) :
-				bins(dims.x* dims.y, stream),
-				bin_dims(dims),
+				bins(dims.x, dims.y, stream),
+				shared(nbytes, stream) {
+				bins.clear(stream);
+			}
+
+			saved_state(decltype(saved_state::bins)&& bins, std::size_t nbytes, CUstream stream) :
+				bins(std::move(bins)),
 				shared(nbytes, stream) {
 				bins.clear(stream);
 			}

@@ -128,6 +128,7 @@ auto rfkt::import_flam3(const flamedb& fdb, std::string_view content) noexcept -
 
 	auto flame_node = doc.child("flame");
 
+	ret.name = flame_node.attribute("name").value();
 	auto size = string_to_doubles(flame_node.attribute("size").value());
 
 	ret.scale = flame_node.attribute("scale").as_double() / size[1];

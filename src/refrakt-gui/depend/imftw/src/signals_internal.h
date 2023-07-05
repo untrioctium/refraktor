@@ -7,31 +7,31 @@
 #include <imftw/signals.h>
 
 
-namespace imftw::sigs::glfw {
+namespace ImFtw::sigs::glfw {
 
     struct set_cursor {
         GLFWcursor* cursor;
 
-        void handle(imftw::context_t& ctx) const;
+        void handle(ImFtw::context_t& ctx) const;
     };
 
     struct set_cursor_position {
         double x;
         double y;
 
-        void handle(imftw::context_t& ctx) const;
+        void handle(ImFtw::context_t& ctx) const;
     };
 
     struct set_cursor_enabled {
         bool enabled;
 
-        void handle(imftw::context_t& ctx) const;
+        void handle(ImFtw::context_t& ctx) const;
     };
 
     struct set_window_title {
         std::string title;
 
-        void handle(imftw::context_t& ctx) const;
+        void handle(ImFtw::context_t& ctx) const;
     };
 
     struct set_window_position {
@@ -40,7 +40,7 @@ namespace imftw::sigs::glfw {
 
         mutable std::promise<void> done;
 
-        void handle(imftw::context_t& ctx) const;
+        void handle(ImFtw::context_t& ctx) const;
     };
 
     struct set_window_size {
@@ -49,7 +49,7 @@ namespace imftw::sigs::glfw {
 
         mutable std::promise<void> done;
 
-        void handle(imftw::context_t& ctx) const;
+        void handle(ImFtw::context_t& ctx) const;
     };
 
     struct set_window_visible {
@@ -57,7 +57,7 @@ namespace imftw::sigs::glfw {
 
         mutable std::promise<void> done;
 
-		void handle(imftw::context_t& ctx) const;
+		void handle(ImFtw::context_t& ctx) const;
 	};
 
     struct set_window_decorated {
@@ -65,7 +65,7 @@ namespace imftw::sigs::glfw {
 
         mutable std::promise<void> done;
 
-		void handle(imftw::context_t& ctx) const;
+		void handle(ImFtw::context_t& ctx) const;
 	};
 
     struct set_window_maximized {
@@ -73,93 +73,93 @@ namespace imftw::sigs::glfw {
 
 		mutable std::promise<void> done;
 
-        void handle(imftw::context_t& ctx) const;
+        void handle(ImFtw::context_t& ctx) const;
     };
 
     struct get_monitor_size {
         mutable std::promise<std::pair<int, int>> promise;
 
-		void handle(imftw::context_t& ctx) const;
+		void handle(ImFtw::context_t& ctx) const;
 	};
 
     struct get_monitor_position {
 		mutable std::promise<std::pair<int, int>> promise;
 
-        void handle(imftw::context_t& ctx) const;
+        void handle(ImFtw::context_t& ctx) const;
     };
 
     struct set_window_progress_mode {
-        imftw::sig::progress_mode mode;
+        ImFtw::Sig::ProgressMode mode;
 
-        void handle(imftw::context_t& ctx) const;
+        void handle(ImFtw::context_t& ctx) const;
     };
 
     struct set_window_progress_value {
         unsigned long long completed;
         unsigned long long total;
 
-        void handle(imftw::context_t& ctx) const;
+        void handle(ImFtw::context_t& ctx) const;
     };
 
     struct set_clipboard {
         std::string contents;
 
-        void handle(imftw::context_t& ctx) const;
+        void handle(ImFtw::context_t& ctx) const;
     };
 
     struct get_clipboard {
        mutable std::promise<std::string> promise;
 
-       void handle(imftw::context_t& ctx) const;
+       void handle(ImFtw::context_t& ctx) const;
     };
 }
 
-namespace imftw::sigs::opengl {
+namespace ImFtw::sigs::opengl {
     struct set_vsync_enabled {
 		bool enabled;
 
-		void handle(imftw::context_t& ctx) const;
+		void handle(ImFtw::context_t& ctx) const;
 	};
 
     struct set_low_power_mode {
 		bool enabled;
 
-		void handle(imftw::context_t& ctx) const;
+		void handle(ImFtw::context_t& ctx) const;
 	};
 
     struct set_target_framerate {
 		unsigned int fps;
 
-		void handle(imftw::context_t& ctx) const;
+		void handle(ImFtw::context_t& ctx) const;
 	};
 }
 
-namespace imftw::sig {
+namespace ImFtw::Sig {
 
     using glfw_signal = std::variant<
-        imftw::sigs::glfw::set_cursor,
-        imftw::sigs::glfw::set_cursor_position,
-        imftw::sigs::glfw::set_cursor_enabled,
-        imftw::sigs::glfw::set_window_title,
-        imftw::sigs::glfw::set_window_position,
-        imftw::sigs::glfw::set_window_size,
-        imftw::sigs::glfw::set_window_visible,
-        imftw::sigs::glfw::set_window_decorated,
-        imftw::sigs::glfw::set_window_maximized,
-        imftw::sigs::glfw::get_monitor_size,
-        imftw::sigs::glfw::get_monitor_position,
-        imftw::sigs::glfw::set_window_progress_mode,
-        imftw::sigs::glfw::set_window_progress_value,
-        imftw::sigs::glfw::set_clipboard,
-        imftw::sigs::glfw::get_clipboard>;
+        ImFtw::sigs::glfw::set_cursor,
+        ImFtw::sigs::glfw::set_cursor_position,
+        ImFtw::sigs::glfw::set_cursor_enabled,
+        ImFtw::sigs::glfw::set_window_title,
+        ImFtw::sigs::glfw::set_window_position,
+        ImFtw::sigs::glfw::set_window_size,
+        ImFtw::sigs::glfw::set_window_visible,
+        ImFtw::sigs::glfw::set_window_decorated,
+        ImFtw::sigs::glfw::set_window_maximized,
+        ImFtw::sigs::glfw::get_monitor_size,
+        ImFtw::sigs::glfw::get_monitor_position,
+        ImFtw::sigs::glfw::set_window_progress_mode,
+        ImFtw::sigs::glfw::set_window_progress_value,
+        ImFtw::sigs::glfw::set_clipboard,
+        ImFtw::sigs::glfw::get_clipboard>;
 
     void push_glfw_signal(glfw_signal&& signal);
     std::optional<glfw_signal> poll_glfw_signal();
 
     using opengl_signal = std::variant<
-        imftw::sigs::opengl::set_vsync_enabled,
-		imftw::sigs::opengl::set_low_power_mode,
-		imftw::sigs::opengl::set_target_framerate>;
+        ImFtw::sigs::opengl::set_vsync_enabled,
+		ImFtw::sigs::opengl::set_low_power_mode,
+		ImFtw::sigs::opengl::set_target_framerate>;
 
     void push_opengl_signal(opengl_signal&& signal);
 	std::optional<opengl_signal> poll_opengl_signal();

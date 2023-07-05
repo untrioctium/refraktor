@@ -6,7 +6,7 @@
 
 #include "events.h"
 
-namespace imftw {
+namespace ImFtw {
 	using event_queue_t = moodycamel::ReaderWriterQueue<event>;
 
 	event_queue_t& event_queue() {
@@ -15,12 +15,12 @@ namespace imftw {
 	}
 }
 
-void imftw::push_event(event&& e)
+void ImFtw::push_event(event&& e)
 {
 	event_queue().enqueue(std::move(e));
 }
 
-std::optional<imftw::event> imftw::poll_event()
+std::optional<ImFtw::event> ImFtw::poll_event()
 {
 	event e;
 	if (event_queue().try_dequeue(e)) {
@@ -29,7 +29,7 @@ std::optional<imftw::event> imftw::poll_event()
 	return std::nullopt;
 }
 
-void imftw::request_frame() {
+void ImFtw::RequestFrame() {
 	push_event(events::wakeup{});
 }
 
@@ -37,12 +37,12 @@ ImGuiKey translate_glfw_key(int key, const char* key_name);
 void update_key_modifiers(ImGuiIO& io, int mods);
 ImGuiKey glfw_to_imgui_key(int key);
 
-void imftw::events::mouse_move::handle(ImGuiIO& io) const
+void ImFtw::events::mouse_move::handle(ImGuiIO& io) const
 {
 	io.AddMousePosEvent((float)x, (float)y);
 }
 
-void imftw::events::mouse_button::handle(ImGuiIO& io) const
+void ImFtw::events::mouse_button::handle(ImGuiIO& io) const
 {
 	update_key_modifiers(io, mods);
 
@@ -50,12 +50,12 @@ void imftw::events::mouse_button::handle(ImGuiIO& io) const
 		io.AddMouseButtonEvent(button, action == GLFW_PRESS);
 }
 
-void imftw::events::mouse_scroll::handle(ImGuiIO& io) const
+void ImFtw::events::mouse_scroll::handle(ImGuiIO& io) const
 {
 	io.AddMouseWheelEvent((float)x, (float)y);
 }
 
-void imftw::events::key::handle(ImGuiIO& io) const
+void ImFtw::events::key::handle(ImGuiIO& io) const
 {
 	if (action != GLFW_PRESS && action != GLFW_RELEASE)
 		return;
@@ -66,7 +66,7 @@ void imftw::events::key::handle(ImGuiIO& io) const
 	io.SetKeyEventNativeData(keycode, key, scancode);
 }
 
-void imftw::events::char_input::handle(ImGuiIO& io) const
+void ImFtw::events::char_input::handle(ImGuiIO& io) const
 {
 	io.AddInputCharacter(codepoint);
 }

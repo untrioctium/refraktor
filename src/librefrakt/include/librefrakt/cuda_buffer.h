@@ -36,6 +36,7 @@ namespace rfkt {
 		auto size_bytes() const noexcept { return size_ * sizeof(Contained); }
 
 		explicit operator bool() const { return ptr_ != 0; }
+		bool valid() const { return ptr_ != 0; }
 
 		cuda_buffer& operator=(cuda_buffer&& o) noexcept {
 			std::swap(ptr_, o.ptr_);
@@ -160,6 +161,59 @@ namespace rfkt {
 
 		CUdeviceptr ptr_ = 0;
 		std::size_t size_ = 0;
+	};
+
+	template<typename PixelType>
+	class cuda_image {
+	public:
+		cuda_image() = default;
+		cuda_image(unsigned int w, unsigned int h) :
+			dims_(w, h),
+			buffer(w * h) {}
+
+		cuda_image(unsigned int w, unsigned int h, CUstream stream) :
+			dims_(w, h),
+			buffer(w * h, stream) {}
+
+		~cuda_image() = default;
+
+		cuda_image(const cuda_image&) = delete;
+		cuda_image& operator=(const cuda_image&) = delete;
+
+		cuda_image(cuda_image&&) = default;
+		cuda_image& operator=(cuda_image&&) = default;
+
+		std::size_t area() const noexcept { return static_cast<std::size_t>(dims_.x) * dims_.y; }
+		std::size_t size_bytes() const noexcept { return buffer.size_bytes(); }
+
+		unsigned int width() const noexcept { return dims_.x; }
+		unsigned int height() const noexcept { return dims_.y; }
+		uint2 dims() const noexcept { return dims_; }
+
+		[[nodiscard]] auto ptr() noexcept { return buffer.ptr(); }
+
+		[[nodiscard]] auto ptr() const noexcept { return buffer.ptr(); }
+		[[nodiscard]] bool valid() const noexcept { return buffer.valid(); }
+		[[nodiscard]] explicit operator bool() const noexcept { return valid(); }
+
+		[[nodiscard]] explicit(false) operator cuda_span<PixelType>() const noexcept {
+			return cuda_span<PixelType>(buffer);
+		}
+
+		void clear() { buffer.clear(); }
+		void clear(CUstream stream) { buffer.clear(stream); }
+
+		void to_host(std::span<PixelType> dest_host) const { buffer.to_host(dest_host); }
+		void to_host(std::span<PixelType> dest_host, CUstream stream) const { buffer.to_host(dest_host, stream); }
+
+		void from_host(std::span<const PixelType> src_host) { buffer.from_host(src_host); }
+		void from_host(std::span<const PixelType> src_host, CUstream stream) { buffer.from_host(src_host, stream); }
+
+		void free_async(CUstream stream) { buffer.free_async(stream); }
+
+	private:
+		uint2 dims_ = { 0, 0 };
+		cuda_buffer<PixelType> buffer;
 	};
 
 }

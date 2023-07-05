@@ -41,7 +41,7 @@ add_library(ZLIB::ZLIB ALIAS zlib)
 set(ZLIB_INCLUDE_DIR "${zlib_SOURCE_DIR}" "${zlib_BINARY_DIR}")
 
 add_subdirectory(src/librefrakt)
-#add_subdirectory(src/refraktor)
+add_subdirectory(src/refraktor)
 #add_subdirectory(src/refrakt-server)
 add_subdirectory(src/refrakt-gui)
 

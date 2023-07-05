@@ -17,6 +17,7 @@
 #include <librefrakt/image/denoiser.h>
 #include <librefrakt/image/tonemapper.h>
 #include <librefrakt/image/converter.h>
+#include <librefrakt/anima.h>
 
 #include <flang/grammar.h>
 
@@ -339,12 +340,12 @@ int main() {
 namespace rfkt {
 	class postprocessor {
 	public:
-		postprocessor(ezrtc::compiler& kc, uint2 dims, bool upscale) :
+		postprocessor(ezrtc::compiler& kc, uint2 dims, rfkt::denoiser_flag::flags dn_opts = rfkt::denoiser_flag::none) :
 			tm(kc),
-			dn(dims, upscale),
+			dn(dims, dn_opts),
 			conv(kc),
-			tonemapped((upscale) ? (dims.x * dims.y / 4) : (dims.x * dims.y)),
-			denoised(dims.x* dims.y),
+			tonemapped(dn_opts & rfkt::denoiser_flag::upscale ? dims.x / 2 : dims.x, dn_opts & rfkt::denoiser_flag::upscale ? dims.y / 2 : dims.y),
+			denoised(dims.x, dims.y),
 			dims_(dims),
 			upscale(upscale)
 		{
@@ -396,9 +397,9 @@ namespace rfkt {
 					t.reset();
 				});
 
-			tm.run(in, tonemapped, input_dims(), quality, gamma, brightness, vibrancy, stream);
-			dn.denoise(output_dims(), tonemapped, denoised, stream);
-			conv.to_24bit(denoised, out, output_dims(), planar_output, stream);
+			tm.run(in, tonemapped, { quality, gamma, brightness, vibrancy }, stream);
+			dn.denoise(tonemapped, denoised, stream);
+			conv.to_24bit(denoised, out, planar_output, stream);
 			stream.host_func([&t = perf_timer, p = std::move(promise)]() mutable {
 				p.set_value(t.count());
 				});
@@ -411,8 +412,8 @@ namespace rfkt {
 		rfkt::denoiser dn;
 		rfkt::converter conv;
 
-		rfkt::cuda_buffer<half3> tonemapped;
-		rfkt::cuda_buffer<half3> denoised;
+		rfkt::cuda_image<half3> tonemapped;
+		rfkt::cuda_image<half3> denoised;
 
 		rfkt::timer perf_timer;
 
@@ -422,7 +423,7 @@ namespace rfkt {
 }
 
 
-/*int main() {
+int main() {
 
 	auto ctx = rfkt::cuda::init();
 	rfkt::denoiser::init(ctx);
@@ -433,21 +434,42 @@ namespace rfkt {
 	auto stream = rfkt::cuda_stream{};
 	auto kernel = std::make_shared<ezrtc::sqlite_cache>((rfkt::fs::user_local_directory() / "kernel.sqlite3").string());
 	auto zlib = std::make_shared<ezrtc::cache_adaptors::zlib>(kernel);
-	auto km = ezrtc::compiler{ zlib };
-	km.find_system_cuda();
+	auto km = std::make_shared<ezrtc::compiler>( zlib );
+	km->find_system_cuda();
 	auto fc = rfkt::flame_compiler{ km };
-	auto pp = rfkt::postprocessor{ km, { 800, 592 }, false };
+
+	uint2 dims = { 1920, 1080 };
+
+	auto pp = rfkt::postprocessor{ *km, dims, rfkt::denoiser_flag::none };
 	auto je = rfkt::nvjpeg::encoder{ stream };
 
 	constexpr static auto fps = 30;
 	constexpr static auto seconds_per_loop = 5.0;
-	constexpr static auto degrees_per_loop = 360.0;
-	constexpr static auto degrees_per_frame = degrees_per_loop / (fps * seconds_per_loop);
+	const auto loops_per_frame = 1.0 / (fps * seconds_per_loop);
 
 	constexpr static auto t = 0.0;
-	const auto sample_count = 4;
-	const auto sample_width = degrees_per_frame / (sample_count - 3);
 
+	auto functions = rfkt::function_table{};
+
+	functions.add_or_update("increase", {
+	{{"per_loop", {rfkt::func_info::arg_t::decimal, 360.0}}},
+	"return iv + t * per_loop"
+		});
+	functions.add_or_update("sine", {
+		{
+			{"frequency", {rfkt::func_info::arg_t::decimal, 1.0}},
+			{"amplitude", {rfkt::func_info::arg_t::decimal, 1.0}},
+			{"phase", {rfkt::func_info::arg_t::decimal, 0.0}},
+			{"sharpness", {rfkt::func_info::arg_t::decimal, 0.0}},
+			{"absolute", {rfkt::func_info::arg_t::boolean, false}}
+		},
+		"local v = math.sin(t * frequency * math.pi * 2.0 + math.rad(phase))\n"
+		"if sharpness > 0 then v = math.copysign(1.0, v) * (math.abs(v) ^ sharpness) end\n"
+		"if absolute then v = math.abs(v) end\n"
+		"return iv + v * amplitude\n"
+		});
+
+	auto invoker = functions.make_invoker();
 
 	for (const auto& fname : rfkt::fs::list("assets/flames/", rfkt::fs::filter::has_extension(".flam3"))) {
 	//const std::filesystem::path fname = "assets/flames_test/electricsheep.247.27244.flam3";
@@ -466,24 +488,17 @@ namespace rfkt {
 			return -1;
 		}
 
-		auto samples = std::vector<rfkt::flame>{};
-
-		for (int i = 0; i < sample_count; i++) {
-			auto sample = f.value();
-			for (auto& x : sample.xforms) {
-				for (auto& vl : x.vchain) {
-					if (vl.per_loop > 0) {
-						vl.transform = vl.transform.rotated(sample_width * (i - 1));
-					}
-				}
-			}
-			samples.emplace_back(std::move(sample));
-		}
+		std::vector<double> samples = {};
+		auto packer = [&samples](double v) { samples.push_back(v); };
+		f->pack_sample(packer, invoker, t - 1.2 * loops_per_frame, dims.x, dims.y);
+		f->pack_sample(packer, invoker, t, dims.x, dims.y);
+		f->pack_sample(packer, invoker, t + 1.2 * loops_per_frame, dims.x, dims.y);
+		f->pack_sample(packer, invoker, t + 2.4 * loops_per_frame, dims.x, dims.y);
 
 		auto out = pp.make_output_buffer(stream);
 		auto state = k.kernel->warmup(stream, samples, pp.input_dims(), 0xDEADBEEF, 100);
-		auto q = k.kernel->bin(stream, state, { .millis = 1000, .quality = 2000 }).get();
-		auto res = pp.post_process(state.bins, out, q.quality, f->gamma, f->brightness, f->vibrancy, true, stream).get();
+		auto q = k.kernel->bin(stream, state, { .millis = 100, .quality = 64 }).get();
+		auto res = pp.post_process(state.bins, out, q.quality, f->gamma.sample(t, invoker), f->brightness.sample(t, invoker), f->vibrancy.sample(t, invoker), true, stream).get();
 
 		SPDLOG_INFO("{}: {}, {} miters/ms {} mdraws/ms", fname.filename().string(), q.quality, q.total_passes / (1'000'000 * q.elapsed_ms), q.total_draws / (1'000'000 * q.elapsed_ms));
 
@@ -495,12 +510,4 @@ namespace rfkt {
 	SPDLOG_INFO("initialized flame system (hash: {})", fdb.hash().str16());
 
 	return 0;
-}*/
-
-std::string create_lua_source(const flang::ast_node* node);
-
-
-
-int main() {
-
 }

@@ -10,7 +10,7 @@ class preview_panel {
 public:
 
 	using executor_t = std::function<void(std::move_only_function<void(void)>&&)>;
-	using renderer_t = std::function<rfkt::cuda_buffer<uchar4>(rfkt::cuda_stream&, const rfkt::flame_kernel&, rfkt::flame_kernel::saved_state&, rfkt::flame_kernel::bailout_args, double3, bool)>;
+	using renderer_t = std::function<rfkt::cuda_image<uchar4>(rfkt::cuda_stream&, const rfkt::flame_kernel&, rfkt::flame_kernel::saved_state&, rfkt::flame_kernel::bailout_args, double3, bool)>;
 
 	preview_panel() = delete;
 	preview_panel(rfkt::flame_compiler& compiler, executor_t&& submitter, renderer_t&& renderer, command_executor& cmd_exec) :
@@ -36,7 +36,7 @@ private:
 
 	std::optional<rfkt::gl::texture> displayed_texture = std::nullopt;
 	std::optional<std::future<rfkt::gl::texture>> rendering_texture = std::nullopt;
-	std::optional<rfkt::gl::texture::cuda_map> cuda_map = std::nullopt;
+	//std::optional<rfkt::gl::texture::cuda_map> cuda_map = std::nullopt;
 
 	executor_t submitter;
 	renderer_t renderer;

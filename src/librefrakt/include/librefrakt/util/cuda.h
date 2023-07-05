@@ -23,8 +23,10 @@
     }                                                             \
   } while(0)
 
+using float16 = std::uint16_t;
+
 class half3 {
-    std::array<unsigned short, 3> data;
+    std::array<float16, 3> data;
 };
 
 namespace rfkt::cuda {
@@ -53,6 +55,8 @@ namespace rfkt::cuda {
         auto warp_size() const noexcept { return attribute<CU_DEVICE_ATTRIBUTE_WARP_SIZE>(); }
         auto reserved_shared_per_block() const noexcept { return attribute<CU_DEVICE_ATTRIBUTE_RESERVED_SHARED_MEMORY_PER_BLOCK>(); }
         bool cooperative_supported() const noexcept { return attribute<CU_DEVICE_ATTRIBUTE_COOPERATIVE_LAUNCH>() == 1; }
+        auto l2_cache_size() const noexcept { return attribute<CU_DEVICE_ATTRIBUTE_L2_CACHE_SIZE>(); }
+        auto max_persist_l2_cache_size() const noexcept { return attribute<CU_DEVICE_ATTRIBUTE_MAX_PERSISTING_L2_CACHE_SIZE>(); }
         
 
         auto max_concurrent_threads() const noexcept { return max_threads_per_mp() * mp_count(); }

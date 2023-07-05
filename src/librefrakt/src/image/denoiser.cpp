@@ -8,12 +8,14 @@
 #include <optix_stubs.h>
 #include <optix_function_table_definition.h>
 
-#undef min
-#undef max
-
 #include <optix_denoiser_tiling.h>
 
-#define CHECK_OPTIX(expr) if(auto result = expr; result != OPTIX_SUCCESS) { SPDLOG_CRITICAL("'{}' failed with '{}'", #expr, optixGetErrorName(result)); exit(1); }
+#define CHECK_OPTIX(expr) \
+	do { \
+		if (auto result = expr; result != OPTIX_SUCCESS) { \
+			SPDLOG_CRITICAL("'{}' failed with '{}'", #expr, optixGetErrorName(result)); exit(1); \
+		} \
+	} while (0)
 
 
 class rfkt::denoiser::denoiser_impl {
@@ -40,16 +42,23 @@ public:
 		std::swap(layer, d.layer);
 		std::swap(guide_layer, d.guide_layer);
 		std::swap(upscale_2x, d.upscale_2x);
+		std::swap(tiling, d.tiling);
+		std::swap(tile_size, d.tile_size);
 
 		return *this;
 	}
 
-	static std::unique_ptr<denoiser_impl> create(uint2 max_dims, bool upscale_2x) {
+	static std::unique_ptr<denoiser_impl> create(uint2 max_dims, denoiser_flag::flags options) {
 
 		auto d = denoiser_impl{};
-		d.upscale_2x = upscale_2x;
+		d.upscale_2x = options & denoiser_flag::upscale;
+		d.tiling = options & denoiser_flag::tiled;
 
-		if (upscale_2x) {
+		if (d.tiling) {
+			d.tile_size = max_dims;
+		}
+
+		if (d.upscale_2x) {
 			max_dims.x /= 2;
 			max_dims.y /= 2;
 		}
@@ -63,12 +72,22 @@ public:
 		memset(&d.szs, 0, sizeof(OptixDenoiserSizes));
 		CHECK_OPTIX(optixDenoiserComputeMemoryResources(d.handle, max_dims.x, max_dims.y, &d.szs));
 
-		CUDA_SAFE_CALL(cuMemAlloc(&d.state_buffer, d.szs.stateSizeInBytes));
-		CUDA_SAFE_CALL(cuMemAlloc(&d.scratch_buffer, d.szs.withoutOverlapScratchSizeInBytes));
+		if (d.tiling) {
+			max_dims.x += 2 * d.szs.overlapWindowSizeInPixels;
+			max_dims.y += 2 * d.szs.overlapWindowSizeInPixels;
+		}
 
-		SPDLOG_INFO("Denoiser state sizes: {}mb, {}mb", d.szs.stateSizeInBytes / (1024 * 1024), d.szs.withoutOverlapScratchSizeInBytes / (1024 * 1024));
+		d.state_buffer = rfkt::cuda_buffer(d.szs.stateSizeInBytes);
+		auto scratch_size = d.tiling ? d.szs.withOverlapScratchSizeInBytes : d.szs.withoutOverlapScratchSizeInBytes;
+		d.scratch_buffer = rfkt::cuda_buffer(scratch_size);
 
-		CHECK_OPTIX(optixDenoiserSetup(d.handle, 0, max_dims.x, max_dims.y, d.state_buffer, d.szs.stateSizeInBytes, d.scratch_buffer, d.szs.withoutOverlapScratchSizeInBytes));
+		SPDLOG_INFO("Denoiser state sizes: {}mb, {}mb", d.state_buffer.size_bytes() / (1024 * 1024), d.scratch_buffer.size_bytes() / (1024 * 1024));
+
+		CHECK_OPTIX(optixDenoiserSetup(
+			d.handle, 0, 
+			max_dims.x, max_dims.y, 
+			d.state_buffer.ptr(), d.state_buffer.size_bytes(), 
+			d.scratch_buffer.ptr(), d.scratch_buffer.size_bytes()));
 
 		d.dp.blendFactor = 0;
 		d.dp.denoiseAlpha = OPTIX_DENOISER_ALPHA_MODE_COPY;
@@ -78,23 +97,32 @@ public:
 		return std::unique_ptr<denoiser_impl>(new denoiser_impl{std::move(d)});
 	}
 
-	std::future<double> denoise(uint2 dims, cuda_span<half3> in, cuda_span<half3> out, cuda_stream& stream) {
+	std::future<double> denoise(const image_type& in, image_type& out, cuda_stream& stream) {
 
 		memset(&layer, 0, sizeof(layer));
 
-		layer.input.width = dims.x;
-		layer.input.height = dims.y;
-		layer.input.rowStrideInBytes = dims.x * sizeof(half3);
-		layer.input.pixelStrideInBytes = sizeof(half3);
-		layer.input.format = OPTIX_PIXEL_FORMAT_HALF3;
+		layer.input.width = in.dims().x;
+		layer.input.height = in.dims().y;
+		layer.input.rowStrideInBytes = in.width() * sizeof(pixel_type);
+		layer.input.pixelStrideInBytes = sizeof(pixel_type);
+		//layer.input.format = OPTIX_PIXEL_FORMAT_HALF3;
+
+		if constexpr(std::is_same_v<pixel_type, float3>) {
+			layer.input.format = OPTIX_PIXEL_FORMAT_FLOAT3;
+		} else if constexpr(std::is_same_v<pixel_type, float4>) {
+			layer.input.format = OPTIX_PIXEL_FORMAT_FLOAT4;
+		} else if constexpr(std::is_same_v<pixel_type, uint8_t>) {
+			layer.input.format = OPTIX_PIXEL_FORMAT_UCHAR3;
+		}
+		else if constexpr (std::is_same_v<pixel_type, half3>) {
+			layer.input.format = OPTIX_PIXEL_FORMAT_HALF3;
+		}
 
 		layer.output = layer.input;
 
-		if (upscale_2x) {
-			layer.input.width /= 2;
-			layer.input.height /= 2;
-			layer.input.rowStrideInBytes /= 2;
-		}
+		layer.output.width = out.dims().x;
+		layer.output.height = out.dims().y;
+		layer.output.rowStrideInBytes = out.width() * sizeof(pixel_type);
 
 		layer.input.data = in.ptr();
 		layer.output.data = out.ptr();
@@ -110,8 +138,27 @@ public:
 
 		//CHECK_OPTIX(optixDenoiserComputeIntensity(handle, stream, &layer.input, dp.hdrIntensity, scratch_buffer, szs.withoutOverlapScratchSizeInBytes));
 
-		CHECK_OPTIX(optixDenoiserInvoke(handle, stream, &dp, state_buffer, szs.stateSizeInBytes, &guide_layer, &layer, 1, 0, 0, scratch_buffer, szs.withoutOverlapScratchSizeInBytes));
-
+		if (!tiling) {
+			CHECK_OPTIX(
+				optixDenoiserInvoke(
+					handle, stream, &dp,
+					state_buffer.ptr(), state_buffer.size_bytes(),
+					&guide_layer, &layer, 1, 0, 0,
+					scratch_buffer.ptr(), scratch_buffer.size_bytes()
+				)
+			);
+		}
+		else {
+			CHECK_OPTIX(
+				optixUtilDenoiserInvokeTiled(
+					handle, stream, &dp,
+					state_buffer.ptr(), state_buffer.size_bytes(),
+					&guide_layer, &layer, 1,
+					scratch_buffer.ptr(), scratch_buffer.size_bytes(),
+					szs.overlapWindowSizeInPixels, tile_size.x, tile_size.y
+				)
+			);
+		}
 		stream.host_func(
 			[timer=std::move(timer), promise = std::move(promise)]() mutable {
 			promise.set_value(timer->count());
@@ -123,8 +170,6 @@ public:
 	~denoiser_impl() {
 		if (handle != nullptr) {
 			optixDenoiserDestroy(handle);
-			cuMemFree(state_buffer);
-			cuMemFree(scratch_buffer);
 		}
 	}
 
@@ -140,14 +185,17 @@ private:
 	OptixDenoiserLayer layer;
 	OptixDenoiserGuideLayer guide_layer = {};
 
-	CUdeviceptr state_buffer = 0;
-	CUdeviceptr scratch_buffer = 0;
+	rfkt::cuda_buffer<> state_buffer;
+	rfkt::cuda_buffer<> scratch_buffer;
 
 	bool upscale_2x;
+	bool tiling;
+
+	uint2 tile_size;
 };
 
 rfkt::denoiser::~denoiser() = default;
-rfkt::denoiser::denoiser(uint2 max_dims, bool upscale_2x) : impl(denoiser_impl::create(max_dims, upscale_2x)) {}
+rfkt::denoiser::denoiser(uint2 max_dims, denoiser_flag::flags options) : impl(denoiser_impl::create(max_dims, options)) {}
 rfkt::denoiser& rfkt::denoiser::operator=(denoiser&& d) noexcept {
 	std::swap(impl, d.impl);
 	return *this;
@@ -158,8 +206,8 @@ rfkt::denoiser::denoiser(denoiser&& d) noexcept {
 }
 
 
-std::future<double> rfkt::denoiser::denoise(uint2 dims, cuda_span<half3> in, cuda_span<half3> out, cuda_stream& stream) {
-	return impl->denoise(dims, in, out, stream);
+std::future<double> rfkt::denoiser::denoise(const cuda_image<half3>& in, cuda_image<half3>& out, cuda_stream& stream) {
+	return impl->denoise(in, out, stream);
 }
 
 void rfkt::denoiser::init(CUcontext ctx) {
@@ -174,20 +222,21 @@ unsigned short rand_uniform_half() {
 	return rand() % range + min_val;
 }
 
-double rfkt::denoiser::benchmark(uint2 dims, bool upscale, std::uint32_t num_passes, cuda_stream& stream)
+double rfkt::denoiser::benchmark(uint2 dims, denoiser_flag::flags options, std::uint32_t num_passes, cuda_stream& stream)
 {
 	auto input_dims = dims;
 	auto input_size = dims.x * dims.y;
-	if (upscale) {
+
+	if (options & denoiser_flag::upscale) {
 		input_size /= 4;
 		input_dims.x /= 2;
 		input_dims.y /= 2;
 	}
 
-	auto dn = rfkt::denoiser{ dims, upscale };
+	auto dn = rfkt::denoiser{ dims, options };
 
-	auto input = cuda_buffer<half3>{ input_size };
-	auto output = cuda_buffer<half3>{ dims.x * dims.y };
+	auto input = cuda_image<half3>{ input_dims.x, input_dims.y };
+	auto output = cuda_image<half3>{ dims.x, dims.x };
 
 	auto input_size_nshorts = input_size * 3;
 
@@ -201,7 +250,7 @@ double rfkt::denoiser::benchmark(uint2 dims, bool upscale, std::uint32_t num_pas
 	double sum = 0.0;
 
 	for (int i = 0; i < num_passes; i++) {
-		sum += dn.denoise(input_dims, input, output, stream).get();
+		sum += dn.denoise(input, output, stream).get();
 	}
 
 	return sum / num_passes;

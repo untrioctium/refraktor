@@ -51,6 +51,14 @@ namespace rfkt {
 			return *this;
 		}
 
+		constexpr auto operator<<(std::size_t n) const noexcept -> rfkt::hash_t {
+			return { (bytes.first << n) | (bytes.second >> (64 - n)), (bytes.second << n) | (bytes.first >> (64 - n)) };
+		}
+
+		constexpr auto operator>>(std::size_t n) const noexcept -> rfkt::hash_t {
+			return { (bytes.first >> n) | (bytes.second << (64 - n)), (bytes.second >> n) | (bytes.first << (64 - n)) };
+		}
+
 	private:
 		std::pair<value_type, value_type> bytes = { 0, 0 };
 	};

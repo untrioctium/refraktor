@@ -5,7 +5,7 @@
 
 struct ImGuiIO;
 
-namespace imftw::events {
+namespace ImFtw::events {
     struct mouse_move {
         double x;
         double y;
@@ -49,7 +49,7 @@ namespace imftw::events {
     };
 }
 
-namespace imftw {
+namespace ImFtw {
     using event = std::variant<
         events::mouse_move,
         events::mouse_button,

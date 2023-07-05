@@ -126,10 +126,8 @@ private:
 	int_t end_frame = 0;
 };
 
-using guid_t = std::pair<std::uint64_t, std::uint64_t>;
-
 struct flame_track_data {
-	guid_t id;
+	std::size_t id;
 };
 
 template<typename Data>
@@ -154,20 +152,46 @@ public:
 		}
 	}
 
-	/*auto find_adjacent(this auto&& self, time_span::int_t time) noexcept {
+	struct find_adjacent_result {
+		value_t* left = nullptr;
+		value_t* within = nullptr;
+		value_t* right = nullptr;
+	};
+
+	auto find_adjacent(this auto&& self, time_span::int_t time) noexcept {
+		auto ret = find_adjacent_result{};
+
 		for (int i = 0; i < self.segments.size(); i++) {
 			auto& seg = self.segments[i];
 			if (seg.span.contains(time)) {
 				self.adjust_barriers(i);
-				return std::span{ self.segments.begin() + i, self.segments.begin() + i + 1 };
+				ret.within = &seg;
+				return ret;
 			}
-			if(seg.span.start_frame)
+			if(seg.span.end_frame > time) {
+				self.adjust_barriers(i);
+				ret.left = &seg;
+
+				if (i + 1 != self.segments.size()) {
+					self.adjust_barriers(i + 1);
+					ret.right = &self.segments[i + 1];
+				}
+
+				return ret;
+			}
+
+			if (seg.span.start_frame < time) {
+				self.adjust_barriers(i);
+				ret.right = &seg;
+				return ret;
+			}
 		}
-	}*/
+
+		return ret;
+	}
 
 	auto segment_count() const noexcept { return segments.size(); }
-	auto begin(this auto&& self) { return self.segments.begin(); }
-	auto end(this auto&& self) { return self.segments.end(); }
+
 	auto& operator[](this auto&& self, std::size_t idx) {
 		self.adjust_barriers(idx);
 		return self.segments[idx];
@@ -193,7 +217,7 @@ private:
 
 	void sort_segments() {
 		std::sort(segments.begin(), segments.end(), [](const value_t& l, const value_t& r) {
-			return l.span.start() < l.span.start();
+			return l.span.start() < r.span.start();
 		});
 	}
 
@@ -215,6 +239,17 @@ namespace rfkt::gui::panel::timeline {
 		virtual int item_type(int id) const = 0;
 		virtual int item_segment_count(int id) const = 0;
 		virtual time_span& item_segment(int item_id, int seg_id) = 0;
+
+		virtual std::string_view item_segment_name(int item_id, int seg_id) const {
+			return std::string_view{};
+		}
+
+		virtual void item_segment_double_click(int item_id, int seg_id) {};
+		virtual void item_segment_right_click(int item_id, int seg_id) {};
+
+		virtual std::string_view drag_drop_payload_name(int item_type) const = 0;
+
+		virtual void add_from_drag_drop(int id, time_span::int_t time, void* payload) = 0;
 
 		virtual ~interface() = default;
 	};

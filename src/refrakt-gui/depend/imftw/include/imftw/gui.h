@@ -5,7 +5,7 @@
 
 #include <imftw/signals.h>
 
-namespace imftw {
+namespace ImFtw {
 
     namespace detail {
         template<typename T>
@@ -41,14 +41,14 @@ namespace imftw {
                 return ImGuiDataType_Double;
             }
             else {
-                static_assert("Unsupported type for imftw::detail::get_data_type_of()");
+                static_assert("Unsupported type for ImFtw::detail::get_data_type_of()");
             }
         }
 
 
     }
 
-    inline void tooltip(std::string_view text, bool show_icon = true) {
+    inline void Tooltip(std::string_view text, bool show_icon = true) {
         if (show_icon) ImGui::Text("\xee\xa2\x87");
         if (ImGui::IsItemHovered())
         {
@@ -60,7 +60,7 @@ namespace imftw {
 		}
     }
 
-    inline void text_centered(std::string_view text) {
+    inline void TextCentered(std::string_view text) {
         auto region = ImGui::GetContentRegionAvail();
         auto size = ImGui::CalcTextSize(text.data());
         ImGui::SetCursorPosX(region.x / 2 - size.x / 2);
@@ -68,7 +68,7 @@ namespace imftw {
     }
 
     template<typename T>
-    concept draggable_type = 
+    concept DraggableType = 
         std::same_as<T, std::int8_t> 
         || std::same_as<T, std::uint8_t> 
         || std::same_as<T, std::int16_t> 
@@ -80,14 +80,21 @@ namespace imftw {
         || std::same_as<T, float>
         || std::same_as<T, double>;
 
-    template<draggable_type ValueType>
-    struct drag_result {
-        std::optional<ValueType> start_value;
-        bool changed;
+    template<DraggableType ValueType>
+    struct DragResult {
+        // If a dragging action was just finished, this will contain the value
+        // before the drag started.
+        std::optional<ValueType> StartValue;
+
+        bool Changed;
     };
 
-    template<draggable_type ValueType>
-    auto infinite_drag(std::string_view name, ValueType& v, float speed = 1.0f, ValueType min = std::numeric_limits<ValueType>::lowest(), ValueType max = std::numeric_limits<ValueType>::max()) -> drag_result<ValueType> {
+    // Like the regular ImGui::DragScalar, but allows for infinite dragging.
+    // The mouse cursor will be hidden while dragging and will not collide
+    // with screen edges. The cursor will be reset to its original position
+    // when the drag is finished.
+    template<DraggableType ValueType>
+    auto InfiniteDrag(std::string_view name, ValueType& v, float speed = 1.0f, ValueType min = std::numeric_limits<ValueType>::lowest(), ValueType max = std::numeric_limits<ValueType>::max()) -> DragResult<ValueType> {
         static bool dragging = false;
         static ImVec2 drag_position = {};
         static ValueType drag_start_value = {};
@@ -109,8 +116,8 @@ namespace imftw {
             dragging = false;
             dragging_id = 0;
 
-            imftw::sig::set_cursor_position(drag_position.x, drag_position.y);
-            imftw::sig::set_cursor_enabled(true);
+            ImFtw::Sig::SetCursorPosition(drag_position.x, drag_position.y);
+            ImFtw::Sig::SetCursorEnabled(true);
 
             return {drag_start_value, changed};
 
@@ -120,32 +127,33 @@ namespace imftw {
             drag_position = ImGui::GetMousePos();
             drag_start_value = iv;
 
-            imftw::sig::set_cursor_enabled(false);
+            ImFtw::Sig::SetCursorEnabled(false);
         }
 
         return {std::nullopt, changed};
     }
 
-    namespace scope {
+    namespace Scope {
 
-        class [[nodiscard]] style {
+        // RAII helper for ImGui styling.
+        class [[nodiscard]] Style {
         public:
 
-            style() = delete;
-            style(const style&) = delete;
-            style(style&&) = delete;
-            style& operator=(const style&) = delete;
-            style& operator=(style&&) = delete;
+            Style() = delete;
+            Style(const Style&) = delete;
+            Style(Style&&) = delete;
+            Style& operator=(const Style&) = delete;
+            Style& operator=(Style&&) = delete;
 
             template<typename... Args>
-            style(Args&&... args) {
-                static_assert(sizeof...(Args) % 2 == 0, "style::style() requires an even number of arguments");
-                static_assert(sizeof...(Args) > 1, "style::style() requires at least two arguments");
+            Style(Args&&... args) {
+                static_assert(sizeof...(Args) % 2 == 0, "Style::Style() requires an even number of arguments");
+                static_assert(sizeof...(Args) > 1, "Style::Style() requires at least two arguments");
 
                 push(std::forward<Args>(args)...);
             }
 
-            ~style() {
+            ~Style() {
                 if (n_colors > 0) {
                     ImGui::PopStyleColor(n_colors);
                 }
@@ -209,51 +217,53 @@ namespace imftw {
             int n_styles = 0;
         };
 
-        class [[nodiscard]] id {
+        // RAII helper for ImGui's ID stack.
+        class [[nodiscard]] ID {
         public:
-            id() = delete;
-            id(const id&) = delete;
-            id(id&&) = delete;
-            id& operator=(const id&) = delete;
-            id& operator=(id&&) = delete;
+            ID() = delete;
+            ID(const ID&) = delete;
+            ID(ID&&) = delete;
+            ID& operator=(const ID&) = delete;
+            ID& operator=(ID&&) = delete;
 
-            explicit id(std::string_view id) {
+            explicit ID(std::string_view id) {
                 ImGui::PushID(id.data());
             }
 
-            explicit id(const char* id) {
+            explicit ID(const char* id) {
                 ImGui::PushID(id);
             }
 
-            explicit id(const void* id) {
+            explicit ID(const void* id) {
                 ImGui::PushID(id);
             }
 
-            explicit id(int id) {
+            explicit ID(int id) {
                 ImGui::PushID(id);
             }
 
-            ~id() {
+            ~ID() {
                 ImGui::PopID();
             }
         };
 
-        class [[nodiscard]] enabled {
+        // RAII helper for enabling/disabling ImGui items.
+        class [[nodiscard]] Enabled {
         public:
-            enabled() = delete;
-			enabled(const enabled&) = delete;
-			enabled(enabled&&) = delete;
-			enabled& operator=(const enabled&) = delete;
-			enabled& operator=(enabled&&) = delete;
+            Enabled() = delete;
+            Enabled(const Enabled&) = delete;
+            Enabled(Enabled&&) = delete;
+            Enabled operator=(const Enabled) = delete;
+            Enabled& operator=(Enabled&&) = delete;
 
-			enabled(bool enabled, float alpha = 0.5): pop(!enabled) {
+            Enabled(bool enabled, float alpha = 0.5): pop(!enabled) {
                 if (!enabled) {
                     ImGui::PushItemFlag(ImGuiItemFlags_Disabled, true);
                     ImGui::PushStyleVar(ImGuiStyleVar_Alpha, ImGui::GetStyle().Alpha * alpha);
                 }
 			}
 
-			~enabled() {
+			~Enabled() {
                 if (pop) {
                     ImGui::PopItemFlag();
                     ImGui::PopStyleVar();
@@ -265,20 +275,20 @@ namespace imftw {
 		};
     }
 
-    class [[nodiscard]] window {
+    class [[nodiscard]] Window {
     public:
 
-        window() = delete;
-        window(const window&) = delete;
-        window(window&&) = delete;
-        window& operator=(const window&) = delete;
-        window& operator=(window&&) = delete;
+        Window() = delete;
+        Window(const Window&) = delete;
+        Window(Window&&) = delete;
+        Window& operator=(const Window&) = delete;
+        Window& operator=(Window&&) = delete;
 
-        window(std::string_view title, ImGuiWindowFlags flags = 0, bool* open = nullptr) {
+        Window(std::string_view title, ImGuiWindowFlags flags = 0, bool* open = nullptr) {
             is_open = ImGui::Begin(title.data(), open, flags);
         }
 
-        ~window() {
+        ~Window() {
             ImGui::End();
         }
 
@@ -290,19 +300,19 @@ namespace imftw {
         bool is_open = false;
     };
 
-    class [[nodiscard]] main_menu {
+    class [[nodiscard]] MainMenu {
     public:
 
-        main_menu(const main_menu&) = delete;
-        main_menu(main_menu&&) = delete;
-        main_menu& operator=(const main_menu&) = delete;
-        main_menu& operator=(main_menu&&) = delete;
+        MainMenu(const MainMenu&) = delete;
+        MainMenu(MainMenu&&) = delete;
+        MainMenu& operator=(const MainMenu&) = delete;
+        MainMenu& operator=(MainMenu&&) = delete;
 
-        main_menu() {
+        MainMenu() {
             open = ImGui::BeginMainMenuBar();
         }
 
-        ~main_menu() {
+        ~MainMenu() {
             if (open) ImGui::EndMainMenuBar();
         }
 
@@ -314,19 +324,19 @@ namespace imftw {
         bool open = false;
     };
 
-    class [[nodiscard]] menu_bar {
+    class [[nodiscard]] MenuBar {
     public:
 
-        menu_bar(const menu_bar&) = delete;
-        menu_bar(menu_bar&&) = delete;
-        menu_bar& operator=(const menu_bar&) = delete;
-        menu_bar& operator=(menu_bar&&) = delete;
+        MenuBar(const MenuBar&) = delete;
+        MenuBar(MenuBar&&) = delete;
+        MenuBar& operator=(const MenuBar&) = delete;
+        MenuBar& operator=(MenuBar&&) = delete;
 
-        menu_bar() {
+        MenuBar() {
             open = ImGui::BeginMenuBar();
         }
 
-        ~menu_bar() {
+        ~MenuBar() {
             if (open) ImGui::EndMenuBar();
         }
 
@@ -338,20 +348,20 @@ namespace imftw {
         bool open;
     };
 
-    class [[nodiscard]] menu {
+    class [[nodiscard]] Menu {
     public:
 
-        menu() = delete;
-        menu(const menu&) = delete;
-        menu(menu&&) = delete;
-        menu& operator=(const menu&) = delete;
-        menu& operator=(menu&&) = delete;
+        Menu() = delete;
+        Menu(const Menu&) = delete;
+        Menu(Menu&&) = delete;
+        Menu& operator=(const Menu&) = delete;
+        Menu& operator=(Menu&&) = delete;
 
-        menu(std::string_view title, bool enabled = true) {
+        Menu(std::string_view title, bool enabled = true) {
             open = ImGui::BeginMenu(title.data(), enabled);
         }
 
-        ~menu() {
+        ~Menu() {
             if (open) ImGui::EndMenu();
         }
 
@@ -363,20 +373,20 @@ namespace imftw {
         bool open;
     };
 
-    class [[nodiscard]] popup {
+    class [[nodiscard]] Popup {
     public:
 
-        popup() = delete;
-        popup(const popup&) = delete;
-        popup(popup&&) = delete;
-        popup& operator=(const popup&) = delete;
-        popup& operator=(popup&&) = delete;
+        Popup() = delete;
+        Popup(const Popup&) = delete;
+        Popup(Popup&&) = delete;
+        Popup& operator=(const Popup&) = delete;
+        Popup& operator=(Popup&&) = delete;
 
-        popup(std::string_view title, bool modal = false, ImGuiWindowFlags flags = 0) {
+        Popup(std::string_view title, bool modal = false, ImGuiWindowFlags flags = 0) {
             open = modal ? ImGui::BeginPopupModal(title.data(), nullptr, flags) : ImGui::BeginPopup(title.data(), flags);
         }
 
-        ~popup() {
+        ~Popup() {
             if (open) ImGui::EndPopup();
         }
 
@@ -391,12 +401,12 @@ namespace imftw {
 }
 
 #ifndef IMFTW_NO_SHORTCUTS
-    #define IMFTW_WITH_STYLE(...) if(imftw::scope::style _imftw_style(__VA_ARGS__); true)
-    #define IMFTW_WITH_ID(...) if(imftw::scope::id _imftw_id(__VA_ARGS__); true)
-    #define IMFTW_WITH_ENABLED(...) if(imftw::scope::enabled _imftw_enabled(__VA_ARGS__); true)
-    #define IMFTW_POPUP(...) if(imftw::popup _imftw_popup(__VA_ARGS__); _imftw_popup)
-    #define IMFTW_MENU(...) if(imftw::menu _imftw_menu(__VA_ARGS__); _imftw_menu)
-    #define IMFTW_MAIN_MENU() if(imftw::main_menu _imftw_main_menu; _imftw_main_menu)
-    #define IMFTW_MENU_BAR() if(imftw::menu_bar _imftw_menu_bar; _imftw_menu_bar)
-    #define IMFTW_WINDOW(...) if(imftw::window _imftw_window(__VA_ARGS__); _imftw_window)
+    #define IMFTW_WITH_STYLE(...) if(ImFtw::Scope::Style _imftw_style(__VA_ARGS__); true)
+    #define IMFTW_WITH_ID(...) if(ImFtw::Scope::ID _imftw_id(__VA_ARGS__); true)
+    #define IMFTW_WITH_ENABLED(...) if(ImFtw::Scope::Enabled _imftw_enabled(__VA_ARGS__); true)
+    #define IMFTW_POPUP(...) if(ImFtw::Popup _imftw_popup(__VA_ARGS__); _imftw_popup)
+    #define IMFTW_MENU(...) if(ImFtw::Menu _imftw_menu(__VA_ARGS__); _imftw_menu)
+    #define IMFTW_MAIN_MENU() if(ImFtw::MainMenu _imftw_main_menu; _imftw_main_menu)
+    #define IMFTW_MENU_BAR() if(ImFtw::MenuBar _imftw_menu_bar; _imftw_menu_bar)
+    #define IMFTW_WINDOW(...) if(ImFtw::Window _imftw_window(__VA_ARGS__); _imftw_window)
 #endif

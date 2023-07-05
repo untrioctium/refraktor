@@ -653,12 +653,12 @@ rfkt::flame_compiler::flame_compiler(std::shared_ptr<ezrtc::compiler> k_manager)
         {
             auto leftover = exec.shared_per_block - smem_per_block(precision::f32, 0, exec.block);
             if (leftover <= 0) continue;
-            //SPDLOG_INFO("{}x{}xf32: {:> 5} leftover shared ({:> 5} floats)", exec.grid, exec.block, leftover, leftover / 4);
+            SPDLOG_INFO("{}x{}xf32: {:> 5} leftover shared ({:> 5} floats)", exec.grid, exec.block, leftover, leftover / 4);
         }
         {
             auto leftover = exec.shared_per_block - smem_per_block(precision::f64, 0, exec.block);
             if (leftover <= 0) continue;
-            //SPDLOG_INFO("{}x{}xf64: {:> 5} leftover shared ({:> 5} doubles)", exec.grid, exec.block, leftover, leftover / 8);
+            SPDLOG_INFO("{}x{}xf64: {:> 5} leftover shared ({:> 5} doubles)", exec.grid, exec.block, leftover, leftover / 8);
         }
     }
 
@@ -698,9 +698,9 @@ auto rfkt::flame_compiler::make_opts(precision prec, const flame& f)->std::pair<
         }
     }
 
-    //while (exec_configs[most_blocks_idx].grid > 300) {
-    //    most_blocks_idx--;
-    //}
+    while (exec_configs[most_blocks_idx].block / 32 < 4) {
+        most_blocks_idx--;
+    }
 
     auto& most_blocks = exec_configs[most_blocks_idx];
 
@@ -815,7 +815,7 @@ auto rfkt::flame_kernel::bin(cuda_stream& stream, flame_kernel::saved_state & st
 
     stream_state->qpx_host = pra.reserve<std::size_t>(num_counters);
 
-    stream_state->total_bins = state.bin_dims.x * state.bin_dims.y;
+    stream_state->total_bins = state.bins.area();
     stream_state->num_threads = exec.first * exec.second;
 
     stream_state->qpx_dev = rfkt::cuda_buffer<std::size_t>{ num_counters, stream };
@@ -835,7 +835,7 @@ auto rfkt::flame_kernel::bin(cuda_stream& stream, flame_kernel::saved_state & st
         (std::size_t)(bo.quality * stream_state->total_bins * 255.0),
         bo.iters,
         static_cast<std::uint64_t>(bo.millis) * 1'000'000,
-        state.bins.ptr(), state.bin_dims.x, state.bin_dims.y,
+        state.bins.ptr(), static_cast<unsigned int>(state.bins.width()), static_cast<unsigned int>(state.bins.height()),
         stream_state->qpx_dev.ptr(),
         stream_state->qpx_dev.ptr() + counter_size
     ));

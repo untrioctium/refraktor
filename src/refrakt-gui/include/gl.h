@@ -69,7 +69,7 @@ namespace rfkt::gl {
 			}
 
 			template<typename T>
-			void copy_from(const cuda_buffer<T>& buffer) {
+			void copy_from(cuda_span<T> buffer) {
 				if(buffer.size_bytes() < copy_params.WidthInBytes * copy_params.Height)
 					throw std::runtime_error("cuda_map::copy_from: buffer too small");
 
@@ -78,7 +78,7 @@ namespace rfkt::gl {
 			}
 
 			template<typename T>
-			void copy_from(const cuda_buffer<T>& buffer, rfkt::cuda_stream& stream) {
+			void copy_from(cuda_span<T> buffer, rfkt::cuda_stream& stream) {
 				if (buffer.size_bytes() < copy_params.WidthInBytes * copy_params.Height)
 					throw std::runtime_error("cuda_map::copy_from: buffer too small");
 

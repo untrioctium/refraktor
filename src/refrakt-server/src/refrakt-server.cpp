@@ -200,9 +200,9 @@ namespace rfkt {
 				t.reset();
 				});
 
-			tm.run(in, tonemapped, input_dims(), quality, gamma, brightness, vibrancy, stream);
+			tm.run(in, tonemapped, { quality, gamma, brightness, vibrancy }, stream);
 			dn.denoise(output_dims(), tonemapped, denoised, stream);
-			conv.to_24bit(denoised, out, output_dims(), planar_output, stream);
+			conv.to_24bit(denoised, out,planar_output, stream);
 			stream.host_func([&t = perf_timer, p = std::move(promise)]() mutable {
 				p.set_value(t.count());
 			});

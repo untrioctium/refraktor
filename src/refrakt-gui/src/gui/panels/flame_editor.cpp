@@ -103,12 +103,12 @@ auto make_flame_drag_edit(rfkt::flame& f, command_executor& exec, const rfkt::fu
 	auto min_button_width = ImGui::CalcTextSize(ICON_MD_ANIMATION).x + ImGui::GetStyle().FramePadding.x * 2.0f;
 	auto animator_button = make_animator_button(f, ft, exec);
 	return[&f, &exec, animator_button = std::move(animator_button), min_button_width, &value_changed](const rfkt::descriptor& desc, std::string_view text, float step, const edit_bounds& eb = {}) mutable {
-		imftw::scope::id drag_scope{ desc.hash().str16() };
+		ImFtw::Scope::ID drag_scope{ desc.hash().str16() };
 
 		auto* ptr = desc.access(f);
 		value_changed |= animator_button(desc, min_button_width);
 		ImGui::SameLine();
-		if (auto [drag_start, changed] = imftw::infinite_drag(text, ptr->t0, step, eb.min, eb.max); drag_start) {
+		if (auto [drag_start, changed] = ImFtw::InfiniteDrag(text, ptr->t0, step, eb.min, eb.max); drag_start) {
 			value_changed = true;
 			rfkt::anima new_value = { ptr->t0, ptr->call_info };
 			rfkt::anima old_value = { drag_start.value(), ptr->call_info };
@@ -124,7 +124,7 @@ bool rfkt::gui::panels::flame_editor(rfkt::flamedb& fdb, rfkt::flame& f, command
 
 	namespace fdesc = rfkt::descriptors;
 
-	imftw::scope::id flame_scope{ &f };
+	ImFtw::Scope::ID flame_scope{ &f };
 
 	auto flame_drag_edit = make_flame_drag_edit(f, exec, ft, changed);
 
@@ -147,10 +147,10 @@ bool rfkt::gui::panels::flame_editor(rfkt::flamedb& fdb, rfkt::flame& f, command
 	ImGui::Checkbox("Hide Linear Only XForms", &hide_linear);
 	ImGui::SameLine();
 
-	imftw::tooltip("Hide XForms that only contain a single linear VLink");
+	ImFtw::Tooltip("Hide XForms that only contain a single linear VLink");
 
 	f.for_each_xform([&](int xid, rfkt::xform& xf) {
-		imftw::scope::id xf_scope{ xid };
+		ImFtw::Scope::ID xf_scope{ xid };
 
 		std::string xf_name = (xid == -1) ? "Final XForm" : fmt::format("XForm {}", xid);
 
@@ -172,7 +172,7 @@ bool rfkt::gui::panels::flame_editor(rfkt::flamedb& fdb, rfkt::flame& f, command
 
 						auto& vl = xf.vchain[i];
 						{
-							imftw::scope::id vl_scope{ i };
+							ImFtw::Scope::ID vl_scope{ i };
 
 							ImGui::Text("Affine");
 							flame_drag_edit(fdesc::transform{ xid, i, &rfkt::affine::a }, "A", 0.001);
@@ -197,19 +197,23 @@ bool rfkt::gui::panels::flame_editor(rfkt::flamedb& fdb, rfkt::flame& f, command
 
 
 
-							static bool just_opened = false;
+							//static bool just_opened = false;
 							static char filter[128] = { 0 };
 
 							if (ImGui::Button("Add variation")) {
 								ImGui::OpenPopup("add_variation");
-								just_opened = true;
+								//just_opened = true;
 								std::memset(filter, 0, sizeof(filter));
 							}
 
 							if (ImGui::BeginPopup("add_variation")) {
-								if (just_opened) {
-									just_opened = false;
-									ImGui::SetKeyboardFocusHere(1);
+								//if (just_opened) {
+								//	just_opened = false;
+								//	ImGui::SetKeyboardFocusHere(1);
+								//}
+
+								if (ImGui::IsWindowAppearing()) {
+									ImGui::SetKeyboardFocusHere();
 								}
 
 								bool enter_pressed = ImGui::InputText("##filter", filter, sizeof(filter), ImGuiInputTextFlags_EnterReturnsTrue);
@@ -243,7 +247,7 @@ bool rfkt::gui::panels::flame_editor(rfkt::flamedb& fdb, rfkt::flame& f, command
 
 							std::string_view removed_var = {};
 							for (auto& [vname, vd] : vl) {
-								imftw::scope::id var_scope{ vname };
+								ImFtw::Scope::ID var_scope{ vname };
 								ImGui::Separator();
 								flame_drag_edit(fdesc::vardata{ xid, i, vname, &rfkt::vardata::weight }, vname, 0.001);
 

@@ -11,23 +11,23 @@
 #include <shellapi.h>
 #endif
 
-namespace imftw {
+namespace ImFtw {
 	context_t& context() {
 		static context_t ctx;
 		return ctx;
 	}
 }
 
-void setup_event_callbacks(imftw::context_t& ctx) {
+void setup_event_callbacks(ImFtw::context_t& ctx) {
 	auto window = ctx.window;
 
 	glfwSetWindowSizeCallback(window, [](GLFWwindow*, int width, int height) {
 		if (width == 0 || height == 0) return;
-		imftw::context().window_size.store({ width, height });
+		ImFtw::context().window_size.store({ width, height });
 	});
 
 	glfwSetWindowPosCallback(window, [](GLFWwindow*, int x, int y) {
-		imftw::context().window_position.store({ x, y });
+		ImFtw::context().window_position.store({ x, y });
 	});
 
 	constexpr static auto get_key_modifiers = [](GLFWwindow* window) {
@@ -44,39 +44,39 @@ void setup_event_callbacks(imftw::context_t& ctx) {
 	};
 
 	glfwSetKeyCallback(window, [](GLFWwindow* window, int key, int scancode, int action, int) {
-		imftw::push_event(imftw::events::key{ key, scancode, action, get_key_modifiers(window), glfwGetKeyName(key, scancode) });
+		ImFtw::push_event(ImFtw::events::key{ key, scancode, action, get_key_modifiers(window), glfwGetKeyName(key, scancode) });
 	});
 
 	glfwSetCursorPosCallback(window, [](GLFWwindow*, double x, double y) {
-		imftw::push_event(imftw::events::mouse_move{ x, y });
+		ImFtw::push_event(ImFtw::events::mouse_move{ x, y });
 	});
 
 	glfwSetMouseButtonCallback(window, [](GLFWwindow* window, int button, int action, int) {
-		imftw::push_event(imftw::events::mouse_button{ button, action, get_key_modifiers(window)});
+		ImFtw::push_event(ImFtw::events::mouse_button{ button, action, get_key_modifiers(window)});
 	});
 
 	glfwSetWindowCloseCallback(window, [](GLFWwindow*) {
-		//imftw::push_event(imftw::events::window_close{});
+		//ImFtw::push_event(ImFtw::events::window_close{});
 	});
 
 	glfwSetCharCallback(window, [](GLFWwindow*, unsigned int codepoint) {
-		imftw::push_event(imftw::events::char_input{ codepoint });
+		ImFtw::push_event(ImFtw::events::char_input{ codepoint });
 	});
 
 	glfwSetScrollCallback(window, [](GLFWwindow*, double x, double y) {
-		imftw::push_event(imftw::events::mouse_scroll{ x, y });
+		ImFtw::push_event(ImFtw::events::mouse_scroll{ x, y });
 	});
 
 	glfwSetWindowIconifyCallback(window, [](GLFWwindow*, int iconified) {
-		imftw::context().iconified.store(iconified == GLFW_TRUE);
+		ImFtw::context().iconified.store(iconified == GLFW_TRUE);
 	});
 
 	glfwSetWindowMaximizeCallback(window, [](GLFWwindow*, int maximized) {
-		imftw::context().maximized.store(maximized == GLFW_TRUE);
+		ImFtw::context().maximized.store(maximized == GLFW_TRUE);
 	});
 }
 
-void setup_imgui(imftw::context_t& ctx) {
+void setup_imgui(ImFtw::context_t& ctx) {
 	IMGUI_CHECKVERSION();
 	ImGui::CreateContext();
 
@@ -121,12 +121,12 @@ void setup_imgui(imftw::context_t& ctx) {
 	ImGui_ImplOpenGL3_Init("#version 460");
 }
 
-void imftw::run(std::string_view window_title, std::move_only_function<void()>&& main_function) {
+int ImFtw::Run(std::string_view window_title, std::move_only_function<int()>&& main_function) {
 
 	auto& ctx = context();
 
 	if (!glfwInit()) {
-		return;
+		return 1;
 	}
 	
 	glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
@@ -163,10 +163,19 @@ void imftw::run(std::string_view window_title, std::move_only_function<void()>&&
 
 	std::stop_source stopper;
 	auto stop_token = stopper.get_token();
-	auto decorated_main = [func = std::move(main_function), stopper = std::move(stopper)]() mutable {
+
+	auto promise = std::promise<int>{};
+	auto future = promise.get_future();
+
+	auto decorated_main = [func = std::move(main_function), stopper = std::move(stopper), promise = std::move(promise)]() mutable {
 		glfwMakeContextCurrent(context().window);
 
-		func();
+		int ret = 0;
+		try {
+			promise.set_value_at_thread_exit(func());
+		} catch (...) {
+			promise.set_exception_at_thread_exit(std::current_exception());
+		}
 
 		stopper.request_stop();
 		glfwPostEmptyEvent();
@@ -183,10 +192,10 @@ void imftw::run(std::string_view window_title, std::move_only_function<void()>&&
 		// poll any glfw signals, which are commands that can
 		// only be done on the main thread
 		while (true) {
-			auto sig = sig::poll_glfw_signal();
+			auto sig = Sig::poll_glfw_signal();
 			if (!sig) break;
 
-			std::visit([&ctx](auto&& sig) { sig.handle(ctx); }, std::move(*sig));
+			std::visit([&ctx](auto sig) { sig.handle(ctx); }, std::move(*sig));
 		}
 	}
 
@@ -196,15 +205,17 @@ void imftw::run(std::string_view window_title, std::move_only_function<void()>&&
 	ctx.taskbar->Release();
 	CoUninitialize();
 #endif
+
+	return future.get();
 }
 
-void imftw::open_browser(std::string_view url) {
+void ImFtw::OpenBrowser(std::string_view url) {
 	#ifdef _WIN32
 	ShellExecuteA(nullptr, "open", url.data(), nullptr, nullptr, SW_SHOWNORMAL);
 	#endif
 }
 
-void imftw::begin_frame(ImVec4 clear_color) {
+void ImFtw::BeginFrame(ImVec4 clear_color) {
 	auto& ctx = context();
 
 	assert(ctx.opengl_thread_id == std::this_thread::get_id());
@@ -212,7 +223,7 @@ void imftw::begin_frame(ImVec4 clear_color) {
 	ctx.frame_start = context_t::clock_t::now();
 
 	while (true) {
-		auto sig = imftw::sig::poll_opengl_signal();
+		auto sig = ImFtw::Sig::poll_opengl_signal();
 		if(!sig) break;
 
 		std::visit([&ctx](auto&& sig) { sig.handle(ctx); }, std::move(*sig));
@@ -234,7 +245,7 @@ void imftw::begin_frame(ImVec4 clear_color) {
 	ctx.last_time = time;
 
 	if (ctx.cursor_enabled) {
-		imftw::sig::set_cursor(ImGui::GetMouseCursor());
+		ImFtw::Sig::SetCursor(ImGui::GetMouseCursor());
 	}
 
 	while (true) {
@@ -286,7 +297,7 @@ void precise_sleep(double seconds) {
 	while ((high_resolution_clock::now() - start).count() / 1e9 < seconds);
 }
 
-void imftw::end_frame(bool render) {
+void ImFtw::EndFrame(bool render) {
 
 	auto& ctx = context();
 
@@ -303,14 +314,20 @@ void imftw::end_frame(bool render) {
 	}
 }
 
-void imftw::defer(std::move_only_function<void()>&& func)
+void ImFtw::DeferNextFrame(std::move_only_function<void()>&& func)
 {
 	context().deferred_functions.enqueue(std::move(func));
 }
 
+bool ImFtw::OnRenderingThread()
+{
+	thread_local auto thread_id = std::this_thread::get_id();
+	return context().opengl_thread_id == thread_id;
+}
+
 #ifdef _WIN32
 template<decltype(&GetOpenFileNameA) func, decltype(OPENFILENAMEA::Flags) flags = 0>
-std::string dialog_impl(std::string_view filter, std::string path)
+std::string dialog_impl(std::string_view filter, std::string_view path)
 {
 	OPENFILENAMEA open;
 	memset(&open, 0, sizeof(open));
@@ -319,9 +336,9 @@ std::string dialog_impl(std::string_view filter, std::string path)
 	memset(&filename, 0, sizeof(filename));
 
 	open.lStructSize = sizeof(open);
-	open.hwndOwner = imftw::context().hwnd;
+	open.hwndOwner = ImFtw::context().hwnd;
 	open.lpstrFile = filename;
-	open.lpstrInitialDir = path.c_str();
+	open.lpstrInitialDir = path.data();
 	open.nMaxFile = sizeof(filename);
 
 	if (!filter.empty()) {
@@ -336,20 +353,20 @@ std::string dialog_impl(std::string_view filter, std::string path)
 }
 #endif
 
-std::string imftw::show_open_dialog(const std::filesystem::path& path, std::string_view filter)
+std::string ImFtw::ShowOpenDialog(const std::filesystem::path& path, std::string_view filter)
 {
 #ifdef _WIN32
-	return dialog_impl<GetOpenFileNameA, OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST>(filter, path.string());
+	return dialog_impl<&GetOpenFileNameA, OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST>(filter, path.string());
 #endif
 }
 
-std::string imftw::show_save_dialog(const std::filesystem::path& path, std::string_view filter)
+std::string ImFtw::ShowSaveDialog(const std::filesystem::path& path, std::string_view filter)
 {
 #ifdef _WIN32
-	return dialog_impl<GetSaveFileNameA, OFN_OVERWRITEPROMPT>(filter, path.string());
+	return dialog_impl<&GetSaveFileNameA, OFN_OVERWRITEPROMPT>(filter, path.string());
 #endif
 }
 
-double imftw::time() {
+double ImFtw::Time() {
 	return glfwGetTime();
 }
