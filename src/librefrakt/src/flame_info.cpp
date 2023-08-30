@@ -62,7 +62,7 @@ void rfkt::initialize(rfkt::flamedb& fdb, std::string_view config_path)
 	auto find_xcommon_calls = [](const flang::ast& src) -> std::set<std::string> {
 		using namespace flang::matchers;
 
-		constexpr static auto predicate = of_type<flang::grammar::member_access> and with_child(of_type<flang::grammar::variable> and with_content<"common"> and of_rank<0>);
+		constexpr static auto predicate = of_type<flang::grammar::member_access> and with_child_at<0>(of_type<flang::grammar::variable> and with_content<"common">);
 
 		std::set<std::string> deps;
 		for (const auto& node : src) {

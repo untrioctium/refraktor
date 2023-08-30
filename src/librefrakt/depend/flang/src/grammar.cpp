@@ -387,6 +387,7 @@ bool flang::var_exists(const std::string& name, const var_definitions& globals, 
 }
 
 std::optional<flang::semantic_error> flang::validate(const ast_node* n, const var_definitions& globals, scope_stack& scopes) {
+
 	if (n->type() == "root" || n->is_type<grammar::scoped>()) {
 		scopes.emplace_front();
 		for (const auto& c : *n) {

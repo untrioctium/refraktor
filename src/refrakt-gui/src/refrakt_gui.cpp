@@ -380,19 +380,19 @@ void about_window() {
 
 	const float max_library_name = ImGui::CalcTextSize(std::max_element(libraries.begin(), libraries.end(), [](const auto& a, const auto& b) {
 		return a.first.size() < b.first.size();
-		})->first.data()).x + 5.0;
+		})->first.data()).x + 5.0f;
 
 	const float max_author = ImGui::CalcTextSize(std::get<0>(std::max_element(libraries.begin(), libraries.end(), [](const auto& a, const auto& b) {
 		return std::get<0>(a.second).size() < std::get<0>(b.second).size();
-		})->second).data()).x + 5.0;
+		})->second).data()).x + 5.0f;
 
 	const float max_url = ImGui::CalcTextSize(std::get<1>(std::max_element(libraries.begin(), libraries.end(), [](const auto& a, const auto& b) {
 		return std::get<1>(a.second).size() < std::get<1>(b.second).size();
-		})->second).data()).x + 5.0;
+		})->second).data()).x + 5.0f;
 
 	const float max_license = ImGui::CalcTextSize(std::get<2>(std::max_element(libraries.begin(), libraries.end(), [](const auto& a, const auto& b) {
 		return std::get<2>(a.second).size() < std::get<2>(b.second).size();
-		})->second).data()).x + 5.0;
+		})->second).data()).x + 5.0f;
 
 	IMFTW_POPUP("About", true, ImGuiWindowFlags_AlwaysAutoResize) {
 		ImFtw::TextCentered("Refrakt v0.1.0 by Alex Riley");
@@ -635,7 +635,7 @@ public:
 		ImFtw::Sig::SetWindowDecorated(true).get();
 		ImFtw::Sig::SetWindowMaximized(true).get();
 		ImFtw::Sig::SetVSyncEnabled(false);
-		ImFtw::Sig::SetTargetFramerate(144);
+		ImFtw::Sig::SetTargetFramerate(240);
 
 		while (true) {
 			ImFtw::BeginFrame();

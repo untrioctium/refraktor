@@ -27,10 +27,6 @@ __global__ void tonemap(const float4* __restrict__ bins, half3* __restrict__ ima
 		return;
 	}
 
-	if(col.x > 65536 * 256 || col.y > 65536 * 256 || col.z > 65536 * 256 || col.w > 65536) {
-		printf("clip %f %f %f %f\n", col.x, col.y, col.z, col.w);
-	}
-
 	//col.w += 1;
 	const float factor = (col.w == 0.0f)? 0.0f : 0.5f * brightness * logf(1.0f + col.w * scale_constant) * 0.434294481903251827651128918916f / (col.w);
 	col.x *= factor; col.y *= factor; col.z *= factor; col.w *= factor;

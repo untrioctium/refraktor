@@ -9,7 +9,7 @@ namespace rfkt::nvjpeg {
 	class encoder {
 	public:
 
-		auto encode_image(CUdeviceptr image, int width, int height, int quality, CUstream stream) -> std::future<std::vector<std::byte>>;
+		auto encode_image(CUdeviceptr image, int width, int height, int quality, CUstream stream) -> std::future<std::move_only_function<std::vector<std::byte>()>>;
 		explicit encoder(CUstream stream);
 		~encoder();
 

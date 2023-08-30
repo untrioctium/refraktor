@@ -29,7 +29,7 @@ const char* get_nvjpeg_error_string(nvjpegStatus_t status) {
 }
 
 
-auto rfkt::nvjpeg::encoder::encode_image(CUdeviceptr image, int width, int height, int quality, CUstream stream) -> std::future<std::vector<std::byte>>
+auto rfkt::nvjpeg::encoder::encode_image(CUdeviceptr image, int width, int height, int quality, CUstream stream) -> std::future<std::move_only_function<std::vector<std::byte>()>>
 {
 	auto state = wrap_state([this, stream]() {
 		std::lock_guard states_lock{ this->states_mutex };
@@ -39,7 +39,7 @@ auto rfkt::nvjpeg::encoder::encode_image(CUdeviceptr image, int width, int heigh
 			available_states.pop();
 			return ret;
 		}
-		}());
+	}());
 
 	nvjpegImage_t nv_image;
 	nv_image.channel[0] = (unsigned char*)image;
@@ -51,38 +51,39 @@ auto rfkt::nvjpeg::encoder::encode_image(CUdeviceptr image, int width, int heigh
 	nv_image.channel[2] = ((unsigned char*)image) + width * height * 2;
 	nv_image.pitch[2] = width;
 
-	std::unique_ptr<std::size_t> length_ptr = std::make_unique<std::size_t>();
 
 	struct stream_state_t {
 		decltype(state) state;
-		decltype(length_ptr) length_ptr;
-		std::promise<std::vector<std::byte>> promise;
-		std::vector<std::byte> jpeg;
-		std::size_t max_length;
+		decltype(nv_handle) handle;
+		std::promise<std::move_only_function<std::vector<std::byte>()>> promise;
 	};
 
 	auto ss = new stream_state_t{
 		.state = std::move(state),
-		.length_ptr = std::move(length_ptr)
+		.handle = nv_handle
 	};
 
 	auto fut = ss->promise.get_future();
 
-	NVJPEG_SAFE_CALL(nvjpegEncodeGetBufferSize(nv_handle, params_map[quality], width, height, &ss->max_length));
-	ss->jpeg.resize(ss->max_length);
-
 	NVJPEG_SAFE_CALL(nvjpegEncodeImage(nv_handle, ss->state.get(), params_map[quality], &nv_image, NVJPEG_INPUT_RGB, width, height, stream));
-	NVJPEG_SAFE_CALL(nvjpegEncodeRetrieveBitstream(nv_handle, ss->state.get(), nullptr, ss->length_ptr.get(), stream));
-	NVJPEG_SAFE_CALL(nvjpegEncodeRetrieveBitstream(nv_handle, ss->state.get(), (unsigned char*) ss->jpeg.data(), ss->length_ptr.get(), stream));
 
 	cuLaunchHostFunc(stream, [](void* d) {
 		auto ss = (stream_state_t*)d;
 
-		SPDLOG_INFO("max {}, actual {}", ss->max_length, *ss->length_ptr);
-		ss->jpeg.resize(*ss->length_ptr);
-		ss->promise.set_value(std::move(ss->jpeg));
-		delete ss;
+		auto func = [state = std::move(ss->state), handle = ss->handle]() -> std::vector<std::byte> {
 
+			std::size_t length;
+
+			NVJPEG_SAFE_CALL(nvjpegEncodeRetrieveBitstream(handle, state.get(), nullptr, &length, nullptr));
+
+			std::vector<std::byte> ret(length);
+
+			NVJPEG_SAFE_CALL(nvjpegEncodeRetrieveBitstream(handle, state.get(), (unsigned char*) ret.data(), &length, nullptr));
+			return ret;
+		};
+
+		ss->promise.set_value(std::move(func));
+		delete ss;
 
 	}, ss);
 

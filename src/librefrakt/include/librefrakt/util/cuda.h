@@ -66,9 +66,10 @@ namespace rfkt::cuda {
 
         auto concurrent_block_configurations() const noexcept -> std::vector<execution_config> {
             auto ret = std::vector<execution_config>{};
+            auto reserved_per_block = reserved_shared_per_block();
             for (int i = 1; i <= max_blocks_per_mp(); i++) {
                 if (max_warps_per_mp() % i == 0 && max_threads_per_mp() / i < max_threads_per_block()) {
-                    ret.push_back({ i * mp_count(), max_threads_per_mp() / i, (max_shared_per_mp() - reserved_shared_per_block() * i) / i});
+                    ret.push_back({ i * mp_count(), max_threads_per_mp() / i, (max_shared_per_mp()) / i - reserved_per_block});
                 }
             }
 

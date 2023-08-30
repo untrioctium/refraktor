@@ -54,7 +54,7 @@ rfkt::flame interpolate_dumb(const rfkt::flame& fl, const rfkt::flame& fr) {
 		ret.affine.e = vl.affine.e.make_interpolator(vr.affine.e);
 		ret.affine.c = vl.affine.c.make_interpolator(vr.affine.c);
 		ret.affine.f = vl.affine.f.make_interpolator(vr.affine.f);
-		
+
 		ret.aff_mod_translate.first = vl.aff_mod_translate.first.make_interpolator(vr.aff_mod_translate.first);
 		ret.aff_mod_translate.second = vl.aff_mod_translate.second.make_interpolator(vr.aff_mod_translate.second);
 		ret.aff_mod_scale = vl.aff_mod_scale.make_interpolator(vr.aff_mod_scale);
@@ -344,10 +344,10 @@ namespace rfkt {
 			tm(kc),
 			dn(dims, dn_opts),
 			conv(kc),
-			tonemapped(dn_opts & rfkt::denoiser_flag::upscale ? dims.x / 2 : dims.x, dn_opts & rfkt::denoiser_flag::upscale ? dims.y / 2 : dims.y),
+			tonemapped(dn_opts& rfkt::denoiser_flag::upscale ? dims.x / 2 : dims.x, dn_opts& rfkt::denoiser_flag::upscale ? dims.y / 2 : dims.y),
 			denoised(dims.x, dims.y),
 			dims_(dims),
-			upscale(upscale)
+			upscale(false)
 		{
 
 		}
@@ -361,7 +361,7 @@ namespace rfkt {
 		postprocessor& operator=(postprocessor&&) = default;
 
 		auto make_output_buffer() const -> rfkt::cuda_buffer<uchar4> {
-			return rfkt::cuda_buffer<uchar4>{ dims_.x * dims_.y };
+			return rfkt::cuda_buffer<uchar4>{ dims_.x* dims_.y };
 		}
 
 		auto make_output_buffer(CUstream stream) const -> rfkt::cuda_buffer<uchar4> {
@@ -430,15 +430,15 @@ int main() {
 
 	rfkt::flamedb fdb;
 	rfkt::initialize(fdb, "config");
-	
+
 	auto stream = rfkt::cuda_stream{};
 	auto kernel = std::make_shared<ezrtc::sqlite_cache>((rfkt::fs::user_local_directory() / "kernel.sqlite3").string());
 	auto zlib = std::make_shared<ezrtc::cache_adaptors::zlib>(kernel);
-	auto km = std::make_shared<ezrtc::compiler>( zlib );
+	auto km = std::make_shared<ezrtc::compiler>(zlib);
 	km->find_system_cuda();
 	auto fc = rfkt::flame_compiler{ km };
 
-	uint2 dims = { 1920, 1080 };
+	uint2 dims = { 2560, 1440 };
 
 	auto pp = rfkt::postprocessor{ *km, dims, rfkt::denoiser_flag::none };
 	auto je = rfkt::nvjpeg::encoder{ stream };
@@ -472,7 +472,7 @@ int main() {
 	auto invoker = functions.make_invoker();
 
 	for (const auto& fname : rfkt::fs::list("assets/flames/", rfkt::fs::filter::has_extension(".flam3"))) {
-	//const std::filesystem::path fname = "assets/flames_test/electricsheep.247.27244.flam3";
+		//const std::filesystem::path fname = "assets/flames_test/electricsheep.247.27244.flam3";
 		auto fxml = rfkt::fs::read_string(fname);
 		auto f = rfkt::import_flam3(fdb, fxml);
 
@@ -497,15 +497,19 @@ int main() {
 
 		auto out = pp.make_output_buffer(stream);
 		auto state = k.kernel->warmup(stream, samples, pp.input_dims(), 0xDEADBEEF, 100);
-		auto q = k.kernel->bin(stream, state, { .millis = 100, .quality = 64 }).get();
+		auto q = k.kernel->bin(stream, state, { .millis = 1000, .quality = 64000 }).get();
 		auto res = pp.post_process(state.bins, out, q.quality, f->gamma.sample(t, invoker), f->brightness.sample(t, invoker), f->vibrancy.sample(t, invoker), true, stream).get();
+
 
 		SPDLOG_INFO("{}: {}, {} miters/ms {} mdraws/ms", fname.filename().string(), q.quality, q.total_passes / (1'000'000 * q.elapsed_ms), q.total_draws / (1'000'000 * q.elapsed_ms));
 
-		auto vec = je.encode_image(out.ptr(), pp.output_dims().x, pp.output_dims().y, 100, stream).get();
+		auto vec = je.encode_image(out.ptr(), pp.output_dims().x, pp.output_dims().y, 100, stream).get()();
+
+		auto row = std::format("{},{},{},{}\n", fname.filename().string(), q.quality, q.total_passes / (1'000'000 * q.elapsed_ms), q.total_draws / (1'000'000 * q.elapsed_ms));
+		rfkt::fs::write("stats.csv", row, true);
 
 		auto basename = fname.filename();
-		rfkt::fs::write("testrender/" + basename.string() + "-2.jpg", (const char*)vec.data(), vec.size(), false);
+		rfkt::fs::write("testrender/" + basename.string() + ".jpg", (const char*)vec.data(), vec.size(), false);
 	}
 	SPDLOG_INFO("initialized flame system (hash: {})", fdb.hash().str16());
 

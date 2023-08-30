@@ -57,6 +57,10 @@ namespace flang::matchers {
 		return ((node->type() == tao::pegtl::demangle<Ts>()) || ...);
 	};
 
+	constexpr static auto is_root =
+	[](const flang::ast_node* node) -> bool {
+		return node->parent() == nullptr;
+	};
 
 	template<flang::detail::StringLiteral... Strs>
 	constexpr static auto with_content =
@@ -95,6 +99,9 @@ namespace flang::matchers {
 	template<flang::detail::matcher_concept Pred>
 	consteval auto with_parent(Pred) noexcept {
 		return [](const flang::ast_node* node) -> bool {
+			if (node->parent() == nullptr) {
+				return false;
+			}
 			constexpr static auto pred = Pred{};
 			return pred(node->parent());
 		};

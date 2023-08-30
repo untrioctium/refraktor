@@ -1016,7 +1016,7 @@ ezrtc::compiler::result ezrtc::compiler::compile(const ezrtc::spec& s) {
 
 	CUlinkState ls_handle;
 	EZRTC_CHECK_CUDA(cuLinkCreate(0, 0, 0, &ls_handle));
-	using link_scope = detail::scoped<CUlinkState, cuLinkDestroy>;
+	using link_scope = detail::scoped<CUlinkState, &cuLinkDestroy>;
 	auto ls = link_scope{ ls_handle };
 
 	EZRTC_CHECK_CUDA(cuLinkAddData(ls, CU_JIT_INPUT_PTX,

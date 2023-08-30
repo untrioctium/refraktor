@@ -828,7 +828,7 @@ namespace rfkt {
 			}, cast_to_base());
 		}
 
-		std::string_view to_string() const {
+		std::string to_string() const {
 			return std::visit([](const auto& arg) -> std::string {
 				return arg.to_string();
 			}, cast_to_base());
@@ -836,7 +836,10 @@ namespace rfkt {
 
 		constexpr std::strong_ordering operator<=>(const descriptor& o) const noexcept {
 
-			if(auto tag_cmp = cast_to_base().index() <=> o.cast_to_base().index(); tag_cmp != 0)
+			const auto& lhs = cast_to_base();
+			const auto& rhs = o.cast_to_base();
+
+			if(auto tag_cmp = lhs.index() <=> rhs.index(); tag_cmp != 0)
 				return tag_cmp;
 
 			return std::visit(
@@ -849,15 +852,15 @@ namespace rfkt {
 						// has already been compared
 						std::unreachable();
 					}
-				}, cast_to_base(), o.cast_to_base());
+				}, lhs, rhs);
 		}
 
 	private:
-		descriptor_base& cast_to_base() {
+		constexpr descriptor_base& cast_to_base() {
 			return *static_cast<descriptor_base*>(this);
 		}
 
-		const descriptor_base& cast_to_base() const {
+		constexpr const descriptor_base& cast_to_base() const {
 			return *static_cast<const descriptor_base*>(this);
 		}
 	};

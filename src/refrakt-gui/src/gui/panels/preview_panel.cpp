@@ -26,25 +26,30 @@ bool preview_panel::show(const rfkt::flamedb& fdb, rfkt::flame& flame, rfkt::fun
 
 	auto preview_size = gui_logic(flame, ft);
 
+	const auto given_struct_hash = flame.hash();
+	const auto given_value_hash = flame.value_hash();
+	const auto given_fdb_hash = fdb.hash();
+
+	bool needs_kernel = (given_struct_hash != flame_structure_hash) || given_fdb_hash != flamedb_hash;
+	bool needs_clear =
+		needs_kernel
+		|| playing
+		|| render_options_changed
+		|| (given_value_hash != flame_value_hash)
+		|| !displayed_texture
+		|| (displayed_texture && (preview_size.x != render_dims.x || preview_size.y != render_dims.y) && preview_size.x && preview_size.y);
+
+	if (rendering_texture && needs_clear && current_state) {
+		SPDLOG_INFO("Aborting binning kernel");
+		current_state->abort_binning();
+	}
+
 	if (!rendering_texture) {
 
 		if (upscale) {
 			if (preview_size.x % 2 == 1) preview_size.x -= 1;
 			if (preview_size.y % 2 == 1) preview_size.y -= 1;
 		}
-
-		const auto given_struct_hash = flame.hash();
-		const auto given_value_hash = flame.value_hash();
-		const auto given_fdb_hash = fdb.hash();
-
-		bool needs_kernel = (given_struct_hash != flame_structure_hash) || given_fdb_hash != flamedb_hash;
-		bool needs_clear =
-			needs_kernel
-			|| playing
-			|| render_options_changed
-			|| (given_value_hash != flame_value_hash)
-			|| !displayed_texture
-			|| (displayed_texture && (preview_size.x != render_dims.x || preview_size.y != render_dims.y) && preview_size.x && preview_size.y);
 
 		bool needs_render = needs_clear || (current_state && current_state->quality < target_quality);
 
@@ -61,14 +66,10 @@ bool preview_panel::show(const rfkt::flamedb& fdb, rfkt::flame& flame, rfkt::fun
 
 				const auto loops_per_frame = 1 / 150.0;
 
-				for (int i = -1; i < 3; i++) {
-					flame.pack_sample(packer, invoker, current_time /* + i * loops_per_frame*/, state_size.x, state_size.y);
-				}
-
-				//flame.pack_sample(packer, invoker, current_time  - loops_per_frame, state_size.x, state_size.y);
-				//flame.pack_sample(packer, invoker, current_time, state_size.x, state_size.y);
-				//flame.pack_sample(packer, invoker, current_time + loops_per_frame, state_size.x, state_size.y);
-				//flame.pack_sample(packer, invoker, current_time + 2 * loops_per_frame, state_size.x, state_size.y);
+				flame.pack_sample(packer, invoker, current_time  - loops_per_frame, state_size.x, state_size.y);
+				flame.pack_sample(packer, invoker, current_time, state_size.x, state_size.y);
+				flame.pack_sample(packer, invoker, current_time + loops_per_frame, state_size.x, state_size.y);
+				flame.pack_sample(packer, invoker, current_time + 2 * loops_per_frame, state_size.x, state_size.y);
 			}
 
 			std::optional<rfkt::flame> flame_copy = std::nullopt;
@@ -103,14 +104,14 @@ bool preview_panel::show(const rfkt::flamedb& fdb, rfkt::flame& flame, rfkt::fun
 						*kernel = std::move(result.kernel.value());
 					}
 
+					auto millis = 1000u;
+
 					if (needs_clear) {
 						auto state_size = upscale ? uint2{ preview_size.x / 2, preview_size.y / 2 } : preview_size;
 						*state = kernel->warmup(stream, samples, state_size, 0xdeadbeef, 100);
 					}
-
-					auto millis = 1000u / 30 - 10;
-					if (target_quality > 10'000) {
-						millis = 100;
+					else {
+						//millis = 100u;
 					}
 
 					auto result = renderer(stream, *kernel, *state, { .millis = millis, .quality = target_quality - state->quality }, gbv, upscale);

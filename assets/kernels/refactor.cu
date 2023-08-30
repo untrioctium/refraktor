@@ -80,6 +80,9 @@ using shared_state_t = fl::shared_state_tmpl<flame_t<Real, xoroshiro64<Real>>, R
 constexpr auto shared_size_bytes = sizeof(shared_state_t);
 static_assert(sizeof(shared_state_t::flame) == flame_size_bytes);
 
+struct void_t {};
+//static_assert(sizeof(fl::shared_state_tmpl<void_t, Real, xoroshiro64<Real>, threads_per_block>) + flame_size_bytes == shared_size_bytes);
+
 struct segment {
 	double a, b, c, d;
 	
@@ -242,6 +245,7 @@ void warmup(
 	const uint32 seed, const uint32 warmup_count, const uint32 bins_w, const uint32 bins_h,
 	shared_state_t* __restrict__ out_state ) 
 {	
+
 	my_rand().init(seed + fl::grid_rank());
 	
 	queue_shuffle_load(0);
@@ -297,7 +301,8 @@ void bin(
 	const uint32 iter_bailout,
 	const uint64 time_bailout,
 	float4* const __restrict__ bins, const uint32 bins_w, const uint32 bins_h,
-	uint64* const __restrict__ quality_counter, uint64* const __restrict__ pass_counter)
+	uint64* const __restrict__ quality_counter, uint64* const __restrict__ pass_counter,
+	volatile bool* __restrict__ stop_render)
 {
 	
 	// load shared state
@@ -360,7 +365,7 @@ void bin(
 		
 		fl::sync_block();
 		if(fl::is_block_leader()) {
-			state.should_bail = state.tss_quality > (double(quality_target) / gridDim.x) || (fl::time() - state.tss_start) >= time_bailout || i >= iter_bailout;
+			state.should_bail = *stop_render || state.tss_quality > (double(quality_target) / gridDim.x) || (fl::time() - state.tss_start) >= time_bailout || i >= iter_bailout;
 			state.tss_passes += blockDim.x;
 		}
 		fl::sync_block();

@@ -53,7 +53,7 @@ void rfkt::gui::render_modal::frame_logic(const rfkt::flame& flame) {
 
 		can_start &= !render_params.output_file.empty();
 		if (render_params.output_file.empty()) {
-			ImGui::TextColored(ImVec4(1, .2, .2, 1), "No output file selected");
+			ImGui::TextColored(ImVec4(1.0f, .2f, .2f, 1.0f), "No output file selected");
 		}
 		else
 			ImGui::Text("%s", render_params.output_file.string().c_str());
@@ -232,8 +232,8 @@ namespace rfkt::pipeline::stage {
 	template<typename Stage>
 	class base {
 	public:
-		using input_queue_t = moodycamel::BlockingReaderWriterQueue<std::variant<typename Stage::input, detail::stop>>;
-		using output_queue_t = moodycamel::BlockingReaderWriterQueue<std::variant<typename Stage::output, detail::stop>>;
+		using input_queue_t = moodycamel::BlockingReaderWriterQueue<std::variant<std::pair<rfkt::pipeline::render_params, typename Stage::input>, detail::stop>>;
+		using output_queue_t = moodycamel::BlockingReaderWriterQueue<std::variant<std::pair<rfkt::pipeline::render_params, typename Stage::output>, detail::stop>>;
 
 		void run(input_queue_t& inq, output_queue_t& out) {
 			Stage& impl = *static_cast<Stage*>(this);

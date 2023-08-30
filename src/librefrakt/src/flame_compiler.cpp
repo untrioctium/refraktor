@@ -104,7 +104,7 @@ auto make_table() {
 
     // root/scope
     table.emplace_back(
-        of_type<scoped> or [](const flang::ast_node* n) { return n->type() == "root"; },
+        of_type<scoped> or is_root,
         [](std::string_view name, const flang::ast_node* n) {
             auto child_statements = std::string{};
             for (auto i = 0; i < n->size(); ++i) {
@@ -572,7 +572,9 @@ auto rfkt::flame_compiler::get_flame_kernel(const flamedb& fdb, precision prec, 
 
     auto max_blocks = func.max_blocks_per_mp(most_blocks.block) * cuda::context::current().device().mp_count();
     if (max_blocks < most_blocks.grid) {
-        SPDLOG_ERROR("Kernel for {} needs {} blocks but only got {}", f.hash().str64(), most_blocks.grid, max_blocks);
+
+        auto expected_shared = smem_per_block(prec, (f.size_reals() + 13) * 4, most_blocks.block);
+        SPDLOG_ERROR("Kernel for {} needs {} blocks but only got {}; {} shared, {} expected", f.hash().str64(), most_blocks.grid, max_blocks, func.shared_bytes(), expected_shared);
         return r;
     }
     SPDLOG_INFO("Loaded flame kernel {}: {} temp. samples, {} flame params, {} regs, {} shared, {} local, {:.4} ms", f.hash().str64(), max_blocks, f.size_reals(), func.register_count(), func.shared_bytes(), func.local_bytes(), duration_ms);
@@ -617,20 +619,27 @@ rfkt::flame_compiler::flame_compiler(std::shared_ptr<ezrtc::compiler> k_manager)
 
     exec_configs = cuda::context::current().device().concurrent_block_configurations();
 
-    /*std::string check_kernel_name = "get_sizes<";
+    std::string check_kernel_name = "get_sizes<";
     for (const auto& conf : exec_configs) {
         check_kernel_name += std::format("{},", conf.block);
     }
 
     check_kernel_name[check_kernel_name.size() - 1] = '>';
   
-    auto check_kernel_result_name = std::format("required_shared<{}>", exec_configs.size());
+    SPDLOG_INFO("Checking kernel sizes for {}", check_kernel_name);
 
-    auto check_result = km.compile(
+    auto check_kernel_result_name = std::format("required_shared<{}>", exec_configs.size() * 2);
+
+    auto rand_src = rfkt::fs::read_string("assets/kernels/include/refrakt/random.h");
+    auto flamelib_src = rfkt::fs::read_string("assets/kernels/include/refrakt/flamelib.h");
+
+    auto check_result = km->compile(
         ezrtc::spec::source_file("sizing", "assets/kernels/size_info.cu")
         .variable(check_kernel_result_name)
         .kernel(check_kernel_name)
         .flag(ezrtc::compile_flag::default_device)
+        .header("refrakt/random.h", rand_src)
+        .header("refrakt/flamelib.h", flamelib_src)
     );
 
     if (not check_result.module.has_value()) {
@@ -639,11 +648,18 @@ rfkt::flame_compiler::flame_compiler(std::shared_ptr<ezrtc::compiler> k_manager)
     }
 
     check_result.module->kernel(check_kernel_name).launch(1, 1)();
+    cuStreamSynchronize(0);
     auto var = check_result.module.value()[check_kernel_result_name];
     std::vector<unsigned long long> shared_sizes{};
     shared_sizes.resize(exec_configs.size() * 2);
     cuMemcpyDtoH(shared_sizes.data(), var.ptr(), var.size());
-    */
+
+    auto base_shared = cuda::context::current().device().reserved_shared_per_block();
+
+    for (int i = 0; i < exec_configs.size(); i++) {
+       required_smem[{precision::f32, exec_configs[i].block}] = shared_sizes[i] + 16;
+       required_smem[{precision::f64, exec_configs[i].block}] = shared_sizes[i + exec_configs.size()] + 16;
+    }
 
     for (auto& exec : exec_configs) {
         shuf_bufs[exec.block] = make_shuffle_buffers(exec.block, num_shufs);
@@ -651,9 +667,10 @@ rfkt::flame_compiler::flame_compiler(std::shared_ptr<ezrtc::compiler> k_manager)
         //fmt::print("{{{}, {}, {}}},\n", exec.grid, exec.block, exec.shared_per_block);
 
         {
-            auto leftover = exec.shared_per_block - smem_per_block(precision::f32, 0, exec.block);
+            auto needed = smem_per_block(precision::f32, 0, exec.block);
+            auto leftover = exec.shared_per_block - needed;
             if (leftover <= 0) continue;
-            SPDLOG_INFO("{}x{}xf32: {:> 5} leftover shared ({:> 5} floats)", exec.grid, exec.block, leftover, leftover / 4);
+            SPDLOG_INFO("{}x{}xf32: {} needed, {:> 5} leftover shared ({:> 5} floats)", exec.grid, exec.block, needed, leftover, leftover / 4);
         }
         {
             auto leftover = exec.shared_per_block - smem_per_block(precision::f64, 0, exec.block);
@@ -698,11 +715,10 @@ auto rfkt::flame_compiler::make_opts(precision prec, const flame& f)->std::pair<
         }
     }
 
-    while (exec_configs[most_blocks_idx].block / 32 < 4) {
-        most_blocks_idx--;
-    }
+    while (exec_configs[most_blocks_idx].block / 32 < 4) most_blocks_idx--;
 
     auto& most_blocks = exec_configs[most_blocks_idx];
+
 
     auto name = fmt::format("flame_{}_f{}_t{}_s{}", flame_hash.str64(), (prec == precision::f32) ? "32" : "64", most_blocks.grid, flame_real_count);
 
@@ -830,6 +846,9 @@ auto rfkt::flame_kernel::bin(cuda_stream& stream, flame_kernel::saved_state & st
         ss->start = std::chrono::high_resolution_clock::now();
         }, stream_state));
 
+    const static bool stopper_init = false;
+    state.stopper.from_host({ &stopper_init, 1 }, stream);
+
     CUDA_SAFE_CALL(klauncher(
         state.shared.ptr(),
         (std::size_t)(bo.quality * stream_state->total_bins * 255.0),
@@ -837,7 +856,8 @@ auto rfkt::flame_kernel::bin(cuda_stream& stream, flame_kernel::saved_state & st
         static_cast<std::uint64_t>(bo.millis) * 1'000'000,
         state.bins.ptr(), static_cast<unsigned int>(state.bins.width()), static_cast<unsigned int>(state.bins.height()),
         stream_state->qpx_dev.ptr(),
-        stream_state->qpx_dev.ptr() + counter_size
+        stream_state->qpx_dev.ptr() + counter_size,
+        state.stopper.ptr()
     ));
 
     stream_state->qpx_dev.to_host(stream_state->qpx_host, stream);

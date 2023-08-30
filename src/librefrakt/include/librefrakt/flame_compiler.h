@@ -33,6 +33,7 @@ namespace rfkt {
 			cuda_image<float4> bins = {};
 			double quality = 0.0;
 			cuda_buffer<> shared = {};
+			cuda_buffer<bool> stopper;
 
 			saved_state() = default;
 			saved_state(saved_state&& o) noexcept {
@@ -42,20 +43,29 @@ namespace rfkt {
 				std::swap(bins, o.bins);
 				std::swap(shared, o.shared);
 				std::swap(quality, o.quality);
+				std::swap(stopper, o.stopper);
 				return *this;
 			}
 
 			saved_state(uint2 dims, std::size_t nbytes, CUstream stream) :
 				bins(dims.x, dims.y, stream),
-				shared(nbytes, stream) {
+				shared(nbytes, stream),
+				stopper(1, stream) {
 				bins.clear(stream);
 			}
 
 			saved_state(decltype(saved_state::bins)&& bins, std::size_t nbytes, CUstream stream) :
 				bins(std::move(bins)),
-				shared(nbytes, stream) {
+				shared(nbytes, stream),
+				stopper(1, stream) {
 				bins.clear(stream);
 			}
+
+			void abort_binning() {
+				const static bool stop = true;
+				stopper.from_host({ &stop, 1 }, nullptr);
+			}
+
 		};
 
 		struct bailout_args {
@@ -76,7 +86,6 @@ namespace rfkt {
 			this->exec = o.exec;
 			this->mod = std::move(o.mod);
 			this->catmull = std::move(o.catmull);
-			this->device_hz = o.device_hz;
 			this->flame_size_reals = o.flame_size_reals;
 
 			return *this;
@@ -84,12 +93,16 @@ namespace rfkt {
 
 		flame_kernel() = default;
 
+		bool valid() const {
+			return mod.operator bool();
+		}
+
 	private:
 
 		std::size_t saved_state_size() const { return mod("bin").shared_bytes() * exec.first; }
 
 		flame_kernel(const rfkt::hash_t& flame_hash, std::size_t flame_size_reals, ezrtc::cuda_module&& mod, std::pair<int, int> exec, std::shared_ptr<ezrtc::cuda_module>& catmull, std::size_t device_hz) :
-			mod(std::move(mod)), flame_hash(flame_hash), exec(exec), catmull(catmull), device_hz(device_hz), flame_size_reals(flame_size_reals) {
+			mod(std::move(mod)), flame_hash(flame_hash), exec(exec), catmull(catmull), flame_size_reals(flame_size_reals) {
 		}
 
 		std::shared_ptr<ezrtc::cuda_module> catmull = nullptr;
@@ -97,7 +110,6 @@ namespace rfkt {
 		rfkt::hash_t flame_hash = {};
 		ezrtc::cuda_module mod = {};
 		std::pair<std::uint32_t, std::uint32_t> exec = {};
-		std::size_t device_hz;
 	};
 
 	static_assert(std::move_constructible<flame_kernel>);
@@ -153,8 +165,7 @@ namespace rfkt {
 	private:
 
 		auto smem_per_block(precision prec, int flame_real_bytes, int threads_per_block) {
-			const auto per_thread_size = (prec == precision::f32) ? 25 : 48;
-			return per_thread_size * threads_per_block + flame_real_bytes + 820;
+			return required_smem[std::make_pair(prec, threads_per_block)] + flame_real_bytes;
 		}
 
 		std::pair<cuda::execution_config, ezrtc::spec> make_opts(precision prec, const flame& f);
@@ -162,6 +173,9 @@ namespace rfkt {
 		std::shared_ptr<ezrtc::compiler> km;
 		std::map<std::size_t, cuda_buffer<unsigned short>> shuf_bufs;
 		decltype(std::declval<cuda::device_t>().concurrent_block_configurations()) exec_configs;
+
+		std::map<std::pair<precision, int>, int> required_smem;
+
 		std::size_t num_shufs = 4096;
 
 		std::shared_ptr<ezrtc::cuda_module> catmull;

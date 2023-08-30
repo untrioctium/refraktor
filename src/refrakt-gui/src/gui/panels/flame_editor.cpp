@@ -129,16 +129,16 @@ bool rfkt::gui::panels::flame_editor(rfkt::flamedb& fdb, rfkt::flame& f, command
 	auto flame_drag_edit = make_flame_drag_edit(f, exec, ft, changed);
 
 	ImGui::Text("Display");
-	flame_drag_edit(fdesc::flame{ &rfkt::flame::rotate }, "Rotate", 0.01);
-	flame_drag_edit(fdesc::flame{ &rfkt::flame::scale }, "Scale", 0.1, 0.0001);
-	flame_drag_edit(fdesc::flame{ &rfkt::flame::center_x }, "Center X", 0.1);
-	flame_drag_edit(fdesc::flame{ &rfkt::flame::center_y }, "Center Y", 0.1);
+	flame_drag_edit(fdesc::flame{ &rfkt::flame::rotate }, "Rotate", 0.01f);
+	flame_drag_edit(fdesc::flame{ &rfkt::flame::scale }, "Scale", 0.1f, 0.0001);
+	flame_drag_edit(fdesc::flame{ &rfkt::flame::center_x }, "Center X", 0.1f);
+	flame_drag_edit(fdesc::flame{ &rfkt::flame::center_y }, "Center Y", 0.1f);
 	ImGui::Separator();
 
 	ImGui::Text("Color");
-	flame_drag_edit(fdesc::flame{ &rfkt::flame::gamma }, "Gamma", 0.01, 0.1);
-	flame_drag_edit(fdesc::flame{ &rfkt::flame::brightness }, "Brightness", 0.01, 0.1);
-	flame_drag_edit(fdesc::flame{ &rfkt::flame::vibrancy }, "Vibrancy", 0.01);
+	flame_drag_edit(fdesc::flame{ &rfkt::flame::gamma }, "Gamma", 0.01f, 0.1);
+	flame_drag_edit(fdesc::flame{ &rfkt::flame::brightness }, "Brightness", 0.01f, 0.1);
+	flame_drag_edit(fdesc::flame{ &rfkt::flame::vibrancy }, "Vibrancy", 0.01f);
 	ImGui::Separator();
 
 	auto invoker = [&ft]<typename... Args>(Args&&... args) { return ft.call(std::forward<Args>(args)...); };
@@ -175,16 +175,16 @@ bool rfkt::gui::panels::flame_editor(rfkt::flamedb& fdb, rfkt::flame& f, command
 							ImFtw::Scope::ID vl_scope{ i };
 
 							ImGui::Text("Affine");
-							flame_drag_edit(fdesc::transform{ xid, i, &rfkt::affine::a }, "A", 0.001);
-							flame_drag_edit(fdesc::transform{ xid, i, &rfkt::affine::b }, "B", 0.001);
-							flame_drag_edit(fdesc::transform{ xid, i, &rfkt::affine::c }, "C", 0.001);
-							flame_drag_edit(fdesc::transform{ xid, i, &rfkt::affine::d }, "D", 0.001);
-							flame_drag_edit(fdesc::transform{ xid, i, &rfkt::affine::e }, "E", 0.001);
-							flame_drag_edit(fdesc::transform{ xid, i, &rfkt::affine::f }, "F", 0.001);
-							flame_drag_edit(fdesc::vlink{ xid, i, &rfkt::vlink::mod_rotate }, "Rotate", 0.01);
-							flame_drag_edit(fdesc::vlink{ xid, i, &rfkt::vlink::mod_scale }, "Scale", 0.01, 0.0001);
-							flame_drag_edit(fdesc::vlink{ xid, i, &rfkt::vlink::mod_x }, "X", 0.01);
-							flame_drag_edit(fdesc::vlink{ xid, i, &rfkt::vlink::mod_y }, "Y", 0.01);
+							flame_drag_edit(fdesc::transform{ xid, i, &rfkt::affine::a }, "A", 0.001f);
+							flame_drag_edit(fdesc::transform{ xid, i, &rfkt::affine::b }, "B", 0.001f);
+							flame_drag_edit(fdesc::transform{ xid, i, &rfkt::affine::c }, "C", 0.001f);
+							flame_drag_edit(fdesc::transform{ xid, i, &rfkt::affine::d }, "D", 0.001f);
+							flame_drag_edit(fdesc::transform{ xid, i, &rfkt::affine::e }, "E", 0.001f);
+							flame_drag_edit(fdesc::transform{ xid, i, &rfkt::affine::f }, "F", 0.001f);
+							flame_drag_edit(fdesc::vlink{ xid, i, &rfkt::vlink::mod_rotate }, "Rotate", 0.01f);
+							flame_drag_edit(fdesc::vlink{ xid, i, &rfkt::vlink::mod_scale }, "Scale", 0.01f, 0.0001);
+							flame_drag_edit(fdesc::vlink{ xid, i, &rfkt::vlink::mod_x }, "X", 0.01f);
+							flame_drag_edit(fdesc::vlink{ xid, i, &rfkt::vlink::mod_y }, "Y", 0.01f);
 							ImGui::Separator();
 
 							auto p1 = vl.transform.sample({ 0, 0 }, 0, invoker);
