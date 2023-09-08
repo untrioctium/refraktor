@@ -130,7 +130,22 @@ eznve::encoder::encoder(uint2 dims, uint2 fps, codec c, CUcontext ctx) : dims(di
 
 	NV_ENC_PRESET_CONFIG preset_config = { NV_ENC_PRESET_CONFIG_VER, { NV_ENC_CONFIG_VER } };
 	CHECK_NVENC(funcs.nvEncGetEncodePresetConfigEx(session, init_params.encodeGUID, init_params.presetGUID, init_params.tuningInfo, &preset_config));
+
+
 	memcpy(init_params.encodeConfig, &preset_config.presetCfg, sizeof(NV_ENC_CONFIG));
+
+	auto& hevc_cfg = init_params.encodeConfig->encodeCodecConfig.hevcConfig;
+
+	init_params.encodeConfig->profileGUID = NV_ENC_HEVC_PROFILE_MAIN10_GUID;
+	hevc_cfg.pixelBitDepthMinus8 = 2;
+	hevc_cfg.chromaFormatIDC = 3;
+	hevc_cfg.hevcVUIParameters.videoSignalTypePresentFlag = 1;
+	hevc_cfg.hevcVUIParameters.videoFormat = NV_ENC_VUI_VIDEO_FORMAT_COMPONENT;
+	hevc_cfg.hevcVUIParameters.colourDescriptionPresentFlag = 1;
+	hevc_cfg.hevcVUIParameters.colourPrimaries = NV_ENC_VUI_COLOR_PRIMARIES_BT2020;
+	hevc_cfg.hevcVUIParameters.transferCharacteristics = NV_ENC_VUI_TRANSFER_CHARACTERISTIC_SMPTE2084;
+	hevc_cfg.hevcVUIParameters.colourMatrix = NV_ENC_VUI_MATRIX_COEFFS_BT2020_NCL;
+	hevc_cfg.hevcVUIParameters.videoFullRangeFlag = 1;
 
 	CHECK_NVENC(funcs.nvEncInitializeEncoder(session, &init_params));
 
@@ -165,7 +180,7 @@ std::vector<eznve::chunk> eznve::encoder::submit_frame(frame_flag flag) {
 
 	auto pic_params = pbuf_as<NV_ENC_PIC_PARAMS>();
 	pic_params->version = NV_ENC_PIC_PARAMS_VER;
-	pic_params->bufferFmt = NV_ENC_BUFFER_FORMAT_ABGR;
+	pic_params->bufferFmt = NV_ENC_BUFFER_FORMAT_ABGR10;
 	pic_params->pictureStruct = NV_ENC_PIC_STRUCT_FRAME;
 	pic_params->inputBuffer = buf.mapped;
 	pic_params->outputBitstream = buf.out_stream;
@@ -251,7 +266,7 @@ void eznve::encoder::push_buffer()
 	input_res->pitch = dims.x * 4;
 	input_res->subResourceIndex = 0;
 	input_res->resourceToRegister = (void*)buf.ptr;
-	input_res->bufferFormat = NV_ENC_BUFFER_FORMAT_ABGR;
+	input_res->bufferFormat = NV_ENC_BUFFER_FORMAT_ABGR10;
 	input_res->bufferUsage = NV_ENC_INPUT_IMAGE;
 	CHECK_NVENC(api.funcs().nvEncRegisterResource(session, input_res));
 	buf.registration = input_res->registeredResource;

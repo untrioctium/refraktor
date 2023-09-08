@@ -103,7 +103,7 @@ auto make_flame_drag_edit(rfkt::flame& f, command_executor& exec, const rfkt::fu
 	auto min_button_width = ImGui::CalcTextSize(ICON_MD_ANIMATION).x + ImGui::GetStyle().FramePadding.x * 2.0f;
 	auto animator_button = make_animator_button(f, ft, exec);
 	return[&f, &exec, animator_button = std::move(animator_button), min_button_width, &value_changed](const rfkt::descriptor& desc, std::string_view text, float step, const edit_bounds& eb = {}) mutable {
-		ImFtw::Scope::ID drag_scope{ desc.hash().str16() };
+		ImFtw::Scope::ID drag_scope{ desc.hash().data() };
 
 		auto* ptr = desc.access(f);
 		value_changed |= animator_button(desc, min_button_width);

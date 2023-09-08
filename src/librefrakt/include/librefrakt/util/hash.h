@@ -14,6 +14,10 @@ namespace rfkt {
 
 		constexpr auto operator <=> (const rfkt::hash_t& o) const noexcept = default;
 
+		auto data() const noexcept -> std::span<const unsigned char> {
+			return { reinterpret_cast<const unsigned char*>(&bytes), sizeof(bytes) };
+		}
+
 		auto str16() const noexcept ->std::string;
 		auto str32() const noexcept ->std::string;
 		auto str64() const noexcept ->std::string;

@@ -622,9 +622,9 @@ namespace rfkt {
 		struct flame : public traits::hashable {
 			anima rfkt::flame::* p;
 
-			flame(anima rfkt::flame::* p) noexcept : p(p) { }
+			constexpr flame(anima rfkt::flame::* p) noexcept : p(p) { }
 
-			anima* access(rfkt::flame& flame) const noexcept {
+			constexpr anima* access(rfkt::flame& flame) const noexcept {
 				return &(flame.*p);
 			}
 
@@ -645,7 +645,7 @@ namespace rfkt {
 			int xid;
 			anima rfkt::xform::* p;
 
-			xform(int xid, anima rfkt::xform::* p) noexcept : xid(xid), p(p) { }
+			constexpr xform(int xid, anima rfkt::xform::* p) noexcept : xid(xid), p(p) { }
 
 			anima* access(rfkt::flame& flame) const noexcept {
 				auto ptr = flame.get_xform(xid);
@@ -673,7 +673,7 @@ namespace rfkt {
 			int vid;
 			anima rfkt::vlink::* p;
 
-			vlink(int xid, int vid, anima rfkt::vlink::* p) noexcept : xid(xid), vid(vid), p(p) { }
+			constexpr vlink(int xid, int vid, anima rfkt::vlink::* p) noexcept : xid(xid), vid(vid), p(p) { }
 
 			anima* access(rfkt::flame& flame) const noexcept {
 				auto ptr = flame.get_xform(xid);
@@ -704,7 +704,7 @@ namespace rfkt {
 			int vid;
 			anima rfkt::affine::* p;
 
-			transform(int xid, int vid, anima rfkt::affine::* p) noexcept : xid(xid), vid(vid), p(p) { }
+			constexpr transform(int xid, int vid, anima rfkt::affine::* p) noexcept : xid(xid), vid(vid), p(p) { }
 			constexpr bool operator==(const transform&) const noexcept = default;
 
 			anima* access(rfkt::flame& flame) const noexcept {

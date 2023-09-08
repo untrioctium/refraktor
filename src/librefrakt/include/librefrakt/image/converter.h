@@ -11,6 +11,7 @@ namespace rfkt {
 				ezrtc::spec::source_file("convert", "assets/kernels/convert.cu")
 				.kernel("convert<true>")
 				.kernel("convert<false>")
+				.kernel("to_10bit")
 				.flag(ezrtc::compile_flag::extra_device_vectorization)
 				.flag(ezrtc::compile_flag::use_fast_math)
 				.flag(ezrtc::compile_flag::default_device)
@@ -47,6 +48,25 @@ namespace rfkt {
 					out.ptr(),
 					size
 				));
+		}
+
+		void to_10bit(cuda_span<half3> in, cuda_span<uchar4> out, cuda_stream& stream) const {
+			auto kernel = conv.kernel("to_10bit");
+
+			auto b_size = block_size;
+			unsigned int size = in.size();
+			auto nblocks = size / b_size;
+			if (size % b_size != 0) {
+				nblocks++;
+			}
+
+			CUDA_SAFE_CALL(kernel
+				.launch(nblocks, b_size, stream)
+				(
+					in.ptr(),
+					out.ptr(),
+					size
+					));
 		}
 
 	private:

@@ -690,7 +690,7 @@ private:
 			SPDLOG_INFO("Max persisting L2 size (bytes): {}", dev.max_persist_l2_cache_size());
 			return ctx;
 		});
-		show_splash("Initializing denoising system", [&]() { rfkt::denoiser::init(ctx); });
+		show_splash("Initializing denoising system", [&]() { rfkt::hdr_denoiser::init(ctx); });
 		show_splash("Initializing GPU statistics system", []() { rfkt::gpuinfo::init(); });
 		show_splash("Loading variations", [&]() {rfkt::initialize(fdb, "config"); });
 

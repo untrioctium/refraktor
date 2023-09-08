@@ -6,6 +6,8 @@
 #include <memory>
 #include <future>
 
+#include <ezrtc.h>
+
 #include <librefrakt/cuda_buffer.h>
 
 namespace rfkt {
@@ -21,8 +23,6 @@ namespace rfkt {
 
     class denoiser {
     public:
-
-
         static void init(CUcontext ctx);
 
         denoiser(uint2 max_dims, denoiser_flag::flags options = denoiser_flag::none);
@@ -44,6 +44,34 @@ namespace rfkt {
     private:
         class denoiser_impl;
         std::unique_ptr<denoiser_impl> impl;
+    };
+
+    class hdr_denoiser {
+    public:
+        static void init(CUcontext ctx);
+
+        hdr_denoiser(ezrtc::compiler& kc, uint2 max_dims, denoiser_flag::flags options = denoiser_flag::none);
+
+        hdr_denoiser(const hdr_denoiser&) = delete;
+        hdr_denoiser& operator=(const hdr_denoiser&) = delete;
+
+        hdr_denoiser(hdr_denoiser&& d) noexcept;
+        hdr_denoiser& operator=(hdr_denoiser&& d) noexcept;
+
+        ~hdr_denoiser();
+
+        using pixel_type = float4;
+        using image_type = cuda_image<pixel_type>;
+        std::future<double> denoise(const image_type& in, image_type& out, cuda_stream& stream);
+
+        static double benchmark(uint2 dims, denoiser_flag::flags options, std::uint32_t num_passes, cuda_stream& stream);
+
+    private:
+        class denoiser_impl;
+        std::unique_ptr<denoiser_impl> impl;
+
+        ezrtc::cuda_module splitter;
+        int block_size;
     };
 }
 

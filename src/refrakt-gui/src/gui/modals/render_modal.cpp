@@ -122,7 +122,7 @@ namespace rfkt {
 	public:
 		postprocessor(ezrtc::compiler& kc, uint2 dims, rfkt::denoiser_flag::flags dn_opts = rfkt::denoiser_flag::none) :
 			tm(kc),
-			dn(dims, dn_opts),
+			dn(kc, dims, dn_opts),
 			conv(kc),
 			tonemapped(dn_opts& rfkt::denoiser_flag::upscale ? dims.x / 2 : dims.x, dn_opts& rfkt::denoiser_flag::upscale ? dims.y / 2 : dims.y),
 			denoised(dims.x, dims.y),
@@ -162,7 +162,7 @@ namespace rfkt {
 		}
 
 		std::future<double> post_process(
-			rfkt::cuda_span<float4> in,
+			rfkt::cuda_image<float4>& in,
 			rfkt::cuda_span<uchar4> out,
 			double quality,
 			double gamma, double brightness, double vibrancy,
@@ -177,9 +177,11 @@ namespace rfkt {
 					t.reset();
 				});
 
-			tm.run(in, tonemapped, { quality, gamma, brightness, vibrancy }, stream);
-			dn.denoise(tonemapped, denoised, stream);
-			conv.to_24bit(denoised, out, planar_output, stream);
+
+			dn.denoise(in, denoised, stream);
+			tm.run(denoised, tonemapped, { quality, gamma, brightness, vibrancy }, stream);
+
+			conv.to_10bit(tonemapped, out, stream);
 			stream.host_func([&t = perf_timer, p = std::move(promise)]() mutable {
 				p.set_value(t.count());
 				});
@@ -189,11 +191,11 @@ namespace rfkt {
 
 	private:
 		rfkt::tonemapper tm;
-		rfkt::denoiser dn;
+		rfkt::hdr_denoiser dn;
 		rfkt::converter conv;
 
 		rfkt::cuda_image<half3> tonemapped;
-		rfkt::cuda_image<half3> denoised;
+		rfkt::cuda_image<float4> denoised;
 
 		rfkt::timer perf_timer;
 
@@ -351,8 +353,8 @@ void rfkt::gui::render_modal::launch_worker(const rfkt::flame& flame)
 		auto post_stream = rfkt::cuda_stream{};
 		auto encoder = eznve::encoder{ dims, {static_cast<unsigned int>(render_params.fps), 1}, eznve::codec::hevc, ctx };
 
-		//auto chunkfile_name = std::format("{}.h265", render_params.output_file.string());
-		//auto chunkfile = std::ofstream{ chunkfile_name, std::ios::binary };
+		auto chunkfile_name = std::format("{}.h265", render_params.output_file.string());
+		auto chunkfile = std::ofstream{ chunkfile_name, std::ios::binary };
 
 		auto ffmpeg_options = reproc::options{};
 		auto ffmpeg_process = reproc::process{};
@@ -385,9 +387,9 @@ void rfkt::gui::render_modal::launch_worker(const rfkt::flame& flame)
 				bin_worker.request_stop();
 				bin_worker.join();
 
-				//chunkfile.close();
+				chunkfile.close();
 				ffmpeg_process.kill();
-				//std::filesystem::remove(chunkfile_name);
+				std::filesystem::remove(chunkfile_name);
 				promise.set_value(false);
 				return;
 			}
@@ -402,7 +404,7 @@ void rfkt::gui::render_modal::launch_worker(const rfkt::flame& flame)
 			auto chunks = encoder.submit_frame((i % render_params.fps == 0 || i + 1 == total_frames) ? eznve::frame_flag::idr : eznve::frame_flag::none);
 
 			for (auto& chunk : chunks) {
-				ffmpeg_process.write((uint8_t*)chunk.data.data(), chunk.data.size());//chunkfile.write(chunk.data.data(), chunk.data.size());
+				ffmpeg_process.write((uint8_t*)chunk.data.data(), chunk.data.size());chunkfile.write(chunk.data.data(), chunk.data.size());
 				chunks_processed++;
 			}
 			i++;
@@ -419,7 +421,7 @@ void rfkt::gui::render_modal::launch_worker(const rfkt::flame& flame)
 		ffmpeg_process.close(reproc::stream::in);
 		ffmpeg_process.wait(reproc::milliseconds(1000));
 
-		//chunkfile.close();
+		chunkfile.close();
 		//int res = std::system(make_mux_command(chunkfile_name, render_params.output_file.string().c_str(), render_params.fps).c_str());
 		//std::filesystem::remove(chunkfile_name);
 

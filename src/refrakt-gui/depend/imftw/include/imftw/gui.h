@@ -242,6 +242,11 @@ namespace ImFtw {
                 ImGui::PushID(id);
             }
 
+            explicit ID(std::span<const unsigned char> id) {
+                auto cast_ptr = (const char*)id.data();
+				ImGui::PushID(cast_ptr, cast_ptr + id.size());
+			}
+
             ~ID() {
                 ImGui::PopID();
             }

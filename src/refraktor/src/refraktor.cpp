@@ -342,7 +342,7 @@ namespace rfkt {
 	public:
 		postprocessor(ezrtc::compiler& kc, uint2 dims, rfkt::denoiser_flag::flags dn_opts = rfkt::denoiser_flag::none) :
 			tm(kc),
-			dn(dims, dn_opts),
+			dn(kc, dims, dn_opts),
 			conv(kc),
 			tonemapped(dn_opts& rfkt::denoiser_flag::upscale ? dims.x / 2 : dims.x, dn_opts& rfkt::denoiser_flag::upscale ? dims.y / 2 : dims.y),
 			denoised(dims.x, dims.y),
@@ -360,12 +360,12 @@ namespace rfkt {
 		postprocessor(postprocessor&&) = default;
 		postprocessor& operator=(postprocessor&&) = default;
 
-		auto make_output_buffer() const -> rfkt::cuda_buffer<uchar4> {
-			return rfkt::cuda_buffer<uchar4>{ dims_.x* dims_.y };
+		auto make_output_buffer() const -> rfkt::cuda_image<uchar4> {
+			return rfkt::cuda_image<uchar4>{ dims_.x, dims_.y };
 		}
 
-		auto make_output_buffer(CUstream stream) const -> rfkt::cuda_buffer<uchar4> {
-			return { dims_.x * dims_.y, stream };
+		auto make_output_buffer(CUstream stream) const -> rfkt::cuda_image<uchar4> {
+			return { dims_.x , dims_.y, stream };
 		}
 
 		auto input_dims() const -> uint2 {
@@ -382,8 +382,8 @@ namespace rfkt {
 		}
 
 		std::future<double> post_process(
-			rfkt::cuda_span<float4> in,
-			rfkt::cuda_span<uchar4> out,
+			rfkt::cuda_image<float4>& in,
+			rfkt::cuda_image<uchar4>& out,
 			double quality,
 			double gamma, double brightness, double vibrancy,
 			bool planar_output,
@@ -397,9 +397,32 @@ namespace rfkt {
 					t.reset();
 				});
 
-			tm.run(in, tonemapped, { quality, gamma, brightness, vibrancy }, stream);
-			dn.denoise(tonemapped, denoised, stream);
-			conv.to_24bit(denoised, out, planar_output, stream);
+			dn.denoise(in, denoised, stream);
+
+			/*std::vector<float4> bins_local;
+			std::vector<float4> denoised_local;
+			std::vector<float4> diff_local;
+
+			denoised_local.resize(denoised.area());
+			bins_local.resize(in.area());
+
+			denoised.to_host(denoised_local, stream);
+			in.to_host(bins_local, stream);
+			stream.sync();
+
+			diff_local.resize(in.area());
+			*/
+			/*for (int i = 0; i < bins_local.size(); i++) {
+				diff_local[i].x = std::abs(denoised_local[i].x / bins_local[i].x);
+				diff_local[i].y = std::abs(denoised_local[i].y / bins_local[i].y);
+				diff_local[i].z = std::abs(denoised_local[i].z / bins_local[i].z);
+				diff_local[i].w = std::abs(denoised_local[i].w / bins_local[i].w);
+			}*/
+
+			//__debugbreak();
+
+			tm.run(denoised, tonemapped, { quality, gamma, brightness, vibrancy }, stream);
+			conv.to_24bit(tonemapped, out, planar_output, stream);
 			stream.host_func([&t = perf_timer, p = std::move(promise)]() mutable {
 				p.set_value(t.count());
 				});
@@ -409,11 +432,11 @@ namespace rfkt {
 
 	private:
 		rfkt::tonemapper tm;
-		rfkt::denoiser dn;
+		rfkt::hdr_denoiser dn;
 		rfkt::converter conv;
 
 		rfkt::cuda_image<half3> tonemapped;
-		rfkt::cuda_image<half3> denoised;
+		rfkt::cuda_image<float4> denoised;
 
 		rfkt::timer perf_timer;
 
@@ -426,7 +449,7 @@ namespace rfkt {
 int main() {
 
 	auto ctx = rfkt::cuda::init();
-	rfkt::denoiser::init(ctx);
+	rfkt::hdr_denoiser::init(ctx);
 
 	rfkt::flamedb fdb;
 	rfkt::initialize(fdb, "config");
@@ -438,7 +461,7 @@ int main() {
 	km->find_system_cuda();
 	auto fc = rfkt::flame_compiler{ km };
 
-	uint2 dims = { 2560, 1440 };
+	uint2 dims = { 3840, 2160 };
 
 	auto pp = rfkt::postprocessor{ *km, dims, rfkt::denoiser_flag::none };
 	auto je = rfkt::nvjpeg::encoder{ stream };
@@ -471,7 +494,7 @@ int main() {
 
 	auto invoker = functions.make_invoker();
 
-	for (const auto& fname : rfkt::fs::list("assets/flames/", rfkt::fs::filter::has_extension(".flam3"))) {
+	for (const auto& fname : rfkt::fs::list("assets/flames_test/", rfkt::fs::filter::has_extension(".flam3"))) {
 		//const std::filesystem::path fname = "assets/flames_test/electricsheep.247.27244.flam3";
 		auto fxml = rfkt::fs::read_string(fname);
 		auto f = rfkt::import_flam3(fdb, fxml);
