@@ -946,3 +946,55 @@ mobius:
 
     result.x += rad_v * (re_u * re_v + im_u * im_v);
     result.y += rad_v * (im_u * re_v - re_u * im_v);
+
+bwraps:
+  param:
+    cellsize: {default: 1.0}
+    space: {}
+    gain: {default: 1.0}
+    inner_twist: {}
+    outer_twist: {}
+    g2: {tags: [precalc]}
+    r2: {tags: [precalc]}
+    rfactor: {tags: [precalc]}
+  precalc: |-
+    radius := 0.5 * (param.cellsize / (1.0 + param.space * param.space));
+    param.g2 = eps(param.gain * param.gain);
+    max_bubble := param.g2 * radius;
+    if(max_bubble > 2) max_bubble = 1;
+    else max_bubble *= 1 / (max_bubble * max_bubble / 4 + 1);
+    param.r2 = eps(radius * radius);
+    param.rfactor = radius / max_bubble;
+  src: |-
+    if(param.cellsize == 0) {
+      result += weight * p;
+      break;
+    }
+
+    vx := p.x;
+    vy := p.y;
+    cx := (floor(vx/param.cellsize) + 0.5) * param.cellsize;
+    cy := (floor(vy/param.cellsize) + 0.5) * param.cellsize;
+    dx := vx - cx;
+    dy := vy - cy;
+
+    if( (dx * dx + dy * dy) > param.r2) {
+      result += weight * p;
+      break;
+    }
+
+    dx *= param.g2;
+    dy *= param.g2;
+
+    r := param.rfactor / eps((dx * dx + dy * dy) / 4.0 + 1.0);
+    dx *= r;
+    dy *= r;
+    r = (dx * dx + dy * dy) / param.r2;
+
+    theta := param.inner_twist * (1 - r) + param.outer_twist * r;
+    sct := sincos(theta);
+
+    vx = sct.x * dy + sct.y * dx + cx;
+    vy = cy - sct.x * dx + sct.y * dy;
+    result.x += weight * vx;
+    result.y += weight * vy;

@@ -11,6 +11,12 @@ namespace cg = cooperative_groups;
 #include <refrakt/flamelib.h>
 #include <refrakt/random.h>
 
+#ifdef USE_CHAOS
+constexpr static bool use_chaos = true;
+#else
+constexpr static bool use_chaos = false;
+#endif
+
 namespace hammersley {
 	
 	namespace detail {
@@ -195,6 +201,7 @@ void memcpy_sync(const uint8* const __restrict__ src, uint8* const __restrict__ 
 	}
 }
 
+#ifndef USE_CHAOS
 __device__ 
 vec4<Real> flame_pass(unsigned int pass_idx) {
 	
@@ -236,6 +243,34 @@ vec4<Real> flame_pass(unsigned int pass_idx) {
 
 	return vec4<Real>{out_local.x, out_local.y, out_local.z, opacity};
 }
+#else
+__device__
+vec4<Real> flame_pass(unsigned int pass_idx) {
+
+	auto in_local = iterator{my_iter(x), my_iter(y), my_iter(color)};
+	auto out_local = iterator{-666.0, -666.0, -660.0};
+	auto selected_xform = state.flame.select_xform(my_xform_vote(), my_rand().rand01()); 
+
+	my_xform_vote() = selected_xform;
+
+	Real opacity = state.flame.dispatch( 
+		selected_xform, 
+		in_local, out_local, &my_rand()
+	);
+
+	if(badvalue(out_local.x) || badvalue(out_local.y)) {
+		out_local.x = my_rand().rand01() * 2.0 - 1.0;
+		out_local.y = my_rand().rand01() * 2.0 - 1.0;
+		opacity = 0.0;
+	}
+
+	my_iter(x) = out_local.x;
+	my_iter(y) = out_local.y;
+	my_iter(color) = out_local.z;
+
+	return vec4<Real>{out_local.x, out_local.y, out_local.z, opacity};
+}
+#endif
 
 __global__ 
 __launch_bounds__(THREADS_PER_BLOCK, BLOCKS_PER_MP)
@@ -248,8 +283,11 @@ void warmup(
 
 	my_rand().init(seed + fl::grid_rank());
 	
-	queue_shuffle_load(0);
-	
+	if constexpr(!use_chaos) {
+		queue_shuffle_load(0);
+	} else {
+		my_xform_vote() = 2048;
+	}
 	const auto seg_size = gridDim.x / num_segments;
 	const auto t = (blockIdx.x % seg_size)/Real(gridDim.x/ num_segments);
 	const auto seg = blockIdx.x / seg_size;
@@ -380,7 +418,7 @@ void bin(
 	// save shared state
 	#ifdef USE_ASYNC_MEMCPY
 	cg::memcpy_async(cg::this_thread_block(), in_state + blockIdx.x, &state, shared_size_bytes);
-	cg::wait(cg::this_thread_block());
+	//cg::wait(cg::this_thread_block());
 	#else
 	memcpy_sync<shared_size_bytes>((uint8*)&state, (uint8*)(in_state + blockIdx.x));
 	#endif

@@ -745,7 +745,7 @@ private:
 
 				auto tonemapped = rfkt::cuda_image<half3>{ state.bins.width(), state.bins.height(), stream};
 				auto denoised = rfkt::cuda_image<half3>{ output_dims.x, output_dims.y, stream };
-				auto out_buf = rfkt::cuda_image<uchar4>{ output_dims.x, output_dims.y, stream };
+				auto out_buf = rfkt::cuda_image<preview_panel::pixel_type>{ output_dims.x, output_dims.y, stream };
 
 				auto bin_info = kernel.bin(stream, state, bo).get();
 				state.quality += bin_info.quality;
@@ -760,7 +760,12 @@ private:
 				auto& denoiser = upscale ? denoise_upscale : denoise_normal;
 				denoiser->denoise(tonemapped, denoised, stream);
 				tonemapped.free_async(stream);
-				convert->to_24bit(denoised, out_buf, false, stream);
+				if constexpr (std::same_as<preview_panel::pixel_type, float4>) {
+					convert->to_float3(denoised, out_buf, stream);
+				}
+				else {
+					convert->to_24bit(denoised, out_buf, false, stream);
+				}
 				denoised.free_async(stream);
 				stream.sync();
 
@@ -776,7 +781,7 @@ private:
 		prev_panel = std::make_unique<preview_panel>(*f_comp, std::move(executor), std::move(renderer), c_exec);
 		render_modal = std::make_unique<rfkt::gui::render_modal>(*k_comp, *f_comp, fdb, functions );
 
-		cur_flame = proj.add_flame(std::move(rfkt::import_flam3(fdb, rfkt::fs::read_string("assets/flames_test/electricsheep.247.47670.flam3")).value()));
+		cur_flame = proj.add_flame(std::move(rfkt::import_flam3(fdb, rfkt::fs::read_string("assets/flames_test/stock_2_by_tatasz.flam3")).value()));
 
 		auto& file_menu = mainm.add_menu("File");
 		file_menu.add_item("New project");
@@ -898,7 +903,11 @@ private:
 int main(int argc, char**) {
 
 	auto app = refrakt_app{};
-
-	ImFtw::Run("Refrakt", [&]() { return app.run(); });
+	try {
+		ImFtw::Run("Refrakt", [&]() { return app.run(); });
+	}
+	catch (const std::exception& e) {
+		SPDLOG_ERROR("exception: {}", e.what());
+	}
 	return 0;
 }

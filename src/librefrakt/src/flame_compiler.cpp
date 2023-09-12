@@ -351,9 +351,9 @@ std::string strip_tabs(const std::string& src) {
 auto extract_duplicates(const rfkt::flame& f) -> std::map<rfkt::hash_t, std::set<int>> {
 
     std::map<rfkt::hash_t, std::set<int>> shared_xforms;
-    for (int i = 0; i <= f.xforms.size(); i++) {
-        if (i == f.xforms.size() && !f.final_xform.has_value()) break;
-        auto& xf = (i == f.xforms.size()) ? f.final_xform.value() : f.xforms[i];
+    for (int i = 0; i <= f.xforms().size(); i++) {
+        if (i == f.xforms().size() && !f.final_xform.has_value()) break;
+        auto& xf = (i == f.xforms().size()) ? f.final_xform.value() : f.xforms()[i];
         auto xhash = xf.hash();
 
         if (shared_xforms.contains(xhash))
@@ -390,7 +390,8 @@ std::string rfkt::flame_compiler::make_source(const flamedb& fdb, const rfkt::fl
     auto info = json::object({
         {"xform_definitions", json::object()},
         {"xforms", json::array()},
-        {"num_standard_xforms", f.xforms.size()}
+        {"num_standard_xforms", f.xforms().size()},
+        {"use_chaos", f.chaos_table.has_value()}
     });
 
     auto& xfs = info["xforms"];
@@ -408,7 +409,7 @@ std::string rfkt::flame_compiler::make_source(const flamedb& fdb, const rfkt::fl
         auto& vc = xf_def_js["vchain"];
 
         const auto child_id = children.begin().operator*();
-        const auto& child = (child_id == f.xforms.size()) ? f.final_xform.value() : f.xforms[child_id];
+        const auto& child = (child_id == f.xforms().size()) ? f.final_xform.value() : f.xforms()[child_id];
 
         for (auto& vl : child.vchain) {
             auto vl_def_js = json::object({
@@ -461,13 +462,13 @@ std::string rfkt::flame_compiler::make_source(const flamedb& fdb, const rfkt::fl
         xfd[hash.str32()] = std::move(xf_def_js);
     }
 
-    for (int i = 0; i <= f.xforms.size(); i++) {
-        if (i == f.xforms.size() && !f.final_xform.has_value()) break;
-        auto& xf = (i == f.xforms.size()) ? f.final_xform.value() : f.xforms[i];
+    for (int i = 0; i <= f.xforms().size(); i++) {
+        if (i == f.xforms().size() && !f.final_xform.has_value()) break;
+        auto& xf = (i == f.xforms().size()) ? f.final_xform.value() : f.xforms()[i];
 
         xfs.push_back(json::object({
             {"hash", xf.hash().str32()},
-            {"id", (i == f.xforms.size()) ? std::string{"final"} : fmt::format("{}", i)}
+            {"id", (i == f.xforms().size()) ? std::string{"final"} : fmt::format("{}", i)}
             }));
     }
 
@@ -715,7 +716,8 @@ auto rfkt::flame_compiler::make_opts(precision prec, const flame& f)->std::pair<
         }
     }
 
-    while (exec_configs[most_blocks_idx].block / 32 < 4) most_blocks_idx--;
+    if(!f.chaos_table.has_value())
+        while (exec_configs[most_blocks_idx].block / 32 < 4) most_blocks_idx--;
 
     auto& most_blocks = exec_configs[most_blocks_idx];
 
@@ -741,8 +743,10 @@ auto rfkt::flame_compiler::make_opts(precision prec, const flame& f)->std::pair<
         
         ;
 
+    if (f.chaos_table.has_value()) opts.define("USE_CHAOS");
+
     if (prec == precision::f64) opts.define("DOUBLE_PRECISION");
-    else opts.flag(ezrtc::compile_flag::warn_double_usage);
+    //else opts.flag(ezrtc::compile_flag::warn_double_usage);
     opts.flag(ezrtc::compile_flag::use_fast_math);
 
     return { most_blocks, opts };
@@ -824,7 +828,7 @@ auto rfkt::flame_kernel::bin(cuda_stream& stream, flame_kernel::saved_state & st
         std::span<std::size_t> qpx_host;
     };
 
-    auto stream_state = new stream_state_t{};
+    auto stream_state = std::make_shared<stream_state_t>();
     auto future = stream_state->promise.get_future();
     const auto num_counters = 2;
     const auto alloc_size = counter_size * num_counters;
@@ -841,10 +845,9 @@ auto rfkt::flame_kernel::bin(cuda_stream& stream, flame_kernel::saved_state & st
         return mod("bin").launch(exec.first, exec.second, stream, true)(std::forward<Ts>(args)...);
     };
 
-    CUDA_SAFE_CALL(cuLaunchHostFunc(stream, [](void* ptr) {
-        auto* ss = (stream_state_t*)ptr;
-        ss->start = std::chrono::high_resolution_clock::now();
-        }, stream_state));
+    stream.host_func([stream_state]() {
+        stream_state->start = std::chrono::high_resolution_clock::now();
+    });
 
     const static bool stopper_init = false;
     state.stopper.from_host({ &stopper_init, 1 }, stream);
@@ -863,8 +866,7 @@ auto rfkt::flame_kernel::bin(cuda_stream& stream, flame_kernel::saved_state & st
     stream_state->qpx_dev.to_host(stream_state->qpx_host, stream);
     stream_state->qpx_dev.free_async(stream);
 
-    CUDA_SAFE_CALL(cuLaunchHostFunc(stream, [](void* ptr) {
-        auto* ss = (stream_state_t*)ptr;
+    stream.host_func([ss = stream_state](){
         ss->end = std::chrono::high_resolution_clock::now();
         //SPDLOG_INFO("{}", ss->qpx_host[0]);
         ss->promise.set_value(flame_kernel::bin_result{
@@ -875,10 +877,7 @@ auto rfkt::flame_kernel::bin(cuda_stream& stream, flame_kernel::saved_state & st
             ss->total_bins,
             double(ss->qpx_host[1]) / (ss->num_threads)
         });
-
-        delete ss;
-
-    }, stream_state));
+    });
 
     return future;
 }

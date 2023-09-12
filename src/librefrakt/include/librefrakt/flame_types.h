@@ -476,8 +476,8 @@ namespace rfkt {
 
 		std::string name;
 
-		std::vector<xform> xforms;
 		std::optional<xform> final_xform;
+		std::optional<std::vector<std::vector<anima>>> chaos_table;
 
 		anima center_x;
 		anima center_y;
@@ -493,7 +493,7 @@ namespace rfkt {
 		flame() = default;
 
 		void add_to_hash(rfkt::hash::state_t& hs) const {
-			for (const auto& xf : xforms) {
+			for (const auto& xf : xforms_) {
 				hs.update(0xDULL);
 				xf.add_to_hash(hs);
 			}
@@ -501,6 +501,10 @@ namespace rfkt {
 			if (final_xform.has_value()) {
 				hs.update(0xFULL);
 				final_xform->add_to_hash(hs);
+			}
+
+			if (chaos_table.has_value()) {
+				hs.update(0xBULL);
 			}
 		}
 
@@ -514,7 +518,12 @@ namespace rfkt {
 
 		std::size_t size_reals() const noexcept {
 			auto size = (final_xform) ? final_xform->size_reals() : 0;
-			for (const auto& xf : xforms) {
+
+			if (chaos_table.has_value()) {
+				size += xforms_.size() * (xforms_.size() + 1);
+			}
+
+			for (const auto& xf : xforms_) {
 				size += xf.size_reals();
 			}
 			return size;
@@ -558,7 +567,16 @@ namespace rfkt {
 			p(plane_space.f.t0);
 			p(0.0); // space for weight sum
 
-			for (const auto& xf : xforms) {
+			if (chaos_table.has_value()) {
+				for (const auto& row : chaos_table.value()) {
+					p(0.0); // space for weight sum
+					for (const auto& column : row) {
+						p(column.sample(t, i));
+					}
+				}
+			}
+
+			for (const auto& xf : xforms_) {
 				xf.pack_sample(p, i, t);
 			}
 			if (final_xform) final_xform->pack_sample(p, i, t);
@@ -568,18 +586,56 @@ namespace rfkt {
 			}
 		}
 
+		template<typename Packer, typename Invoker>
+		void pack_samples(Packer& p, Invoker& i, double start, double offset, int count, int w, int h) {
+			for (int idx = 0; idx < count; idx++) {
+				pack_sample(p, i, start + offset * idx, w, h);
+			}
+		}
+
 		template<typename T>
 		void for_each_xform(this auto&& self, T&& t) noexcept {
-			for (int i = 0; i < self.xforms.size(); i++) {
-				t(i, self.xforms[i]);
+			for (int i = 0; i < self.xforms_.size(); i++) {
+				t(i, self.xforms_[i]);
 			}
 			if (self.final_xform) t(-1, *self.final_xform);
 		}
 
+		std::span<xform> xforms() noexcept { return xforms_; }
+		std::span<const xform> xforms() const noexcept { return xforms_; }
+
 		xform* get_xform(int index) noexcept {
 			if (index == -1) return final_xform ? &*final_xform : nullptr;
-			if (index < 0 || index >= xforms.size()) return nullptr;
-			return &xforms[index];
+			if (index < 0 || index >= xforms_.size()) return nullptr;
+			return &xforms_[index];
+		}
+
+		auto add_xform(xform&& xf) noexcept {
+
+			if (chaos_table.has_value()) {
+				for(auto& row: chaos_table.value()) {
+					row.emplace_back(1.0);
+				}
+
+				chaos_table->emplace_back();
+				for(int i = 0; i < xforms_.size(); i++) {
+					chaos_table->back().emplace_back(1.0);
+				}
+			}
+
+			return xforms_.emplace_back(std::move(xf));
+		}
+
+		void add_chaos() noexcept {
+			if (chaos_table.has_value()) return;
+
+			chaos_table.emplace();
+			for(int i = 0; i < xforms_.size(); i++) {
+				chaos_table->emplace_back();
+				for(int j = 0; j < xforms_.size(); j++) {
+					chaos_table->back().emplace_back(1.0);
+				}
+			}
 		}
 
 		ordered_json serialize() const noexcept;
@@ -609,6 +665,11 @@ namespace rfkt {
 		}
 
 		rfkt::hash_t value_hash() const noexcept;
+
+	private:
+
+		std::vector<xform> xforms_;
+
 	};
 
 	namespace descriptors {

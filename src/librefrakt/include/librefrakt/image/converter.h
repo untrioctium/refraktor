@@ -11,6 +11,7 @@ namespace rfkt {
 				ezrtc::spec::source_file("convert", "assets/kernels/convert.cu")
 				.kernel("convert<true>")
 				.kernel("convert<false>")
+				.kernel("to_float3")
 				.flag(ezrtc::compile_flag::extra_device_vectorization)
 				.flag(ezrtc::compile_flag::use_fast_math)
 				.flag(ezrtc::compile_flag::default_device)
@@ -47,6 +48,22 @@ namespace rfkt {
 					out.ptr(),
 					size
 				));
+		}
+
+		void to_float3(cuda_span<half3> in, cuda_span<float4> out, cuda_stream& stream) const {
+			unsigned int size = in.size();
+			auto nblocks = size / block_size;
+			if (size % block_size != 0) {
+				nblocks++;
+			}
+
+			CUDA_SAFE_CALL(conv.kernel("to_float3")
+				.launch(nblocks, block_size, stream)
+				(
+					in.ptr(),
+					out.ptr(),
+					size
+					));
 		}
 
 	private:

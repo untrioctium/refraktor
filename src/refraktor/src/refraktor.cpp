@@ -471,10 +471,11 @@ int main() {
 
 	auto invoker = functions.make_invoker();
 
-	for (const auto& fname : rfkt::fs::list("assets/flames/", rfkt::fs::filter::has_extension(".flam3"))) {
+	for (const auto& fname : rfkt::fs::list("assets/flames_test/", rfkt::fs::filter::has_extension(".flam3"))) {
 		//const std::filesystem::path fname = "assets/flames_test/electricsheep.247.27244.flam3";
 		auto fxml = rfkt::fs::read_string(fname);
 		auto f = rfkt::import_flam3(fdb, fxml);
+		f->add_chaos();
 
 		if (!f) {
 			SPDLOG_ERROR("failed to import flame");

@@ -55,9 +55,7 @@ bool preview_panel::show(const rfkt::flamedb& fdb, rfkt::flame& flame, rfkt::fun
 
 		if (needs_render) {
 			auto state_size = upscale ? uint2{ preview_size.x / 2, preview_size.y / 2 } : preview_size;
-			auto out_tex = rfkt::gl::texture{ preview_size.x, preview_size.y };
-			//cuda_map = out_tex.map_to_cuda();
-
+			auto out_tex = texture_t::element_type::create(preview_size.x, preview_size.y, rfkt::gl::sampling_mode::nearest);
 			auto invoker = ft.make_invoker();
 
 			std::vector<double> samples{};
@@ -66,10 +64,7 @@ bool preview_panel::show(const rfkt::flamedb& fdb, rfkt::flame& flame, rfkt::fun
 
 				const auto loops_per_frame = 1 / 150.0;
 
-				flame.pack_sample(packer, invoker, current_time  - loops_per_frame, state_size.x, state_size.y);
-				flame.pack_sample(packer, invoker, current_time, state_size.x, state_size.y);
-				flame.pack_sample(packer, invoker, current_time + loops_per_frame, state_size.x, state_size.y);
-				flame.pack_sample(packer, invoker, current_time + 2 * loops_per_frame, state_size.x, state_size.y);
+				flame.pack_samples(packer, invoker, current_time, 0, 4, state_size.x, state_size.y);
 			}
 
 			std::optional<rfkt::flame> flame_copy = std::nullopt;
@@ -77,12 +72,10 @@ bool preview_panel::show(const rfkt::flamedb& fdb, rfkt::flame& flame, rfkt::fun
 				flame_copy = flame;
 			}
 
-			//std::vector<rfkt::flame> samples = needs_clear ? gen_samples2(flame, current_time, 1.0 / 300) : std::vector<rfkt::flame>{};
-
-			auto promise = std::promise<rfkt::gl::texture>();
+			auto promise = std::promise<texture_t>();
 			auto future = promise.get_future();
 
-			auto cuda_map = out_tex.map_to_cuda();
+			auto cuda_map = out_tex->map_to_cuda();
 
 			submitter([
 				cuda_map = std::move(cuda_map),
@@ -115,18 +108,16 @@ bool preview_panel::show(const rfkt::flamedb& fdb, rfkt::flame& flame, rfkt::fun
 					}
 
 					auto result = renderer(stream, *kernel, *state, { .millis = millis, .quality = target_quality - state->quality }, gbv, upscale);
-					cuda_map.copy_from(result.operator rfkt::cuda_span<uchar4>(), stream);
+					cuda_map.copy_from(result, stream);
 					result.free_async(stream);
 					
-					auto resolver = [promise = std::move(promise), out_tex = std::move(out_tex), cuda_map = std::move(cuda_map)]() mutable {
-						promise.set_value(std::move(out_tex));
-					};
-
-					stream.host_func([resolver = std::move(resolver)]() mutable {
-						ImFtw::DeferNextFrame([resolver = std::move(resolver)]() mutable {
-							resolver();
-						});
-					});
+					stream.host_func(
+						ImFtw::MakeDeferer(
+							[promise = std::move(promise), out_tex = std::move(out_tex), cuda_map = std::move(cuda_map)]() mutable {
+								promise.set_value(std::move(out_tex));
+							}
+						)
+					);
 				});
 
 			rendering_texture = std::move(future);
@@ -243,7 +234,7 @@ uint2 preview_panel::gui_logic(rfkt::flame& flame, rfkt::function_table& ft) {
 
 			ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (avail.x - preview_size.x) / 2.0);
 			ImGui::SetCursorPosY(ImGui::GetCursorPosY() + (avail.y - preview_size.y) / 2.0);
-			ImGui::Image((void*)(intptr_t)tex.id(), ImVec2(preview_size.x, preview_size.y));
+			ImGui::Image((void*)(intptr_t)tex->id(), ImVec2(preview_size.x, preview_size.y));
 			preview_hovered = ImGui::IsItemHovered();
 		}
 	}

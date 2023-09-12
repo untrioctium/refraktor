@@ -25,9 +25,7 @@
 
 using float16 = std::uint16_t;
 
-class half3 {
-    std::array<float16, 3> data;
-};
+using half3 = ushort3;
 
 namespace rfkt::cuda {
 

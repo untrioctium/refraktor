@@ -44,3 +44,15 @@ __global__ void convert(const half3* const __restrict__ in, decltype(image_type<
         out[bin_idx] = uchar4{half2uchar(in_val.x), half2uchar(in_val.y), half2uchar(in_val.z), 255};
     }
 }
+
+__global__ void to_float3(const half3* const __restrict__ in, float4* const __restrict__ out, unsigned int size) {
+    
+        const unsigned int bin_idx = blockIdx.x * blockDim.x + threadIdx.x;
+    
+        if (bin_idx > size) return;
+    
+        const half3 in_val = in[bin_idx];
+    
+        out[bin_idx] = float4(__half2float(in_val.x), __half2float(in_val.y), __half2float(in_val.z), 1.0f);
+
+}

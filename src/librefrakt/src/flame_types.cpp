@@ -93,7 +93,7 @@ rfkt::xform from_flam3_xml(const rfkt::flamedb& fdb, const pugi::xml_node& node)
 		else if (aname == "animate") {
 			if (attr.as_double() == 1) vlinks[1].mod_rotate.call_info = { "increase", {{"per_loop", 360.0}} };
 		}
-		else {
+		else if (aname != "chaos") {
 			SPDLOG_WARN("Unknown xform attribute: {}", aname);
 		}
 	}
@@ -116,6 +116,17 @@ rfkt::xform from_flam3_xml(const rfkt::flamedb& fdb, const pugi::xml_node& node)
 	return xf;
 }
 
+constexpr bool is_hex(char value) {
+	return (value >= '0' && value <= '9') || (value >= 'a' && value <= 'f') || (value >= 'A' && value <= 'F');
+}
+
+constexpr unsigned char hex_to_int(char value) {
+	if (value >= '0' && value <= '9') return value - '0';
+	if (value >= 'a' && value <= 'f') return value - 'a' + 10;
+	if (value >= 'A' && value <= 'F') return value - 'A' + 10;
+	return 0;
+}
+
 auto rfkt::import_flam3(const flamedb& fdb, std::string_view content) noexcept -> std::optional<flame>
 {
 	auto doc = pugi::xml_document();
@@ -126,7 +137,12 @@ auto rfkt::import_flam3(const flamedb& fdb, std::string_view content) noexcept -
 
 	auto ret = flame{};
 
-	auto flame_node = doc.child("flame");
+	auto flame_node = [&]() {
+		if (doc.first_child().name() == std::string_view{ "flame" })
+			return doc.first_child();
+		else
+			return doc.child("flames").child("flame");
+	}();
 
 	ret.name = flame_node.attribute("name").value();
 	auto size = string_to_doubles(flame_node.attribute("size").value());
@@ -143,27 +159,77 @@ auto rfkt::import_flam3(const flamedb& fdb, std::string_view content) noexcept -
 	ret.brightness = flame_node.attribute("brightness").as_double();
 	ret.vibrancy = flame_node.attribute("vibrancy").as_double();
 
+	std::map<int, std::string> chaos_table{};
+
+	int xid = 0;
 	for (const auto& node : flame_node.children("xform")) {
-		ret.xforms.emplace_back(from_flam3_xml(fdb, node));
+
+		if (auto chaos = node.attribute("chaos"); chaos) {
+			chaos_table[xid] = chaos.as_string();
+		}
+		xid++;
+		ret.add_xform(from_flam3_xml(fdb, node));
 	}
 
 	if(auto fnode = flame_node.child("finalxform"); fnode) {
 		ret.final_xform = from_flam3_xml(fdb, fnode); 
 	}
 
-	auto colors = flame_node.children("color");
-	auto color_count = 0;
-	for (const auto& _ : colors) {
-		color_count++;
+	if (auto pnode = flame_node.child("palette"); pnode) {
+		auto count = pnode.attribute("count").as_ullong();
+
+		ret.palette.resize(count);
+
+		auto pal_data = pnode.text().as_string();
+		int current_index = 0;
+		std::vector<char> hex_color;
+		for (int idx = 0; pal_data[idx] != '\0'; idx++) {
+			auto ch = pal_data[idx];
+			if (!is_hex(ch)) continue;
+
+			hex_color.push_back(ch);
+
+			if (hex_color.size() == 6) {
+				auto rgb = std::array<double, 3>{};
+				rgb[0] = hex_to_int(hex_color[0]) * 16 + hex_to_int(hex_color[1]);
+				rgb[1] = hex_to_int(hex_color[2]) * 16 + hex_to_int(hex_color[3]);
+				rgb[2] = hex_to_int(hex_color[4]) * 16 + hex_to_int(hex_color[5]);
+
+				auto hsv = rfkt::color::rgb_to_hsv({ rgb[0] / 255.0, rgb[1] / 255.0, rgb[2] / 255.0 });
+				ret.palette[current_index] = { hsv.x, hsv.y, hsv.z };
+
+				hex_color.clear();
+				current_index++;
+			}
+		}
+	}
+	else {
+		auto colors = flame_node.children("color");
+
+		auto color_count = 0;
+		for (const auto& _ : colors) {
+			color_count++;
+		}
+
+		ret.palette.resize(color_count);
+		for (const auto& color : colors) {
+			auto index = color.attribute("index").as_ullong();
+			auto rgb = string_to_doubles(color.attribute("rgb").value());
+			if (rgb.size() < 3) rgb.resize(3, 0.0);
+			auto hsv = rfkt::color::rgb_to_hsv({ rgb[0] / 255.0, rgb[1] / 255.0, rgb[2] / 255.0 });
+			ret.palette[index] = { hsv.x, hsv.y, hsv.z };
+		}
 	}
 
-	ret.palette.resize(color_count);
-	for (const auto& color : colors) {
-		auto index = color.attribute("index").as_ullong();
-		auto rgb = string_to_doubles(color.attribute("rgb").value());
-		if (rgb.size() < 3) rgb.resize(3, 0.0);
-		auto hsv = rfkt::color::rgb_to_hsv({ rgb[0]/255.0, rgb[1]/255.0, rgb[2]/255.0 });
-		ret.palette[index] = { hsv.x, hsv.y, hsv.z };
+	if (!chaos_table.empty()) {
+		ret.add_chaos();
+		for (const auto& [idx, chaos] : chaos_table) {
+			auto vals = string_to_doubles(chaos);
+
+			for (int j = 0; j < ret.xforms().size(); j++) {
+				ret.chaos_table.value()[idx][j].t0 = vals[j];
+			}
+		}
 	}
 
 	return ret;
@@ -341,7 +407,7 @@ ordered_json rfkt::flame::serialize() const noexcept {
 
 	js["xforms"] = ordered_json::array();
 
-	for (const auto& xf : xforms) {
+	for (const auto& xf : xforms_) {
 		js["xforms"].emplace_back(xf.serialize());
 	}
 
@@ -378,7 +444,7 @@ std::optional<rfkt::flame> rfkt::flame::deserialize(const json& js, const functi
 	for (const auto& xf : js["xforms"]) {
 		auto xf_opt = xform::deserialize(xf, ft, fdb);
 		if (!xf_opt) return std::nullopt;
-		ret.xforms.emplace_back(std::move(*xf_opt));
+		ret.add_xform(std::move(*xf_opt));
 	}
 
 	if (js.contains("final_xform")) {
@@ -429,6 +495,14 @@ rfkt::hash_t rfkt::flame::value_hash() const noexcept
 	process(gamma);
 	process(brightness);
 	process(vibrancy);
+
+	if (chaos_table.has_value()) {
+		for (const auto& row : chaos_table.value()) {
+			for(const auto& val : row) {
+				process(val);
+			}
+		}
+	}
 
 	for_each_xform([&](int xid, const rfkt::xform& xf) {
 		process(xf.weight);

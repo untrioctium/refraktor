@@ -17,6 +17,13 @@ namespace ImFtw {
 
     void DeferNextFrame(std::move_only_function<void()>&&);
 
+    template<typename T>
+    auto MakeDeferer(T&& func) {
+        return [f = std::forward<T>(func)]() mutable {
+			DeferNextFrame(std::move(f));
+		};
+	}
+
     bool OnRenderingThread();
 
     std::string ShowOpenDialog(const std::filesystem::path& path, std::string_view filter);

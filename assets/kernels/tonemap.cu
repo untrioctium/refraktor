@@ -11,6 +11,10 @@ __half __float2half(const float a) {
 	return val;
 }
 
+__device__ float lerp(float a, float b, float t) {
+	return a + t * (b - a);
+}
+
 __global__ void tonemap(const float4* __restrict__ bins, half3* __restrict__ image, unsigned int size, float gamma, float scale_constant, float brightness, float vibrancy) {
 
 	//DEBUG("%dx%d (%f,%f,%f,%f)\n", dims_x, dims_y, gamma, scale_constant, brightness, vibrancy);
@@ -31,16 +35,13 @@ __global__ void tonemap(const float4* __restrict__ bins, half3* __restrict__ ima
 	const float factor = (col.w == 0.0f)? 0.0f : 0.5f * brightness * logf(1.0f + col.w * scale_constant) * 0.434294481903251827651128918916f / (col.w);
 	col.x *= factor; col.y *= factor; col.z *= factor; col.w *= factor;
 
-	const float inv_gamma = 1.0f / gamma;
-	const float z = pow(col.w, inv_gamma);
-	const float gamma_factor = z / col.w;
+	const double inv_gamma = 1.0 / gamma;
+	const double z = pow((double) col.w, inv_gamma);
+	const double gamma_factor = z / col.w;
 
-	col.x *= gamma_factor; 
-	col.y *= gamma_factor;
-	col.z *= gamma_factor;
-	//col.w *= gamma_factor;
-
-	#define interp(left, right, mix) ((left) * (1.0f - (mix)) + (right) * (mix))
+	col.x = __saturatef(lerp(powf(col.x, inv_gamma), col.x * gamma_factor, vibrancy));
+	col.y = __saturatef(lerp(powf(col.y, inv_gamma), col.y * gamma_factor, vibrancy));
+	col.z = __saturatef(lerp(powf(col.z, inv_gamma), col.z * gamma_factor, vibrancy));
 
 	image[bin_idx] = { __float2half(col.x), __float2half(col.y), __float2half(col.z) };
 }
