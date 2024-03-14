@@ -64,7 +64,7 @@ bool preview_panel::show(const rfkt::flamedb& fdb, rfkt::flame& flame, rfkt::fun
 
 				const auto loops_per_frame = 1 / 150.0;
 
-				flame.pack_samples(packer, invoker, current_time, 0, 4, state_size.x, state_size.y);
+				flame.pack_samples(packer, invoker, current_time - loops_per_frame, loops_per_frame, 4, state_size.x, state_size.y);
 			}
 
 			std::optional<rfkt::flame> flame_copy = std::nullopt;

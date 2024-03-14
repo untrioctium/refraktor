@@ -12,6 +12,7 @@
 #include <librefrakt/image/tonemapper.h>
 #include <librefrakt/image/denoiser.h>
 #include <librefrakt/image/converter.h>
+#include <librefrakt/anima.h>
 
 #include <librefrakt/util/gpuinfo.h>
 
@@ -143,14 +144,14 @@ private:
 namespace rfkt {
 	class postprocessor {
 	public:
-		postprocessor(ezrtc::compiler& kc, uint2 dims, bool upscale) :
+		postprocessor(ezrtc::compiler& kc, uint2 dims, rfkt::denoiser_flag::flags dn_opts = rfkt::denoiser_flag::none) :
 			tm(kc),
-			dn(dims, upscale),
+			dn({ dims.x, dims.y }, dn_opts),
 			conv(kc),
-			tonemapped((upscale) ? (dims.x * dims.y / 4) : (dims.x * dims.y)),
-			denoised(dims.x* dims.y),
+			tonemapped(dn_opts& rfkt::denoiser_flag::upscale ? dims.x / 2 : dims.x, dn_opts& rfkt::denoiser_flag::upscale ? dims.y / 2 : dims.y),
+			denoised(dims.x, dims.y),
 			dims_(dims),
-			upscale(upscale)
+			upscale(dn_opts& rfkt::denoiser_flag::upscale)
 		{
 
 		}
@@ -164,7 +165,7 @@ namespace rfkt {
 		postprocessor& operator=(postprocessor&&) = default;
 
 		auto make_output_buffer() const -> rfkt::cuda_buffer<uchar4> {
-			return rfkt::cuda_buffer<uchar4>{ dims_.x * dims_.y };
+			return rfkt::cuda_buffer<uchar4>{ dims_.x* dims_.y };
 		}
 
 		auto make_output_buffer(CUstream stream) const -> rfkt::cuda_buffer<uchar4> {
@@ -197,15 +198,15 @@ namespace rfkt {
 
 			stream.host_func(
 				[&t = perf_timer]() mutable {
-				t.reset();
+					t.reset();
 				});
 
 			tm.run(in, tonemapped, { quality, gamma, brightness, vibrancy }, stream);
-			dn.denoise(output_dims(), tonemapped, denoised, stream);
-			conv.to_24bit(denoised, out,planar_output, stream);
+			dn.denoise(tonemapped, denoised, stream);
+			conv.to_24bit(denoised, out, planar_output, stream);
 			stream.host_func([&t = perf_timer, p = std::move(promise)]() mutable {
 				p.set_value(t.count());
-			});
+				});
 
 			return future;
 		}
@@ -215,8 +216,8 @@ namespace rfkt {
 		rfkt::denoiser dn;
 		rfkt::converter conv;
 
-		rfkt::cuda_buffer<half3> tonemapped;
-		rfkt::cuda_buffer<half3> denoised;
+		rfkt::cuda_image<half3> tonemapped;
+		rfkt::cuda_image<half3> denoised;
 
 		rfkt::timer perf_timer;
 
@@ -243,6 +244,24 @@ namespace rfkt {
 			ret->render_queue->enqueue([ctx]() {
 				ctx.make_current_if_not();
 			});
+
+			ret->ft.add_or_update("increase", {
+			{{"per_loop", {rfkt::func_info::arg_t::decimal, 360.0}}},
+			"return iv + t * per_loop"
+				});
+			ret->ft.add_or_update("sine", {
+				{
+					{"frequency", {rfkt::func_info::arg_t::decimal, 1.0}},
+					{"amplitude", {rfkt::func_info::arg_t::decimal, 1.0}},
+					{"phase", {rfkt::func_info::arg_t::decimal, 0.0}},
+					{"sharpness", {rfkt::func_info::arg_t::decimal, 0.0}},
+					{"absolute", {rfkt::func_info::arg_t::boolean, false}}
+				},
+				"local v = math.sin(t * frequency * math.pi * 2.0 + math.rad(phase))\n"
+				"if sharpness > 0 then v = math.copysign(1.0, v) * (math.abs(v) ^ sharpness) end\n"
+				"if absolute then v = math.abs(v) end\n"
+				"return iv + v * amplitude\n"
+				});
 
 			return ret;
 		}
@@ -283,8 +302,7 @@ namespace rfkt {
 	private:
 
 		struct last_frame {
-			rfkt::cuda_buffer<float4> bins = {};
-			rfkt::cuda_buffer<ushort4> accumulator = {};
+			rfkt::cuda_image<float4> bins = {};
 			double quality = 0.0;
 			double gamma = 0.0;
 			double brightness = 0.0;
@@ -319,7 +337,10 @@ namespace rfkt {
 			this->fps = data.value("fps", 30u);
 			this->loops_per_frame = 1.0 / (seconds_per_loop * fps);
 
-			this->max_bin_time = 1000.0 / fps - 2;
+			auto pp_time = denoiser::benchmark({width, height}, upscale? rfkt::denoiser_flag::upscale: rfkt::denoiser_flag::none, 100, this->stream);
+			this->stream.sync();
+
+			this->max_bin_time = 1000.0 / fps - pp_time + 3;
 
 			this->flame = rfkt::import_flam3(fdb, rfkt::fs::read_string(flame_path));
 			if (not flame) {
@@ -329,15 +350,16 @@ namespace rfkt {
 
 			// add a tiny bit of rotation to each xform
 			if (data.value("embellish", false)) {
-				for(auto& xf: flame->xforms) {
-					//if (id == -1) return;
 
+				flame->for_each_xform([&](auto xid, rfkt::xform& xf) {
+					if(xid == -1) return;
 					for (auto& vlink : xf.vchain) {
-						if (vlink.per_loop == 0) {
-							vlink.per_loop = 5 * (rand() & 1) ? -1 : 1;
+						if (not vlink.mod_rotate.call_info) {
+							vlink.mod_rotate.call_info = ft.make_default("increase");
+							vlink.mod_rotate.call_info->args["per_loop"] = 5.0 * ((rand() & 1) ? -1 : 1);
 						}
 					}
-				}
+				});
 			}
 
 			auto k_result = fc.get_flame_kernel(fdb, rfkt::precision::f32, flame.value());
@@ -359,7 +381,7 @@ namespace rfkt {
 				render_frame(std::move(self), std::nullopt);
 			});
 
-			this->send_timer = this->timer_queue->make_timer(std::chrono::milliseconds(0), std::chrono::milliseconds(static_cast<long long>(std::floor(1000.0 / this->fps) - 5)), this->work_queue, [self = shared_from_this()]() {
+			this->send_timer = this->timer_queue->make_timer(std::chrono::milliseconds(0), std::chrono::milliseconds(static_cast<long long>(std::floor(1000.0 / this->fps))), this->work_queue, [self = shared_from_this()]() {
 				if (self->total_frames % self->fps == 0) {
 					SPDLOG_INFO("{} megabits/second", self->encoder->total_bytes() / self->secs_since_start() / (1'000'000) * 8);
 				}
@@ -393,8 +415,13 @@ namespace rfkt {
 
 			rfkt::timer frame_timer{};
 
+			std::vector<double> samples = {};
+			auto packer = [&samples](double v) { samples.push_back(v); };
+			auto invoker = self->ft.make_invoker();
+			self->flame->pack_samples(packer, invoker, t - 1.0 * self->loops_per_frame, 1.0 * self->loops_per_frame, 4, self->pp->input_dims().x, self->pp->input_dims().y);
+
 			auto state = self->kernel->warmup(self->stream,
-				gen_samples(self->flame.value(), t, self->loops_per_frame),
+				samples,
 				self->pp->input_dims(),
 				0xdeadbeef,
 				64
@@ -450,10 +477,16 @@ namespace rfkt {
 
 				auto total_time = frame_timer.count();
 
-				if (chunk) {
-					if (not self->chunks.try_enqueue(chunk->data)) {
+				if (chunk.size()) {
+
+					std::vector<char> chunks_agg{};
+					for (auto& c : chunk) {
+						chunks_agg.insert(chunks_agg.end(), c.data.begin(), c.data.end());
+					}
+
+					if (not self->chunks.try_enqueue(chunks_agg)) {
 						if (total_time < 1000.0 / self->fps && subpasses == 1) self->target_quality.value() *= 1.01;
-						while (not self->chunks.wait_enqueue_timed(chunk->data, 1000)) {
+						while (not self->chunks.wait_enqueue_timed(chunks_agg, 1000)) {
 							if (self->closed()) return;
 						};
 					}
@@ -466,9 +499,9 @@ namespace rfkt {
 
 			lf->bins = std::move(state.bins);
 			lf->quality = frame_quality;
-			lf->gamma = self->flame->gamma;
-			lf->brightness = self->flame->brightness;
-			lf->vibrancy = self->flame->vibrancy;
+			lf->gamma = self->flame->gamma.sample(t, invoker);
+			lf->brightness = self->flame->brightness.sample(t, invoker);
+			lf->vibrancy = self->flame->vibrancy.sample(t, invoker);
 			//SPDLOG_INFO("{}", frame_quality);
 			if (self->total_frames % self->fps == 0 && self->total_frames > 0) {
 				SPDLOG_INFO("buffer: {}/10, target: {:.4}", self->chunks.size_approx(), self->target_quality.value());
@@ -504,6 +537,7 @@ namespace rfkt {
 		std::atomic_bool is_closed = false;
 
 		rfkt::flamedb& fdb;
+		rfkt::function_table ft;
 
 		moodycamel::BlockingReaderWriterCircularBuffer<std::vector<char>> chunks;
 
@@ -652,16 +686,17 @@ int main(int argc, char** argv) {
 	
 	concurrencpp::runtime runtime;
 
-	auto km = ezrtc::compiler{ std::make_shared<ezrtc::cache_adaptors::zlib>(std::make_shared<ezrtc::cache_adaptors::guarded>(std::make_shared<ezrtc::sqlite_cache>("k2.sqlite3"))) };
-	km.find_system_cuda();
-	km.add_include_path("assets/kernels/ezrtc_std");
-	km.add_include_path("assets/kernels/include");
+	auto kernel = std::make_shared<ezrtc::sqlite_cache>((rfkt::fs::user_local_directory() / "kernel.sqlite3").string());
+	auto zlib = std::make_shared<ezrtc::cache_adaptors::zlib>(kernel);
+	auto km = std::make_shared<ezrtc::compiler>(zlib);
+
+	rfkt::cuda::check_and_download_cudart();
+	km->find_system_cuda();
 	auto fc = rfkt::flame_compiler{ km };
-	auto tm = rfkt::tonemapper{ km };
 
 	auto jpeg_stream = rfkt::cuda_stream{};
 
-	auto conv = rfkt::converter{ km };
+	auto conv = rfkt::converter{ *km };
 	auto jpeg = rfkt::nvjpeg::encoder{ jpeg_stream };
 
 	auto do_bench = [&](uint2 dims, bool upscale) {
@@ -692,13 +727,13 @@ int main(int argc, char** argv) {
 	auto ws_open = [&runtime, &ctx, &fc, &km, &fdb](ws_t* ws) {
 		auto* handle = ws->getUserData();
 		(*handle) = rfkt::render_socket::make(
-			fc, km, fdb,
+			fc, *km, fdb,
 			ctx,
 			runtime,
 			[ws, loop = uWS::Loop::get()](rfkt::render_socket::handle&& sock, std::vector<char>&& data) {
 			loop->defer([ws, sock = std::move(sock), data = std::move(data)]() {
 				if (not sock->closed()) {
-					ws->send(std::string_view{ data.data(), data.size() });
+					ws->send(std::string_view{  data.data(), data.size()});
 				}
 			});
 		});

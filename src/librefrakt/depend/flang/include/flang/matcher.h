@@ -1,5 +1,6 @@
 #pragma once
 
+#include <algorithm>
 #include <tao/pegtl/demangle.hpp>
 
 #include "flang/ast_node.h"
@@ -11,15 +12,13 @@ namespace flang {
 	namespace detail {
 
 		template<typename T>
-		concept matcher_concept = requires(T) {
-			{ std::declval<T>()(std::declval<const ast_node*>()) } -> std::same_as<bool>;
-		}&& std::is_empty_v<T>;
+		concept matcher_concept = std::is_empty_v<T> && requires(T, const ast_node* ptr) {
+			{ T{}(ptr) } -> std::same_as<bool>;
+		};
 
 		template<size_t N>
-		struct StringLiteral {
-			constexpr static std::size_t length = N;
-
-			constexpr StringLiteral(const char(&str)[N]) {
+		struct string_literal {
+			constexpr string_literal(const char(&str)[N]) {
 				std::copy_n(str, N, value);
 			}
 
@@ -62,7 +61,7 @@ namespace flang::matchers {
 		return node->parent() == nullptr;
 	};
 
-	template<flang::detail::StringLiteral... Strs>
+	template<flang::detail::string_literal... Strs>
 	constexpr static auto with_content =
 	[](const flang::ast_node* node) -> bool {
 		return ((node->content() == Strs.value) || ...);
@@ -78,13 +77,7 @@ namespace flang::matchers {
 	template<flang::detail::matcher_concept Pred>
 	consteval auto with_child(Pred) noexcept {
 		return [](const flang::ast_node* node) -> bool {
-			constexpr static auto pred = Pred{};
-			for (const auto* c : *node) {
-				if (pred(c)) {
-					return true;
-				}
-			}
-			return false;
+			return std::any_of(node->begin(), node->end(), Pred{});
 		};
 	}
 

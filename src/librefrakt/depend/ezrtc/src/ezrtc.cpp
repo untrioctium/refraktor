@@ -922,7 +922,7 @@ ezrtc::compiler::result ezrtc::compiler::compile(const ezrtc::spec& s) {
 		header_contents.push_back(contents.data());
 	}
 
-	std::vector<const char*> compile_options{ "--std=c++20" };
+	std::vector<const char*> compile_options{ "--std=c++20", "-split-compile=0", "--time=-", "--minimal"};
 	compile_options.push_back(arch_flag.c_str());
 	if (cuda_include_flags.has_value())
 		for (const auto& flag : cuda_include_flags.value())

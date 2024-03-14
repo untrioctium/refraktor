@@ -7,7 +7,7 @@
 
 #include "gui/panels/flame_editor.h"
 
-command_executor::command_t make_undoer(rfkt::flame& f, const rfkt::descriptor& desc, rfkt::anima&& new_value, rfkt::anima&& old_value) {
+command_executor::command_t make_undoer(rfkt::flame& f, const rfkt::accessor& desc, rfkt::anima&& new_value, rfkt::anima&& old_value) {
 	return {
 		[&f, desc, new_value = std::move(new_value)]() mutable {
 			*desc.access(f) = new_value;
@@ -20,7 +20,7 @@ command_executor::command_t make_undoer(rfkt::flame& f, const rfkt::descriptor& 
 }
 
 auto make_animator_button(rfkt::flame& f, const rfkt::function_table& ft, command_executor& exec) {
-	return [&ft, &exec, &f](const rfkt::descriptor& desc, float width) -> bool {
+	return [&ft, &exec, &f](const rfkt::accessor& desc, float width) -> bool {
 
 		auto& ani = *desc.access(f);
 
@@ -33,7 +33,7 @@ auto make_animator_button(rfkt::flame& f, const rfkt::function_table& ft, comman
 		bool value_changed = false;
 
 
-		std::string cur_selected = ani.call_info ? ani.call_info->first : "none";
+		std::string cur_selected = ani.call_info ? ani.call_info->name : "none";
 		std::optional<std::string_view> selection = std::nullopt;
 
 		if (ImGui::BeginCombo("##a_type", cur_selected.c_str())) {
@@ -60,7 +60,7 @@ auto make_animator_button(rfkt::flame& f, const rfkt::function_table& ft, comman
 		if (ani.call_info) {
 			bool changed = false;
 			rfkt::anima::call_info_t old_call_info = ani.call_info;
-			for (auto& [name, arg] : ani.call_info->second) {
+			for (auto& [name, arg] : ani.call_info->args) {
 				changed |= std::visit([&name]<typename T>(T & argv) {
 					if constexpr (std::same_as<T, double>) {
 						return ImGui::InputDouble(name.c_str(), &argv);
@@ -70,6 +70,9 @@ auto make_animator_button(rfkt::flame& f, const rfkt::function_table& ft, comman
 					}
 					else if constexpr (std::same_as<T, bool>) {
 						return ImGui::Checkbox(name.c_str(), &argv);
+					}
+					else if constexpr (std::same_as<T, std::string>) {
+						return false;
 					}
 					else {
 						SPDLOG_ERROR("Unhandled case: {}", typeid(T).name());
@@ -102,7 +105,7 @@ struct edit_bounds {
 auto make_flame_drag_edit(rfkt::flame& f, command_executor& exec, const rfkt::function_table& ft, bool& value_changed) {
 	auto min_button_width = ImGui::CalcTextSize(ICON_MD_ANIMATION).x + ImGui::GetStyle().FramePadding.x * 2.0f;
 	auto animator_button = make_animator_button(f, ft, exec);
-	return[&f, &exec, animator_button = std::move(animator_button), min_button_width, &value_changed](const rfkt::descriptor& desc, std::string_view text, float step, const edit_bounds& eb = {}) mutable {
+	return[&f, &exec, animator_button = std::move(animator_button), min_button_width, &value_changed](const rfkt::accessor& desc, std::string_view text, float step, const edit_bounds& eb = {}) mutable {
 		ImFtw::Scope::ID drag_scope{ desc.hash().str16() };
 
 		auto* ptr = desc.access(f);
@@ -122,7 +125,7 @@ auto make_flame_drag_edit(rfkt::flame& f, command_executor& exec, const rfkt::fu
 bool rfkt::gui::panels::flame_editor(rfkt::flamedb& fdb, rfkt::flame& f, command_executor& exec, rfkt::function_table& ft) {
 	bool changed = false;
 
-	namespace fdesc = rfkt::descriptors;
+	namespace fdesc = rfkt::accessors;
 
 	ImFtw::Scope::ID flame_scope{ &f };
 
@@ -139,6 +142,9 @@ bool rfkt::gui::panels::flame_editor(rfkt::flamedb& fdb, rfkt::flame& f, command
 	flame_drag_edit(fdesc::flame{ &rfkt::flame::gamma }, "Gamma", 0.01f, 0.1);
 	flame_drag_edit(fdesc::flame{ &rfkt::flame::brightness }, "Brightness", 0.01f, 0.1);
 	flame_drag_edit(fdesc::flame{ &rfkt::flame::vibrancy }, "Vibrancy", 0.01f);
+	flame_drag_edit(fdesc::flame{ &rfkt::flame::mod_hue}, "Mod Hue", 0.01f);
+	flame_drag_edit(fdesc::flame{ &rfkt::flame::mod_sat}, "Mod Sat", 0.01f);
+	flame_drag_edit(fdesc::flame{ &rfkt::flame::mod_val}, "Mod Val", 0.01f);
 	ImGui::Separator();
 
 	auto invoker = [&ft]<typename... Args>(Args&&... args) { return ft.call(std::forward<Args>(args)...); };

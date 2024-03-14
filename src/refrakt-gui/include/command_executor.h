@@ -63,3 +63,28 @@ private:
 	decltype(command_stack)::iterator current_command;
 
 };
+
+namespace rfkt::events {
+
+	class flame_modified {};
+	class flame_selected {};
+
+}
+
+class editor_panel {
+public:
+
+	virtual ~editor_panel() = default;
+	virtual void frame_logic() = 0;
+	virtual void on_event(std::string_view name, const json& data) = 0;
+
+protected:
+
+	template<typename Event>
+	void raise_event(std::string_view name, json&& data) {
+		
+
+
+	}
+
+};

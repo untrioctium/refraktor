@@ -41,7 +41,69 @@ std::string expand_tabs(const std::string& src, const std::string& tab_str = "  
     return result;
 }
 
+struct environment {
+    std::string_view name;
+};
 std::string create_source(std::string_view name, const flang::ast_node* node);
+std::string create_source(const flang::ast_node* node, const environment& env);
+
+namespace handlers {
+
+    using namespace flang::matchers;
+    using namespace flang::grammar;
+
+    template<typename Handler>
+    struct base {
+
+        static std::string create_source(const flang::ast_node* node, const environment& env) {
+
+            if (Handler::matcher(node))
+                return Handler::handle(node, env);
+			else if constexpr (!std::is_same_v<typename Handler::next, void>)
+				return Handler::next::create_source(node, env);
+			else
+				throw std::runtime_error("No handler found for node " + std::string(node->type()));
+		}
+
+    };
+
+    struct globals;
+
+    struct fma {
+        constexpr static auto matcher = of_type<op::plus, op::minus, op::plus_assign, op::minus_assign> and with_child(of_type<op::times>);
+
+        using next = globals;
+
+        static std::string handle(const flang::ast_node* node, const environment& env) {
+			auto multiply_child = (node->first()->is_type<op::times>()) ? 0 : 1;
+			auto mul_lhs = create_source(node->nth(multiply_child)->nth(0), env);
+			auto mul_rhs = create_source(node->nth(multiply_child)->nth(1), env);
+			auto add_lhs = create_source(node->nth(1 - multiply_child), env);
+
+            if (node->is_type<op::plus>()) {
+				return std::format("fl::fma<FloatT>({}, {}, {})", mul_lhs, mul_rhs, add_lhs);
+			}
+            else if (node->is_type<op::minus>()) {
+				if (multiply_child == 0)
+					return std::format("fl::fma<FloatT>({}, {}, -({}))", mul_lhs, mul_rhs, add_lhs);
+				else
+					return std::format("fl::fma<FloatT>({}, -({}), {})", mul_lhs, mul_rhs, add_lhs);
+			}
+            else if (node->is_type<op::plus_assign>()) {
+				return std::format("fl::fma<FloatT>({}, {}, {})", mul_lhs, mul_rhs, add_lhs);
+			}
+            else if (node->is_type<op::minus_assign>()) {
+				return std::format("fl::fma<FloatT>({}, {}, -({}))", mul_lhs, mul_rhs, add_lhs);
+			}
+            else {
+				throw std::runtime_error("invalid node type");
+			}
+		}
+    };
+
+}
+
+
 
 auto make_table() {
     auto table = std::vector<std::pair<flang::matcher, std::add_pointer_t<std::string(std::string_view, const flang::ast_node*)>>>{};
@@ -85,8 +147,8 @@ auto make_table() {
             and with_content<"aff", "param", "math", "common">
         ),
         [](std::string_view name, const flang::ast_node* n) {
-            auto group = n->nth(0)->content();
-            auto member = n->nth(1)->content();
+            const auto& group = n->nth(0)->content();
+            const auto& member = n->nth(1)->content();
             if (group == "aff") {
                 return std::format("aff.{}", member);
             }
@@ -185,7 +247,7 @@ auto make_table() {
         });
 
     table.emplace_back(of_type<break_statement>,
-        [](std::string_view, const flang::ast_node* n) {
+        [](std::string_view, const flang::ast_node*) {
             return std::string{ "break;" };
         });
 
@@ -330,9 +392,7 @@ auto make_table() {
 
 std::string create_source(std::string_view name, const flang::ast_node* node) {
 
-    const static std::vector<std::pair<flang::matcher, std::add_pointer_t<std::string(std::string_view, const flang::ast_node*)>>> outputters = make_table();
-
-    for(const auto& [matcher, outputter] : outputters) {
+    for(const static auto outputters = make_table(); const auto& [matcher, outputter] : outputters) {
         if (matcher(node)) {
 			return outputter(name, node);
 		}
@@ -561,8 +621,7 @@ auto rfkt::flame_compiler::get_flame_kernel(const flamedb& fdb, precision prec, 
         annotate_source(src),
         std::move(compile_result.log)
     );
-
-    //SPDLOG_INFO("{}", r.source);
+    r.compile_ms = duration_ms;
 
     if (not compile_result.module.has_value()) {
         return r;
@@ -574,7 +633,7 @@ auto rfkt::flame_compiler::get_flame_kernel(const flamedb& fdb, precision prec, 
     auto max_blocks = func.max_blocks_per_mp(most_blocks.block) * cuda::context::current().device().mp_count();
     if (max_blocks < most_blocks.grid) {
 
-        auto expected_shared = smem_per_block(prec, (f.size_reals() + 13) * 4, most_blocks.block);
+        auto expected_shared = smem_per_block(prec, f.size_reals() * 4, most_blocks.block);
         SPDLOG_ERROR("Kernel for {} needs {} blocks but only got {}; {} shared, {} expected", f.hash().str64(), most_blocks.grid, max_blocks, func.shared_bytes(), expected_shared);
         return r;
     }
@@ -583,7 +642,7 @@ auto rfkt::flame_compiler::get_flame_kernel(const flamedb& fdb, precision prec, 
     auto shuf_dev = compile_result.module.value()["shuf_bufs"];
     cuMemcpyDtoD(shuf_dev.ptr(), shuf_bufs[most_blocks.block].ptr(), shuf_dev.size());
 
-    r.kernel = flame_kernel{ f.hash(), f.size_reals() + 13, std::move(compile_result.module.value()), std::pair<int, int>{most_blocks.grid, most_blocks.block}, catmull, gpuinfo::device::by_index(0).clock() };
+    r.kernel = flame_kernel{ f.size_reals(), std::move(compile_result.module.value()), std::pair<int, int>{most_blocks.grid, most_blocks.block}, srt, f.affine_indices()};
 
     return r;
 }
@@ -591,6 +650,7 @@ auto rfkt::flame_compiler::get_flame_kernel(const flamedb& fdb, precision prec, 
 rfkt::cuda_buffer<unsigned short> make_shuffle_buffers(std::size_t ppts, std::size_t count) {
     using shuf_t = unsigned short;
     const auto shuf_size = ppts * count;
+    SPDLOG_INFO("shuf_size: {} bytes", shuf_size * 2);
 
     auto shuf_local = std::vector<shuf_t>(shuf_size);
     auto engine = std::default_random_engine(0);
@@ -616,7 +676,8 @@ rfkt::cuda_buffer<unsigned short> make_shuffle_buffers(std::size_t ppts, std::si
 
 rfkt::flame_compiler::flame_compiler(std::shared_ptr<ezrtc::compiler> k_manager): km(k_manager)
 {
-    num_shufs = 4096;
+
+    num_shufs = 512;
 
     exec_configs = cuda::context::current().device().concurrent_block_configurations();
 
@@ -665,8 +726,6 @@ rfkt::flame_compiler::flame_compiler(std::shared_ptr<ezrtc::compiler> k_manager)
     for (auto& exec : exec_configs) {
         shuf_bufs[exec.block] = make_shuffle_buffers(exec.block, num_shufs);
 
-        //fmt::print("{{{}, {}, {}}},\n", exec.grid, exec.block, exec.shared_per_block);
-
         {
             auto needed = smem_per_block(precision::f32, 0, exec.block);
             auto leftover = exec.shared_per_block - needed;
@@ -694,20 +753,23 @@ rfkt::flame_compiler::flame_compiler(std::shared_ptr<ezrtc::compiler> k_manager)
         SPDLOG_ERROR(result.log);
         exit(1);
     }
-    this->catmull = std::make_shared<ezrtc::cuda_module>(std::move(result.module.value()));
-    auto func = (*catmull)();
+    
+    this->srt = std::shared_ptr<flame_kernel::shared_runtime>(new flame_kernel::shared_runtime{ std::move(result.module.value()), 16 * 1000 * 1000, 16 * 1000 * 1000 });
+
+    auto func = srt->catmull.kernel("generate_sample_coefficients");
     auto [s_grid, s_block] = func.suggested_dims();
     SPDLOG_INFO("Loaded catmull kernel: {} regs, {} shared, {} local, {}x{} suggested dims", func.register_count(), func.shared_bytes(), func.local_bytes(), s_grid, s_block);
 }
 
 auto rfkt::flame_compiler::make_opts(precision prec, const flame& f)->std::pair<cuda::execution_config, ezrtc::spec>
 {
-    auto flame_real_count = f.size_reals() + 13;
+    auto flame_real_count = f.size_reals();
     auto flame_size_bytes = ((prec == precision::f32) ? sizeof(float) : sizeof(double)) * flame_real_count;
     auto flame_hash = f.hash();
 
     auto most_blocks_idx = 0;
 
+    // find the largest temporal sample count that fits in shared memory
     for (int i = exec_configs.size() - 1; i >= 0; i--) {
         auto& ec = exec_configs[i];
         if (smem_per_block(prec, flame_size_bytes, ec.block) <= ec.shared_per_block) {
@@ -716,6 +778,10 @@ auto rfkt::flame_compiler::make_opts(precision prec, const flame& f)->std::pair<
         }
     }
 
+    // if chaos is not enabled, select a temporal sample config with at least
+    // four warps per block so that there is a diversity of executed xforms
+    // per temporal sample. this is not necessary for chaos because the
+    // threads within a warp are already divergent.
     if(!f.chaos_table.has_value())
         while (exec_configs[most_blocks_idx].block / 32 < 4) most_blocks_idx--;
 
@@ -744,77 +810,18 @@ auto rfkt::flame_compiler::make_opts(precision prec, const flame& f)->std::pair<
         ;
 
     if (f.chaos_table.has_value()) opts.define("USE_CHAOS");
-
     if (prec == precision::f64) opts.define("DOUBLE_PRECISION");
-    //else opts.flag(ezrtc::compile_flag::warn_double_usage);
+
+
     opts.flag(ezrtc::compile_flag::use_fast_math);
 
     return { most_blocks, opts };
 }
 
-template<std::size_t Size>
-class pinned_ring_allocator_t {
-public:
-    pinned_ring_allocator_t() noexcept {
-        cuMemAllocHost(&memory, Size);
-    }
-
-    ~pinned_ring_allocator_t() {
-        cuMemFreeHost(&memory);
-    }
-
-    template<std::size_t Amount>
-    void* reserve() {
-        static_assert(Amount < Size, "Requested amount greater than allocator's size");
-
-        if (Amount + offset >= Size) {
-            offset = Amount;
-            return memory;
-        }
-
-        auto old = offset;
-        offset += Amount;
-        return ((std::byte*)memory) + old;
-    }
-
-    template<typename T>
-    T* reserve() {
-        return (T*)reserve<sizeof(T)>();
-    }
-
-    template<typename T>
-    std::span<T> reserve(std::size_t amount) {
-        return { (T*)reserve(amount * sizeof(T)), amount };
-    }
-
-    template<typename T, std::size_t Amount>
-    auto reserve()-> std::span<T> {
-        return std::span{ (T*)reserve<sizeof(T)* Amount>(), Amount };
-    }
-
-    void* reserve(std::size_t amount) noexcept {
-        assert(amount < Size);
-
-        if (amount + offset >= Size) {
-            offset = amount;
-            return memory;
-        }
-
-        auto old = offset;
-        offset += amount;
-        return ((std::byte*)memory) + old;
-    }
-
-private:
-    void* memory;
-    std::size_t offset = 0;
-};
-
 auto rfkt::flame_kernel::bin(cuda_stream& stream, flame_kernel::saved_state & state, const bailout_args& bo) const -> std::future<bin_result>
 {
     using counter_type = std::size_t;
     static constexpr auto counter_size = sizeof(counter_type);
-    thread_local pinned_ring_allocator_t<counter_size * 512> pra{};
 
     struct stream_state_t {
         std::chrono::steady_clock::time_point start = std::chrono::high_resolution_clock::now();
@@ -822,7 +829,7 @@ auto rfkt::flame_kernel::bin(cuda_stream& stream, flame_kernel::saved_state & st
         std::size_t total_bins;
         std::size_t num_threads;
 
-        cuda_buffer<std::size_t> qpx_dev;
+        rfkt::cuda_span<std::size_t> qpx_dev;
 
         std::promise<flame_kernel::bin_result> promise{};
         std::span<std::size_t> qpx_host;
@@ -833,12 +840,12 @@ auto rfkt::flame_kernel::bin(cuda_stream& stream, flame_kernel::saved_state & st
     const auto num_counters = 2;
     const auto alloc_size = counter_size * num_counters;
 
-    stream_state->qpx_host = pra.reserve<std::size_t>(num_counters);
+    stream_state->qpx_host = srt->pra.reserve<std::size_t>(num_counters);
 
     stream_state->total_bins = state.bins.area();
     stream_state->num_threads = exec.first * exec.second;
 
-    stream_state->qpx_dev = rfkt::cuda_buffer<std::size_t>{ num_counters, stream };
+    stream_state->qpx_dev = srt->dra.reserve<std::size_t>(num_counters);
     stream_state->qpx_dev.clear(stream);
 
     auto klauncher = [&mod = this->mod, &stream, &exec = this->exec]<typename ...Ts>(Ts&&... args) {
@@ -849,8 +856,7 @@ auto rfkt::flame_kernel::bin(cuda_stream& stream, flame_kernel::saved_state & st
         stream_state->start = std::chrono::high_resolution_clock::now();
     });
 
-    const static bool stopper_init = false;
-    state.stopper.from_host({ &stopper_init, 1 }, stream);
+    state.stopper.clear(stream);
 
     CUDA_SAFE_CALL(klauncher(
         state.shared.ptr(),
@@ -864,7 +870,6 @@ auto rfkt::flame_kernel::bin(cuda_stream& stream, flame_kernel::saved_state & st
     ));
 
     stream_state->qpx_dev.to_host(stream_state->qpx_host, stream);
-    stream_state->qpx_dev.free_async(stream);
 
     stream.host_func([ss = stream_state](){
         ss->end = std::chrono::high_resolution_clock::now();
@@ -882,57 +887,93 @@ auto rfkt::flame_kernel::bin(cuda_stream& stream, flame_kernel::saved_state & st
     return future;
 }
 
-auto rfkt::flame_kernel::warmup(cuda_stream& stream, std::span<double> samples, uint2 dims, std::uint32_t seed, std::uint32_t count) const -> flame_kernel::saved_state
+void fix_rotation(std::span<double> samples, std::size_t sample_size, std::span<const std::size_t> indices) {
+    for (auto idx : indices) {
+
+        constexpr static auto pi = 3.14159265358979323846;
+        constexpr static auto eps = 1e-10;
+
+        for (int i = 0; i < 4; i++) {
+
+            auto offset = idx + i * sample_size;
+
+            double2 ang;
+            double2 mag;
+            double2 trans;
+            int2 zlm = { 0, 0 };
+
+            double2 c1 = { samples[offset], samples[offset + 2]};
+            double tr = samples[offset + 4];
+
+            ang.x = atan2(c1.y, c1.x);
+            mag.x = log(sqrt(c1.x * c1.x + c1.y * c1.y));
+
+            if (mag.x == 0.0) zlm.x = 1;
+            trans.x = tr;
+
+            c1 = { samples[offset + 1], samples[offset + 3]};
+            tr = samples[offset + 5];
+
+            ang.y = atan2(c1.y, c1.x);
+            mag.y = log(sqrt(c1.x * c1.x + c1.y * c1.y));
+
+            if (mag.y == 0.0) zlm.y = 1;
+            trans.y = tr;
+
+            if (zlm.x == 1 && zlm.y == 0) ang.x = ang.y;
+            if (zlm.y == 1 && zlm.x == 0) ang.y = ang.x;
+
+            samples[offset] = ang.x;
+            samples[offset + 1] = ang.y;
+            samples[offset + 2] = mag.x;
+            samples[offset + 3] = mag.y;
+            samples[offset + 4] = trans.x;
+            samples[offset + 5] = trans.y;
+        }
+
+        for (int i = 1; i < 4; i++) {
+            for (int j = 0; j < 2; j++) {
+                auto my_index = idx + i * sample_size + j;
+                auto prev_index = idx + (i - 1) * sample_size + j;
+
+                auto ang_diff = samples[my_index] - samples[prev_index];
+
+                if (ang_diff > pi + eps) {
+                    samples[my_index] -= 2 * pi;
+                }
+                else if (ang_diff < -(pi - eps)) {
+                    samples[my_index] += 2 * pi;
+                }
+            }
+        }
+    }
+}
+
+auto rfkt::flame_kernel::warmup(cuda_stream& stream, std::span<double> samples, cuda_image<float4>&& bins, std::uint32_t seed, std::uint32_t count) const -> flame_kernel::saved_state
 {
     const auto sample_size = flame_size_reals + 256 * 3;
     const auto sample_count = samples.size() / sample_size;
 
-    if (samples.size() % sample_size != 0) {
-        SPDLOG_CRITICAL("Invalid sample size: {}", samples.size());
-    }
+    assert(samples.size() % sample_size == 0);
 
     const auto nseg = static_cast<std::uint32_t>(sample_count - 3);
     const auto nreals = samples.size();
 
-    thread_local pinned_ring_allocator_t<1024 * 1024 * 8> pra{};
-
-    auto pinned_samples = pra.reserve<double>(nreals);
+    auto pinned_samples = srt->pra.reserve<double>(nreals);
 
     std::copy(samples.begin(), samples.end(), pinned_samples.begin());
+    fix_rotation(pinned_samples, sample_size, affine_indices);
 
-
-    /*std::size_t pack_index = 0;
-    auto packer = [pinned_samples, &pack_index](double v) {
-		pinned_samples[pack_index] = v;
-		pack_index++;
-	};
-
-    for (const auto& sample : samples) {
-        sample.make_screen_space_affine(dims.x, dims.y).pack(packer);
-        sample.make_plane_space_affine(dims.y, dims.y).pack(packer);
-        packer(0); // weight sum (calculated in kernel)
-
-        sample.pack(packer);
-
-        for (const auto& c : sample.palette) {
-			packer(c[0]);
-			packer(c[1]);
-			packer(c[2]);
-		}
-    }
-
-    assert(pack_index == nreals);*/
-
-    auto samples_dev = rfkt::cuda_buffer<double>{ nreals, stream};
+    auto samples_dev = srt->dra.reserve<double>(nreals);
     samples_dev.from_host(pinned_samples, stream);
 
-    auto segments_dev = rfkt::cuda_buffer<double>{ nreals * 4 * nseg, stream};
+    auto segments_dev = srt->dra.reserve<double>(nreals * 4 * nseg);
 
-    const auto [grid, block] = this->catmull->kernel().suggested_dims();
+    const auto [grid, block] = srt->catmull.kernel().suggested_dims();
     auto nblocks = (nseg * sample_size) / block;
     if ((nseg * samples.size()) % block > 0) nblocks++;
     CUDA_SAFE_CALL(
-        this->catmull->kernel().launch(nblocks, block, stream, false)
+        srt->catmull.kernel().launch(nblocks, block, stream, false)
         (
             samples_dev.ptr(),
             static_cast<std::uint32_t>(sample_size),
@@ -941,7 +982,7 @@ auto rfkt::flame_kernel::warmup(cuda_stream& stream, std::span<double> samples, 
             ));
 
 
-    auto state = flame_kernel::saved_state{ dims, this->saved_state_size(), stream };
+    auto state = flame_kernel::saved_state{ std::move(bins), this->saved_state_size(), stream};
 
     CUDA_SAFE_CALL(
         this->mod.kernel("warmup")
@@ -949,12 +990,16 @@ auto rfkt::flame_kernel::warmup(cuda_stream& stream, std::span<double> samples, 
         (
             nseg,
             segments_dev.ptr(),
-            seed, count, dims.x, dims.y,
+            seed, count, state.bins.width(), state.bins.height(),
             state.shared.ptr()
             ));
 
-    segments_dev.free_async(stream);
-    samples_dev.free_async(stream);
-
     return state;
+}
+
+auto rfkt::flame_kernel::warmup(cuda_stream& stream, std::span<double> samples, uint2 dims, std::uint32_t seed, std::uint32_t count) const->flame_kernel::saved_state
+{
+    auto bins = cuda_image<float4>{ dims.x, dims.y, stream };
+    bins.clear(stream);
+    return warmup(stream, samples, std::move(bins), seed, count);
 }

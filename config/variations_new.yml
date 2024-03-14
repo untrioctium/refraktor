@@ -2,7 +2,9 @@ linear: result += weight * p;
 
 sinusoidal: result += weight * sin(p);
 
-spherical: result += weight / eps(common.sumsq) * p;
+spherical: 
+  tags: ["pad_rotated"]
+  src: result += weight / eps(common.sumsq) * p;
 
 swirl: |-
   scsum := sincos(common.sumsq);
@@ -11,7 +13,9 @@ swirl: |-
 
 horseshoe: result += weight / eps(common.sqrt) * vec2((p.x + p.y) * (p.x - p.y), 2.0 * p.x * p.y);
 
-polar: result += weight * vec2(common.atan / math.pi, common.sqrt - 1.0);
+polar: 
+    tags: ["pad_rotated"]
+    src: result += weight * vec2(common.atan / math.pi, common.sqrt - 1.0);
 
 handkerchief: result += weight * common.sqrt * vec2(sin(common.atan + common.sqrt), cos(common.atan - common.sqrt));
 
@@ -82,21 +86,26 @@ cosine: |-
   result.x += weight * sca.y * cosh(p.y);
   result.y += weight * -sca.x * sinh(p.y);
 
-rings: |-
-  dx := eps(aff.c * aff.c);
-  result += weight * (modf(common.sqrt + dx, 2 * dx) - dx + common.sqrt * (1 - dx)) * vec2(common.cosa, common.sina);
+rings:
+  tags: ["pad_affine"]
+  src: |-
+    dx := eps(aff.c * aff.c);
+    result += weight * (modf(common.sqrt + dx, 2 * dx) - dx + common.sqrt * (1 - dx)) * vec2(common.cosa, common.sina);
 
-fan: |-
-  dx := math.pi * eps(aff.c * aff.c);
-  dx2 := 0.5 * dx;
-  a := common.atan + copysign(dx2, dx2 - modf(common.atan + aff.f, dx));
-  result += weight * common.sqrt * cossin(a);
+fan:
+  tags: ["pad_affine"]
+  src: |-
+    dx := math.pi * eps(aff.c * aff.c);
+    dx2 := 0.5 * dx;
+    a := common.atan + copysign(dx2, dx2 - modf(common.atan + aff.f, dx));
+    result += weight * common.sqrt * cossin(a);
 
 blob:
+  tags: ["pad_identity"]
   param:
-    low: {}
-    high: {default: 1.0}
-    waves: {default: 1.0}
+    low: {identity: 1.0}
+    high: {default: 1.0, identity: 1.0}
+    waves: {default: 1.0, identity: 1.0}
   src: result += weight * common.sqrt * (param.low + (param.high - param.low) * (0.5 + 0.5 * sin(param.waves * common.atan))) * vec2(common.sina, common.cosa);
 
 pdj:
@@ -110,9 +119,10 @@ pdj:
     result.y += weight * (sin(param.c * p.x) - cos(param.d * p.y));
 
 fan2:
+  tags: ["pad_identity"]
   param:
-    x: {}
-    y: {}
+    x: {identity: 0.0}
+    y: {identity: 0.0}
   src: |-
     dy := param.y;
     dx := math.pi * eps(param.x * param.x);
@@ -128,8 +138,9 @@ fan2:
     result += r * sincos(a);
 
 rings2:
+  tags: ["pad_identity"]
   param:
-    val: {}
+    val: {identity: 0.0}
   src: |-
     r := common.sqrt;
     dx := eps(param.val * param.val);
@@ -146,8 +157,9 @@ cylinder: |-
   result.y += weight * p.y;
 
 perspective:
+  tags: [pad_identity]
   param:
-    angle: {}
+    angle: {identity: 0.0}
     dist: {}
     vsin: {tags: [precalc]}
     vfcos: {tags: [precalc]}
@@ -163,6 +175,7 @@ perspective:
 noise: result += weight * rand01() * elmul(p, cossinpi(rand01() * 2));
 
 julian:
+  tags: ["pad_rotated"]
   param:
     dist: {default: 1.0}
     power: {default: 1.0}
@@ -178,6 +191,7 @@ julian:
     result += r * cossin(tmpr);
 
 juliascope:
+  tags: ["pad_rotated"]
   param:
     dist: {default: 1.0}
     power: {default: 1.0}
@@ -229,6 +243,7 @@ pie:
     result += weight * rand01() * cossin(a);
 
 ngon:
+  tags: ["pad_rotated"]
   param:
     power: {}
     sides: {}
@@ -245,9 +260,10 @@ ngon:
     result += weight * p * amp;
 
 curl:
+  tags: ["pad_identity"]
   param:
-    c1: {default: 1.0}
-    c2: {}
+    c1: {default: 1.0, identity: 0.0}
+    c2: {identity: 0.0}
   src: |-
     re := 1.0 + param.c1 * p.x + param.c2 * (p.x * p.x - p.y * p.y);
     im := param.c1 * p.y + 2.0 * param.c2 * p.x * p.y;
@@ -256,9 +272,10 @@ curl:
     result.y += (p.y * re - p.x * im) * r;
 
 rectangles:
+  tags: ["pad_identity"]
   param:
-    x: {default: 1.0}
-    y: {default: 1.0}
+    x: {default: 1.0, identity: 0.0}
+    y: {default: 1.0, identity: 0.0}
   src: |-
     if(param.x == 0.0)
       result.x += weight * p.x;
@@ -340,13 +357,14 @@ disc2:
     result.y += (sct.y + param.sinadd) * r;
 
 super_shape:
+  tags: ["pad_identity"]
   param:
-    rnd: {}
+    rnd: {identity: 0.0}
     m: {}
-    n1: {default: 1.0}
-    n2: {default: 1.0}
-    n3: {default: 1.0}
-    holes: {}
+    n1: {default: 1.0, identity: 2.0}
+    n2: {default: 1.0, identity: 2.0}
+    n3: {default: 1.0, identity: 2.0}
+    holes: {identity: 0.0}
     pm_4: {tags: [precalc]}
     pneg1_n1: {tags: [precalc]}
   precalc: |-
@@ -744,6 +762,7 @@ wedge:
     result += r * cossin(a);
     
 wedge_julia:
+  tags: ["pad_rotated"]
   param:
     power: {default: 1.0}
     angle: {}
@@ -765,6 +784,7 @@ wedge_julia:
     result += r * cossin(a);
 
 wedge_sph:
+  tags: ["pad_rotated"]
   param:
     swirl: {}
     count: {default: 1.0}

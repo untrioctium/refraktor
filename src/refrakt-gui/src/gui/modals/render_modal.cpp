@@ -349,7 +349,7 @@ void rfkt::gui::render_modal::launch_worker(const rfkt::flame& flame)
 
 		auto pp = rfkt::postprocessor{ km, dims, rfkt::denoiser_flag::none };
 		auto post_stream = rfkt::cuda_stream{};
-		auto encoder = eznve::encoder{ dims, {static_cast<unsigned int>(render_params.fps), 1}, eznve::codec::hevc, ctx };
+		auto encoder = eznve::encoder{ dims, {static_cast<unsigned int>(render_params.fps), 1}, eznve::codec::h264, ctx };
 
 		//auto chunkfile_name = std::format("{}.h265", render_params.output_file.string());
 		//auto chunkfile = std::ofstream{ chunkfile_name, std::ios::binary };
@@ -397,7 +397,7 @@ void rfkt::gui::render_modal::launch_worker(const rfkt::flame& flame)
 				continue;
 			}
 
-			auto encoder_input = rfkt::cuda_span<uchar4>{ encoder.buffer(), encoder.buffer_size() / 4 };
+			auto encoder_input = rfkt::cuda_span<uchar4>{ encoder.buffer(), encoder.buffer_size() };
 			pp.post_process(binfo.bins, encoder_input, binfo.quality, binfo.gbv.x, binfo.gbv.y, binfo.gbv.z, false, post_stream).get();
 			auto chunks = encoder.submit_frame((i % render_params.fps == 0 || i + 1 == total_frames) ? eznve::frame_flag::idr : eznve::frame_flag::none);
 

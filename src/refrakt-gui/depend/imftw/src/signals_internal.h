@@ -6,6 +6,18 @@
 #include "imftw_internal.h"
 #include <imftw/signals.h>
 
+namespace ImFtw::sigs::glfw2 {
+
+    template<typename T>
+    struct signal {
+        using result_t = decltype(T::handle(std::declval<ImFtw::context_t&>()));
+
+        std::promise<result_t> done;
+
+
+    };
+
+}
 
 namespace ImFtw::sigs::glfw {
 

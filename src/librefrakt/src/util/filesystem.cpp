@@ -34,9 +34,9 @@ const path& rfkt::fs::user_local_directory() {
 			local_path = std::filesystem::current_path();
 		}
 		CoTaskMemFree(base_path);
-#endif
 
 		local_path /= "refrakt";
+#endif
 		if (!fs::exists(local_path)) {
 			fs::create_directory(local_path);
 		}

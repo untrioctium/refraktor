@@ -322,6 +322,9 @@ private:
 
 template<typename Func>
 auto show_splash(std::string_view task_name, Func&& f) {
+
+	SPDLOG_INFO("Performing loading task: {}", task_name);
+
 	ImFtw::BeginFrame();
 	const ImGuiViewport* viewport = ImGui::GetMainViewport();
 	ImGui::SetNextWindowPos(viewport->Pos);
@@ -334,16 +337,9 @@ auto show_splash(std::string_view task_name, Func&& f) {
 		ImGui::TextUnformatted(task_name.data());
 	}
 
-	if constexpr (std::same_as<void, decltype(f())>) {
-		f();
-		ImFtw::EndFrame();
-		return;
-	}
-	else {
-		auto result = f();
-		ImFtw::EndFrame();
-		return result;
-	}
+	ImFtw::EndFrame();
+
+	return f();
 }
 
 void about_window() {
@@ -690,6 +686,9 @@ private:
 			SPDLOG_INFO("Max persisting L2 size (bytes): {}", dev.max_persist_l2_cache_size());
 			return ctx;
 		});
+
+		//SPDLOG_INFO("Max persisting L2 size (megabytes): {}", v);
+
 		show_splash("Initializing denoising system", [&]() { rfkt::denoiser::init(ctx); });
 		show_splash("Initializing GPU statistics system", []() { rfkt::gpuinfo::init(); });
 		show_splash("Loading variations", [&]() {rfkt::initialize(fdb, "config"); });
@@ -726,6 +725,8 @@ private:
 			"if absolute then v = math.abs(v) end\n"
 			"return iv + v * amplitude\n"
 		});
+
+
 
 		f_comp = show_splash("Setting up flame compiler", [&]() { return std::make_shared<rfkt::flame_compiler>(k_comp); });
 		tonemap = show_splash("Creating tonemapper", [&] { return std::make_shared<rfkt::tonemapper>( *k_comp ); });
@@ -831,16 +832,6 @@ private:
 						SPDLOG_ERROR("could not open flame: {}", filename);
 						return;
 					}
-
-					SPDLOG_INFO("flame data:\n{}", flame->serialize().dump(2));
-
-					rfkt::hash_t hash;
-					rfkt::timer t;
-					for(int i = 0; i < 10'000; ++i)
-						hash ^= flame->value_hash() << (i % 64);
-
-					auto time = t.count() / 10'000.0 * 1'000.0 * 1'000.0;
-					SPDLOG_INFO("hash: {} ({} us per hash)", hash.str64(), time);
 
 					ImFtw::DeferNextFrame([&, flame = std::move(flame.value())]() mutable {
 						c_exec.clear();

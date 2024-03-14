@@ -48,6 +48,7 @@ FetchContent_Declare(
   reproc
   GIT_REPOSITORY https://github.com/DaanDeMeyer/reproc.git
   GIT_TAG main
+  EXCLUDE_FROM_ALL
 )
 FetchContent_MakeAvailable(reproc)
 

@@ -66,5 +66,11 @@ auto rfkt::cuda::init() -> context
     cuInit(0);
     cuDeviceGet(&dev, 0);
     cuCtxCreate(&ctx, CU_CTX_SCHED_SPIN | CU_CTX_MAP_HOST, dev);
+
+    auto devobj = rfkt::cuda::device_t{ dev };
+
+    std::size_t max_persist_l2 = devobj.max_persist_l2_cache_size();
+    CUDA_SAFE_CALL(cuCtxSetLimit(CU_LIMIT_PERSISTING_L2_CACHE_SIZE, max_persist_l2));
+
     return { ctx, dev };
 }

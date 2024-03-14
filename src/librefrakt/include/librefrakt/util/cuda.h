@@ -10,6 +10,7 @@
 #include <array>
 
 #include <librefrakt/util/filesystem.h>
+#include <librefrakt/util.h>
 
 #define CUDA_SAFE_CALL(x)                                         \
   do {                                                            \
@@ -18,6 +19,7 @@
       const char *msg;                                            \
       cuGetErrorName(result, &msg);                               \
       printf("`%s` failed with result: %s", #x, msg);             \
+      printf("%s", rfkt::stacktrace().c_str());                   \
       __debugbreak();                                             \
       exit(1);                                                    \
     }                                                             \
@@ -56,7 +58,6 @@ namespace rfkt::cuda {
         auto l2_cache_size() const noexcept { return attribute<CU_DEVICE_ATTRIBUTE_L2_CACHE_SIZE>(); }
         auto max_persist_l2_cache_size() const noexcept { return attribute<CU_DEVICE_ATTRIBUTE_MAX_PERSISTING_L2_CACHE_SIZE>(); }
         
-
         auto max_concurrent_threads() const noexcept { return max_threads_per_mp() * mp_count(); }
         auto max_concurrent_blocks() const noexcept { return max_blocks_per_mp() * mp_count(); }
         auto max_concurrent_warps() const noexcept { return max_concurrent_threads() / warp_size(); }
@@ -74,17 +75,18 @@ namespace rfkt::cuda {
             return ret;
         }
 
-        auto name() const noexcept {
-            std::string ret;
-            ret.resize(128);
-            cuDeviceGetName(ret.data(), static_cast<int>(ret.size()), dev_);
-            return ret;
+        std::string_view name() const noexcept {
+            if(!name_.empty()) return name_;
+            name_.resize(128);
+            cuDeviceGetName(name_.data(), static_cast<int>(name_.size()), dev_);
+            return name_;
         }
 
     private:
         CUdevice dev_;
 
         mutable std::map<CUdevice_attribute, int> cached_attrs;
+        mutable std::string name_;
 
         template<CUdevice_attribute attrib>
         int attribute() const noexcept {

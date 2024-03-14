@@ -3,7 +3,18 @@
 #include <librefrakt/util/cuda.h>
 #include <span>
 
+#include <spdlog/spdlog.h>
+#include <librefrakt/util.h>
+
 namespace rfkt {
+
+	class l2_persister {
+	public:
+
+
+	private:
+		CUstreamAttrValue stream_attr_value;
+	};
 
 	template<class Contained = char>
 	class cuda_buffer {
@@ -31,20 +42,20 @@ namespace rfkt {
 		cuda_buffer(const cuda_buffer&) = delete;
 		cuda_buffer& operator=(const cuda_buffer&) = delete;
 
-		auto ptr() const noexcept { return ptr_; }
-		auto size() const noexcept { return size_; }
-		auto size_bytes() const noexcept { return size_ * sizeof(Contained); }
+		constexpr auto ptr() const noexcept { return ptr_; }
+		constexpr auto size() const noexcept { return size_; }
+		constexpr auto size_bytes() const noexcept { return size_ * sizeof(Contained); }
 
-		explicit operator bool() const { return ptr_ != 0; }
-		bool valid() const { return ptr_ != 0; }
+		constexpr explicit operator bool() const { return ptr_ != 0; }
+		constexpr bool valid() const { return ptr_ != 0; }
 
-		cuda_buffer& operator=(cuda_buffer&& o) noexcept {
+		constexpr cuda_buffer& operator=(cuda_buffer&& o) noexcept {
 			std::swap(ptr_, o.ptr_);
 			std::swap(size_, o.size_);
 			return *this;
 		}
 
-		cuda_buffer(cuda_buffer&& o) noexcept {
+		constexpr cuda_buffer(cuda_buffer&& o) noexcept {
 			std::swap(ptr_, o.ptr_);
 			std::swap(size_, o.size_);
 		}
@@ -86,12 +97,12 @@ namespace rfkt {
 
 	private:
 
-		auto min_size(std::size_t other_size) const noexcept {
+		constexpr auto min_size(std::size_t other_size) const noexcept {
 			using namespace std;
 			return min(other_size, size_) * sizeof(Contained);
 		}
 
-		cuda_buffer(CUdeviceptr ptr, std::size_t size) noexcept :
+		constexpr cuda_buffer(CUdeviceptr ptr, std::size_t size) noexcept :
 			size_(size),
 			ptr_(ptr) {}
 
@@ -102,11 +113,11 @@ namespace rfkt {
 	template<typename Contained = char>
 	class cuda_span {
 	public:
-		cuda_span() noexcept = default;
+		constexpr cuda_span() noexcept = default;
 
-		cuda_span(CUdeviceptr ptr, std::size_t size_bytes) noexcept :
+		constexpr cuda_span(CUdeviceptr ptr, std::size_t size) noexcept :
 			ptr_(ptr),
-			size_(size_bytes/sizeof(Contained)) {}
+			size_(size) {}
 
 		explicit(false) cuda_span(const cuda_buffer<Contained>& buf) noexcept :
 			ptr_(buf.ptr()),
@@ -114,17 +125,17 @@ namespace rfkt {
 
 		~cuda_span() noexcept = default;
 
-		cuda_span(const cuda_span&) noexcept = default;
-		cuda_span& operator=(const cuda_span&) noexcept = default;
+		constexpr cuda_span(const cuda_span&) noexcept = default;
+		constexpr cuda_span& operator=(const cuda_span&) noexcept = default;
 
-		cuda_span& operator=(cuda_span&& o) noexcept = default;
-		cuda_span(cuda_span&& o) noexcept = default;
+		constexpr cuda_span& operator=(cuda_span&& o) noexcept = default;
+		constexpr cuda_span(cuda_span&& o) noexcept = default;
 
-		[[nodiscard]] auto ptr() const noexcept { return ptr_; }
-		[[nodiscard]] auto size() const noexcept { return size_; }
-		[[nodiscard]] auto size_bytes() const noexcept { return size_ * sizeof(Contained); }
-		[[nodiscard]] bool valid() const noexcept { return ptr_ != 0 && size_ != 0; }
-		[[nodiscard]] explicit operator bool() const noexcept { return valid(); }
+		[[nodiscard]] constexpr auto ptr() const noexcept { return ptr_; }
+		[[nodiscard]] constexpr auto size() const noexcept { return size_; }
+		[[nodiscard]] constexpr auto size_bytes() const noexcept { return size_ * sizeof(Contained); }
+		[[nodiscard]] constexpr bool valid() const noexcept { return ptr_ != 0 && size_ != 0; }
+		[[nodiscard]] constexpr explicit operator bool() const noexcept { return valid(); }
 
 		void clear() {
 			CUDA_SAFE_CALL(cuMemsetD8(ptr_, 0, size_bytes()));
@@ -154,7 +165,7 @@ namespace rfkt {
 
 	private:
 
-		auto min_size(std::size_t other_size) const noexcept {
+		constexpr auto min_size(std::size_t other_size) const noexcept {
 			using namespace std;
 			return min(other_size, size_) * sizeof(Contained);
 		}
@@ -169,19 +180,27 @@ namespace rfkt {
 		cuda_image() = default;
 		cuda_image(unsigned int w, unsigned int h) :
 			dims_(w, h),
-			buffer(w * h) {}
+			buffer(area()) {}
 
 		cuda_image(unsigned int w, unsigned int h, CUstream stream) :
 			dims_(w, h),
-			buffer(w * h, stream) {}
+			buffer(area(), stream) {}
 
 		~cuda_image() = default;
 
 		cuda_image(const cuda_image&) = delete;
 		cuda_image& operator=(const cuda_image&) = delete;
 
-		cuda_image(cuda_image&&) = default;
-		cuda_image& operator=(cuda_image&&) = default;
+		cuda_image(cuda_image&& o) noexcept {
+			std::swap(dims_, o.dims_);
+			std::swap(buffer, o.buffer);
+		}
+		cuda_image& operator=(cuda_image&& o) noexcept {
+			std::swap(dims_, o.dims_);
+			std::swap(buffer, o.buffer);
+			return *this;
+		}
+
 
 		std::size_t area() const noexcept { return static_cast<std::size_t>(dims_.x) * dims_.y; }
 		std::size_t size_bytes() const noexcept { return buffer.size_bytes(); }

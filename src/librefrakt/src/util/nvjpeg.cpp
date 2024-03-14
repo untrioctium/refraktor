@@ -148,6 +148,7 @@ auto rfkt::nvjpeg::encoder::wrap_state(nvjpegEncoderState_t state) -> std::uniqu
 
 auto rfkt::nvjpeg::encoder::make_state(CUstream stream) -> nvjpegEncoderState_t
 {
+	SPDLOG_INFO("Creating state");
 	nvjpegEncoderState_t state;
 	NVJPEG_SAFE_CALL(nvjpegEncoderStateCreate(nv_handle, &state, stream));
 	return state;

@@ -66,7 +66,7 @@ namespace flang::grammar {
 	struct scoped;
 
 	template<typename T>
-	constexpr std::string_view demangle() noexcept {
+	consteval std::string_view demangle() noexcept {
 		return tao::pegtl::demangle<T>();
 	}
 }

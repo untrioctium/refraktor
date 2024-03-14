@@ -11,6 +11,8 @@
 #include <librefrakt/util/cuda.h>
 #include <librefrakt/util/hash.h>
 
+#include <librefrakt/allocators.h>
+
 namespace rfkt {
 
 	class flame_compiler;
@@ -76,17 +78,18 @@ namespace rfkt {
 
 		auto bin(cuda_stream& stream, flame_kernel::saved_state& state, const bailout_args&) const-> std::future<bin_result>;
 		auto warmup(cuda_stream& stream, std::span<double> samples, uint2 dims, std::uint32_t seed, std::uint32_t count) const->flame_kernel::saved_state;
+		auto warmup(cuda_stream& stream, std::span<double> samples, cuda_image<float4>&& bins, std::uint32_t seed, std::uint32_t count) const->flame_kernel::saved_state;
 
 		flame_kernel(flame_kernel&& o) noexcept {
 			*this = std::move(o);
 		}
 
 		flame_kernel& operator=(flame_kernel&& o) noexcept {
-			this->flame_hash = o.flame_hash;
 			this->exec = o.exec;
 			this->mod = std::move(o.mod);
-			this->catmull = std::move(o.catmull);
 			this->flame_size_reals = o.flame_size_reals;
+			this->srt = std::move(o.srt);
+			this->affine_indices = std::move(o.affine_indices);
 
 			return *this;
 		}
@@ -99,17 +102,25 @@ namespace rfkt {
 
 	private:
 
+		struct shared_runtime {
+			ezrtc::cuda_module catmull = {};
+			rfkt::pinned_ring_allocator pra;
+			rfkt::device_ring_allocator dra;
+		};
+
 		std::size_t saved_state_size() const { return mod("bin").shared_bytes() * exec.first; }
 
-		flame_kernel(const rfkt::hash_t& flame_hash, std::size_t flame_size_reals, ezrtc::cuda_module&& mod, std::pair<int, int> exec, std::shared_ptr<ezrtc::cuda_module>& catmull, std::size_t device_hz) :
-			mod(std::move(mod)), flame_hash(flame_hash), exec(exec), catmull(catmull), flame_size_reals(flame_size_reals) {
+		flame_kernel(std::size_t flame_size_reals, ezrtc::cuda_module&& mod, std::pair<int, int> exec, std::shared_ptr<shared_runtime> srt, std::vector<std::size_t> affine_indices) :
+			mod(std::move(mod)), exec(exec), flame_size_reals(flame_size_reals), srt(srt), affine_indices(std::move(affine_indices)) {
 		}
 
-		std::shared_ptr<ezrtc::cuda_module> catmull = nullptr;
 		std::size_t flame_size_reals = 0;
-		rfkt::hash_t flame_hash = {};
 		ezrtc::cuda_module mod = {};
 		std::pair<std::uint32_t, std::uint32_t> exec = {};
+		std::vector<std::size_t> affine_indices = {};
+
+		std::shared_ptr<shared_runtime> srt;
+
 	};
 
 	static_assert(std::move_constructible<flame_kernel>);
@@ -121,6 +132,7 @@ namespace rfkt {
 			std::optional<flame_kernel> kernel = std::nullopt;
 			std::string source = {};
 			std::string log = {};
+			double compile_ms = 0;
 
 			result(std::string&& src, std::string&& log) noexcept : source(std::move(src)), log(std::move(log)) {}
 
@@ -156,7 +168,7 @@ namespace rfkt {
 			std::swap(shuf_bufs, o.shuf_bufs);
 			std::swap(exec_configs, o.exec_configs);
 			std::swap(num_shufs, o.num_shufs);
-			std::swap(catmull, o.catmull);
+			std::swap(srt, o.srt);
 			std::swap(compiled_variations, o.compiled_variations);
 			std::swap(compiled_common, o.compiled_common);
 			std::swap(last_flamedb_hash, o.last_flamedb_hash);
@@ -178,11 +190,11 @@ namespace rfkt {
 
 		std::size_t num_shufs = 4096;
 
-		std::shared_ptr<ezrtc::cuda_module> catmull;
-
 		std::map<std::string, std::pair<std::string, std::string>, std::less<>> compiled_variations;
 		std::map<std::string, std::string, std::less<>> compiled_common;
 
 		rfkt::hash_t last_flamedb_hash = {};
+
+		std::shared_ptr<flame_kernel::shared_runtime> srt;
 	};
 }

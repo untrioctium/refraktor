@@ -24,7 +24,7 @@ namespace rfkt::nvjpeg {
 		std::queue<nvjpegEncoderState_t> available_states;
 		std::unordered_map<unsigned char, nvjpegEncoderParams_t> params_map;
 
-		int max_states = 8;
+		int max_states = 1;
 
 		nvjpegHandle_t nv_handle;
 		nvjpegDevAllocator_t dev_alloc;

@@ -10,6 +10,20 @@ struct affine {
         py = fl::fma(d, px, fl::fma(e, py, f));
         px = tmp;
     }
+
+    void depolar() {
+        FloatT ang = a;
+        FloatT mag = exp(b);
+
+        a = mag * cos(ang);
+        b = mag * sin(ang);
+
+        ang = d;
+        mag = exp(e);
+
+        d = mag * cos(ang);
+        e = mag * sin(ang);
+    }
 };
 
 <# for hash, xform in xform_definitions #>
@@ -55,6 +69,8 @@ struct xform_@hash@_t {
         }
 
         __device__ void do_precalc(RandCtx* rs) {
+            aff.depolar();
+
             <# for variation in vlink.variations #>
             <# if variation_has_precalc(variation.name) #>
             // @variation.name@
@@ -162,6 +178,10 @@ struct flame_t {
     }
 
     __device__ void do_precalc(RandCtx* rs) {
+
+        screen_space.depolar();
+        plane_space.depolar();
+
         // calculate weight sum
         weight_sum = <# for xid in range(num_standard_xforms) #>xform_@xid@.weight<# if not loop.is_last #> +<# endif #><# endfor #>;
 
@@ -174,8 +194,8 @@ struct flame_t {
         }
         <# endif #>
 
-        // jitter screen_space a bit for anti-antialiasing
-        auto jitter = rs->randgauss(1/4.0);
+        // jitter screen_space a bit for antialiasing
+        auto jitter = rs->randgauss(1/2.0f);
         screen_space.c += jitter.x;
         screen_space.f += jitter.y;
 
@@ -185,7 +205,7 @@ struct flame_t {
     }
     
     void print_debug() {
-        printf("flame_t\n");
+        /*printf("flame_t\n");
         printf("  screen_space: { a: %f, d: %f, b: %f, e: %f, c: %f, f: %f }\n", screen_space.a, screen_space.d, screen_space.b, screen_space.e, screen_space.c, screen_space.f);
         printf("  plane_space: { a: %f, d: %f, b: %f, e: %f, c: %f, f: %f }\n", plane_space.a, plane_space.d, plane_space.b, plane_space.e, plane_space.c, plane_space.f);
         printf("  weight_sum: %f\n", weight_sum);
@@ -223,7 +243,7 @@ struct flame_t {
         <# endif #>
         <# endfor #> 
         <# endfor #>
-        <# endfor #>
+        <# endfor #>*/
     }
     
 };

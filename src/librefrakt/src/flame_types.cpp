@@ -3,6 +3,7 @@
 #include <array>
 #include <charconv>
 #include <spdlog/spdlog.h>
+#include <sol/sol.hpp>
 
 #include "librefrakt/flame_info.h"
 #include "librefrakt/flame_types.h"
@@ -246,9 +247,9 @@ ordered_json rfkt::anima::serialize() const noexcept {
 	auto result = ordered_json::object();
 	result["t0"] = t0;
 
-	result["call"] = call_info->first;
+	result["call"] = call_info->name;
 	result["args"] = ordered_json::object();
-	for (auto& [k, v] : call_info->second) {
+	for (auto& [k, v] : call_info->args) {
 		if (std::holds_alternative<int>(v)) {
 			result["args"][k] = std::get<int>(v);
 		}
@@ -286,7 +287,7 @@ std::optional<rfkt::anima> rfkt::anima::deserialize(const json& js, const functi
 			}
 		}
 
-		return anima(t0, std::make_pair(call, arg_map));
+		return anima(t0, call_info_value_t{ call, arg_map });
 	}
 	else {
 		return anima(t0);
@@ -477,8 +478,8 @@ rfkt::hash_t rfkt::flame::value_hash() const noexcept
 		state.update(v.t0);
 
 		if (v.call_info) {
-			state.update(v.call_info->first);
-			for (const auto& [name, value] : v.call_info->second) {
+			state.update(v.call_info->name);
+			for (const auto& [name, value] : v.call_info->args) {
 				state.update(name);
 				std::visit([&](auto argv) {
 					state.update(argv);
@@ -528,6 +529,70 @@ rfkt::hash_t rfkt::flame::value_hash() const noexcept
 	});
 
 	state.update(palette);
+	process(mod_hue);
+	process(mod_sat);
+	process(mod_val);
 
 	return state.digest();
+}
+
+void bind_to_lua(sol::state& state) {
+	using namespace rfkt;
+
+	auto anima_t = state.new_usertype<rfkt::anima>("anima", sol::constructors<rfkt::anima(), rfkt::anima(double)>());
+	anima_t["t0"] = &rfkt::anima::t0;
+
+	auto affine_t = state.new_usertype<rfkt::affine>("affine", sol::constructors<rfkt::affine(), rfkt::affine(double, double, double, double, double, double)>());
+	affine_t["a"] = &rfkt::affine::a;
+	affine_t["b"] = &rfkt::affine::b;
+	affine_t["c"] = &rfkt::affine::c;
+	affine_t["d"] = &rfkt::affine::d;
+	affine_t["e"] = &rfkt::affine::e;
+	affine_t["f"] = &rfkt::affine::f;
+
+	auto vardata_t = state.new_usertype<rfkt::vardata>("vardata", sol::no_constructor);
+	vardata_t["weight"] = &rfkt::vardata::weight;
+
+	auto vlink_t = state.new_usertype<rfkt::vlink>("vlink", sol::no_constructor);
+	vlink_t["transform"] = &rfkt::vlink::transform;
+	vlink_t["mod_x"] = &rfkt::vlink::mod_x;
+	vlink_t["mod_y"] = &rfkt::vlink::mod_y;
+	vlink_t["mod_scale"] = &rfkt::vlink::mod_scale;
+	vlink_t["mod_rotate"] = &rfkt::vlink::mod_rotate;
+
+	auto xform_t = state.new_usertype<rfkt::xform>("xform", sol::no_constructor);
+	xform_t["weight"] = &rfkt::xform::weight;
+	xform_t["color"] = &rfkt::xform::color;
+	xform_t["color_speed"] = &rfkt::xform::color_speed;
+	xform_t["opacity"] = &rfkt::xform::opacity;
+
+	auto flame_t = state.new_usertype<rfkt::flame>("flame", sol::no_constructor);
+	flame_t["center_x"] = &rfkt::flame::center_x;
+	flame_t["center_y"] = &rfkt::flame::center_y;
+	flame_t["scale"] = &rfkt::flame::scale;
+	flame_t["rotate"] = &rfkt::flame::rotate;
+	flame_t["gamma"] = &rfkt::flame::gamma;
+	flame_t["brightness"] = &rfkt::flame::brightness;
+	flame_t["vibrancy"] = &rfkt::flame::vibrancy;
+
+	flame_t["xforms"] = sol::property(
+		[](rfkt::flame& f) {
+			return f.xforms();
+		}
+	);
+
+	flame_t["final_xform"] = sol::property(
+		[](rfkt::flame& f) {
+			return f.final_xform;
+		},
+		[](rfkt::flame& f, const rfkt::xform& xf) {
+			f.final_xform = xf;
+		}
+	);
+
+	flame_t["has_final_xform"] = [](const rfkt::flame& f) {
+		return f.final_xform.has_value();
+	};
+
+
 }

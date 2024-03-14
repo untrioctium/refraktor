@@ -126,7 +126,7 @@ eznve::encoder::encoder(uint2 dims, uint2 fps, codec c, CUcontext ctx) : dims(di
 	init_params.frameRateDen = fps.y;
 	init_params.enableEncodeAsync = 0;
 	init_params.enablePTD = 1;
-	init_params.tuningInfo = NV_ENC_TUNING_INFO_HIGH_QUALITY;
+	init_params.tuningInfo = NV_ENC_TUNING_INFO_ULTRA_LOW_LATENCY;
 
 	NV_ENC_PRESET_CONFIG preset_config = { NV_ENC_PRESET_CONFIG_VER, { NV_ENC_CONFIG_VER } };
 	CHECK_NVENC(funcs.nvEncGetEncodePresetConfigEx(session, init_params.encodeGUID, init_params.presetGUID, init_params.tuningInfo, &preset_config));
@@ -190,10 +190,10 @@ std::vector<eznve::chunk> eznve::encoder::submit_frame(frame_flag flag) {
 		return chunks;
 	}
 	CHECK_NVENC(frame_status);
-	std::cout << "pushing " << current_buffer + 1 << " frames" << std::endl;
+	//std::cout << "pushing " << current_buffer + 1 << " frames" << std::endl;
 	for (int i = 0; i <= current_buffer; i++) {
 		auto chunk = buffers[i].lock_stream(session);
-		std::cout << "pushing " << chunk.data.size() << " bytes" << std::endl;
+	//	std::cout << "pushing " << chunk.data.size() << " bytes" << std::endl;
 		bytes_encoded += chunk.data.size();
 		chunks.emplace_back(std::move(chunk));
 		buffers[i].unlock_stream(session);
@@ -220,7 +220,7 @@ std::vector<eznve::chunk> eznve::encoder::flush() {
 	CHECK_NVENC(frame_status);
 
 	for (int i = 0; i <= current_buffer; i++) {
-		auto chunk = buffers[i].lock_stream(session);\
+		auto chunk = buffers[i].lock_stream(session);
 		std::cout << "pushing " << chunk.data.size() << " bytes" << std::endl;
 		//bytes_encoded += chunk.data.size();
 		chunks.emplace_back(std::move(chunk));

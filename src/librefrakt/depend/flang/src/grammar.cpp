@@ -201,7 +201,7 @@ std::expected<const flang::type_desc::info*, flang::semantic_error> flang::resol
 			}
 
 			// unknown field on vec2/vec3
-			return semantic_error::make<"unknown member `{}` on type `{}`">(node, member, var_type);
+			return semantic_error::make<"unknown member `{}` on type `{}`">(node, member, vtype_to_string(var_type));
 		}
 
 		if (var_type == vtype::group) {
@@ -250,7 +250,7 @@ std::expected<flang::vtype, flang::semantic_error> flang::type_of_expression(con
 			return vtype::boolean;
 		}
 
-		return semantic_error::make<"cannot apply unary operation `{}` to type `{}`">(node, node->type(), value.value());
+		return semantic_error::make<"cannot apply unary operation `{}` to type `{}`">(node, node->type(), vtype_to_string(value.value()));
 	}
 
 	if (node->is_type<grammar::op::un_negative>()) {
@@ -264,7 +264,7 @@ std::expected<flang::vtype, flang::semantic_error> flang::type_of_expression(con
 			return vt;
 		}
 
-		return semantic_error::make<"cannot apply unary operation `{}` to type `{}`">(node, node->type(), value.value());
+		return semantic_error::make<"cannot apply unary operation `{}` to type `{}`">(node, node->type(), vtype_to_string(value.value()));
 	}
 
 	if (auto op = detail::op_type_map().find(node->type()); op != detail::op_type_map().end()) {
@@ -287,7 +287,7 @@ std::expected<flang::vtype, flang::semantic_error> flang::type_of_expression(con
 			return result->second;
 		}
 
-		return semantic_error::make<"incompatible types (`{}`, `{}`) for operation `{}`">(node, key.first, key.second, node->type());
+		return semantic_error::make<"incompatible types (`{}`, `{}`) for operation `{}`">(node, vtype_to_string(key.first), vtype_to_string(key.second), node->type());
 	}
 
 	if (node->is_type<grammar::expr::parenthesized>()) {
@@ -305,7 +305,7 @@ std::expected<flang::vtype, flang::semantic_error> flang::type_of_expression(con
 
 		if (auto type = type_desc::to_vtype(*info.value()); type != vtype::function) {
 			// type is not a function
-			return semantic_error::make<"variable is not a function, actual type `{}`">(node, type);
+			return semantic_error::make<"variable is not a function, actual type `{}`">(node, vtype_to_string(type));
 		}
 
 		const auto& func = std::get<type_desc::function>(*info.value());

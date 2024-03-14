@@ -21,6 +21,7 @@ set(HEADER_LIST
 	"include/librefrakt/image/denoiser.h"
 	"include/librefrakt/image/converter.h"
 	"include/librefrakt/anima.h"
+	"include/librefrakt/allocators.h"
 )
 
 add_library(librefrakt STATIC
@@ -40,6 +41,7 @@ add_library(librefrakt STATIC
 	"src/image/denoiser.cpp"
 	"src/image/converter.cpp"
 	"src/anima.cpp"
+	"src/allocators.cpp"
 	${HEADER_LIST}
 )
 
@@ -54,6 +56,7 @@ FetchContent_Declare(
   yaml_cpp
   GIT_REPOSITORY https://github.com/jbeder/yaml-cpp.git
   GIT_TAG yaml-cpp-0.7.0
+  EXCLUDE_FROM_ALL
 )
 FetchContent_MakeAvailable(yaml_cpp)
 
@@ -69,18 +72,6 @@ list(REMOVE_ITEM XXHASH_SOURCES ${xxhash_SOURCE_DIR}/xxhsum.c)
 list(REMOVE_ITEM XXHASH_SOURCES ${xxhash_SOURCE_DIR}/xxh_x86dispatch.c)
 add_library(xxhash STATIC ${XXHASH_SOURCES})
 target_include_directories(xxhash PUBLIC ${xxhash_SOURCE_DIR})
-
-set(ZLIB_ENABLE_TESTS OFF)
-set(ZLIB_COMPAT ON)
-set(BUILD_SHARED_LIBS ON)
-# zlib
-FetchContent_Declare(
-  zlib
-  GIT_REPOSITORY https://github.com/zlib-ng/zlib-ng
-  GIT_TAG stable
-)
-FetchContent_MakeAvailable(zlib)
-set(BUILD_SHARED_LIBS OFF)
 
 # sqlite
 FetchContent_Declare(
@@ -190,7 +181,7 @@ target_link_libraries(librefrakt PRIVATE
 	CUDA::nvjpeg
 	stb
 	zip
-	CURL::libcurl
+	CURL::libcurl_static
 )
 
 target_link_libraries(librefrakt PUBLIC
