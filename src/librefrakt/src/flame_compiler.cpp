@@ -902,20 +902,20 @@ void fix_rotation(std::span<double> samples, std::size_t sample_size, std::span<
             double2 trans;
             int2 zlm = { 0, 0 };
 
-            double2 c1 = { samples[offset], samples[offset + 2]};
+            double2 c1 = { samples[offset], samples[offset + 1]};
             double tr = samples[offset + 4];
 
             ang.x = atan2(c1.y, c1.x);
-            mag.x = log(sqrt(c1.x * c1.x + c1.y * c1.y));
+            mag.x = sqrt(c1.x * c1.x + c1.y * c1.y);
 
             if (mag.x == 0.0) zlm.x = 1;
             trans.x = tr;
 
-            c1 = { samples[offset + 1], samples[offset + 3]};
+            c1 = { samples[offset + 2], samples[offset + 3]};
             tr = samples[offset + 5];
 
             ang.y = atan2(c1.y, c1.x);
-            mag.y = log(sqrt(c1.x * c1.x + c1.y * c1.y));
+            mag.y = sqrt(c1.x * c1.x + c1.y * c1.y);
 
             if (mag.y == 0.0) zlm.y = 1;
             trans.y = tr;

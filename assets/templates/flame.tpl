@@ -12,17 +12,15 @@ struct affine {
     }
 
     void depolar() {
-        FloatT ang = a;
-        FloatT mag = exp(b);
+        FloatT angx = a;
+        FloatT magx = exp(b);
+        FloatT angy = d;
+        FloatT magy = exp(e);
 
-        a = mag * cos(ang);
-        b = mag * sin(ang);
-
-        ang = d;
-        mag = exp(e);
-
-        d = mag * cos(ang);
-        e = mag * sin(ang);
+        a = magx * cos(angx);
+        d = magx * sin(angx);
+        b = magy * cos(angy);
+        e = magy * sin(angy);
     }
 };
 
