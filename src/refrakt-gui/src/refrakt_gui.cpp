@@ -737,7 +737,7 @@ private:
 		preview_panel::renderer_t renderer = [&](
 			rfkt::cuda_stream& stream, const rfkt::flame_kernel& kernel,
 			rfkt::flame_kernel::saved_state& state,
-			rfkt::flame_kernel::bailout_args bo, double3 gbv, bool upscale) {
+			rfkt::flame_kernel::bailout_args bo, double3 gbv, bool upscale, bool denoise) {
 
 				const auto total_bins = state.bins.area();
 
@@ -759,14 +759,15 @@ private:
 				tonemap->run(state.bins, tonemapped, { state.quality, gbv.x, gbv.y, gbv.z }, stream);
 				stream.sync();
 				auto& denoiser = upscale ? denoise_upscale : denoise_normal;
-				denoiser->denoise(tonemapped, denoised, stream);
-				tonemapped.free_async(stream);
+				if(denoise) denoiser->denoise(tonemapped, denoised, stream);
+				
 				if constexpr (std::same_as<preview_panel::pixel_type, float4>) {
 					convert->to_float3(denoised, out_buf, stream);
 				}
 				else {
-					convert->to_24bit(denoised, out_buf, false, stream);
+					convert->to_24bit((denoise)? denoised: tonemapped, out_buf, false, stream);
 				}
+				tonemapped.free_async(stream);
 				denoised.free_async(stream);
 				stream.sync();
 
@@ -782,7 +783,7 @@ private:
 		prev_panel = std::make_unique<preview_panel>(*f_comp, std::move(executor), std::move(renderer), c_exec);
 		render_modal = std::make_unique<rfkt::gui::render_modal>(*k_comp, *f_comp, fdb, functions );
 
-		cur_flame = proj.add_flame(std::move(rfkt::import_flam3(fdb, rfkt::fs::read_string("assets/flames_test/stock_2_by_tatasz.flam3")).value()));
+		cur_flame = proj.add_flame(std::move(rfkt::import_flam3(fdb, rfkt::fs::read_string("assets/flames_test/electricsheep.247.50049.flam3")).value()));
 
 		auto& file_menu = mainm.add_menu("File");
 		file_menu.add_item("New project");

@@ -13,6 +13,9 @@
 #include <experimental/generator>
 #include <vector_types.h>
 
+#include <glm/mat4x4.hpp>
+#include <glm/gtc/matrix_transform.hpp>
+
 using json = nlohmann::json;
 using ordered_json = nlohmann::ordered_json;
 
@@ -120,17 +123,19 @@ namespace rfkt {
 		anima f = 0.0;
 
 		affine rotated(double deg) const noexcept {
-			double rad = 0.0174532925199432957692369076848861271344287188854172545609719144 * deg;
-			double sino = sin(rad);
-			double coso = cos(rad);
+			double rad = -glm::radians(deg);
+
+			glm::dmat4 m = {
+				a.t0, b.t0, 0, 0,
+				d.t0, e.t0, 0, 0,
+				0, 0, 1, 0,
+				0, 0, 0, 1
+			};
+
+			auto newmat = glm::rotate(m, rad, glm::dvec3(0, 0, 1));
 
 			return {
-				a.t0 * coso + b.t0 * sino,
-				d.t0 * coso + e.t0 * sino,
-				b.t0 * coso - a.t0 * sino,
-				e.t0 * coso - d.t0 * sino,
-				c,
-				f
+				newmat[0][0], newmat[1][0], newmat[0][1], newmat[1][1], c.t0, f.t0
 			};
 		}
 
@@ -722,8 +727,8 @@ namespace rfkt {
 		std::vector<std::size_t> affine_indices() const {
 
 			auto ret = std::vector<std::size_t>{};
-			ret.push_back(0);
-			ret.push_back(6);
+			//ret.push_back(0);
+			//ret.push_back(6);
 
 			constexpr static std::size_t flame_offset = 13;
 			constexpr static std::size_t xform_base_reals = 4;

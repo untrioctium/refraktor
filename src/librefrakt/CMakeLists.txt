@@ -81,6 +81,14 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(sqlite3)
 target_include_directories(librefrakt PUBLIC ${sqlite3_SOURCE_DIR})
 
+# glm
+FetchContent_Declare(
+  glm
+  GIT_REPOSITORY https://github.com/g-truc/glm
+)
+FetchContent_MakeAvailable(glm)
+target_link_libraries(librefrakt PUBLIC glm)
+
 # concurrencpp
 FetchContent_Declare(
   concurrencpp
@@ -141,6 +149,14 @@ FetchContent_Declare(
 
 FetchContent_MakeAvailable(sol2)
 
+# dylib
+FetchContent_Declare(
+    dylib
+    GIT_REPOSITORY "https://github.com/martin-olivier/dylib"
+    GIT_TAG        "v2.1.0"
+)
+FetchContent_MakeAvailable(dylib)
+
 if(WIN32)
 	set(CURL_USE_SCHANNEL ON CACHE BOOL "" FORCE)
 endif()
@@ -172,6 +188,7 @@ add_subdirectory(depend/flang)
 add_subdirectory(depend/ezrtc)
 add_subdirectory(depend/eznve)
 add_subdirectory(depend/optix_downloader)
+add_subdirectory(depend/roccu)
 
 message(STATUS "Found Optix: $ENV{OPTIX_INCLUDE_DIRECTORY}")
 target_include_directories(librefrakt PRIVATE $ENV{OPTIX_INCLUDE_DIRECTORY})
@@ -185,6 +202,7 @@ target_link_libraries(librefrakt PRIVATE
 )
 
 target_link_libraries(librefrakt PUBLIC
+	roccu
 	flang
 	ezrtc
 	eznve
@@ -199,4 +217,5 @@ target_link_libraries(librefrakt PUBLIC
 	SQLite3
 	zlib
 	pugixml
+	dylib
 )

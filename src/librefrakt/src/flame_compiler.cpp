@@ -906,7 +906,7 @@ void fix_rotation(std::span<double> samples, std::size_t sample_size, std::span<
             double tr = samples[offset + 4];
 
             ang.x = atan2(c1.y, c1.x);
-            mag.x = sqrt(c1.x * c1.x + c1.y * c1.y);
+            mag.x = log(sqrt(c1.x * c1.x + c1.y * c1.y));
 
             if (mag.x == 0.0) zlm.x = 1;
             trans.x = tr;
@@ -915,7 +915,7 @@ void fix_rotation(std::span<double> samples, std::size_t sample_size, std::span<
             tr = samples[offset + 5];
 
             ang.y = atan2(c1.y, c1.x);
-            mag.y = sqrt(c1.x * c1.x + c1.y * c1.y);
+            mag.y = log(sqrt(c1.x * c1.x + c1.y * c1.y));
 
             if (mag.y == 0.0) zlm.y = 1;
             trans.y = tr;

@@ -177,8 +177,8 @@ struct flame_t {
 
     __device__ void do_precalc(RandCtx* rs) {
 
-        screen_space.depolar();
-        plane_space.depolar();
+        //screen_space.depolar();
+        //plane_space.depolar();
 
         // calculate weight sum
         weight_sum = <# for xid in range(num_standard_xforms) #>xform_@xid@.weight<# if not loop.is_last #> +<# endif #><# endfor #>;
@@ -202,8 +202,8 @@ struct flame_t {
         <# endfor #>
     }
     
-    void print_debug() {
-        /*printf("flame_t\n");
+    void print_debug() { 
+        printf("flame_t\n");
         printf("  screen_space: { a: %f, d: %f, b: %f, e: %f, c: %f, f: %f }\n", screen_space.a, screen_space.d, screen_space.b, screen_space.e, screen_space.c, screen_space.f);
         printf("  plane_space: { a: %f, d: %f, b: %f, e: %f, c: %f, f: %f }\n", plane_space.a, plane_space.d, plane_space.b, plane_space.e, plane_space.c, plane_space.f);
         printf("  weight_sum: %f\n", weight_sum);
@@ -241,7 +241,7 @@ struct flame_t {
         <# endif #>
         <# endfor #> 
         <# endfor #>
-        <# endfor #>*/
+        <# endfor #>
     }
     
 };

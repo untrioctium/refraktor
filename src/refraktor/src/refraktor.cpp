@@ -23,6 +23,8 @@
 
 #include <flang/grammar.h>
 
+#include <roccu.h>
+
 bool break_loop = false;
 
 /*int mux(const rfkt::fs::path& in, const rfkt::fs::path& out, double fps) {
@@ -591,7 +593,16 @@ consteval auto demangle() {
 
 int main() {
 
+	auto ret = roccuInit();
+
 	auto ctx = rfkt::cuda::init();
+
+	auto test = ruMemAlloc;
+	auto cumem = &cuMemAlloc;
+
+	CUdeviceptr ptr = 0;
+	auto res = ruMemAlloc(&ptr, 1024);
+
 	rfkt::denoiser::init(ctx);
 
 	rfkt::flamedb fdb;
@@ -605,9 +616,9 @@ int main() {
 	km->find_system_cuda();
 	auto fc = rfkt::flame_compiler{ km };
 
-	uint2 dims = { 1920, 1080 };
+	uint2 dims = { 800, 592 };
 
-	auto pp = rfkt::postprocessor{ *km, dims, rfkt::denoiser_flag::upscale };
+	auto pp = rfkt::postprocessor{ *km, dims };
 	auto je = rfkt::nvjpeg::encoder{ stream };
 
 	auto bins = rfkt::cuda_image<float4>{ pp.input_dims().x, pp.input_dims().y };
@@ -654,13 +665,13 @@ int main() {
 		return f.value();
 	};
 
-	auto left = must_load_flame("assets/flames_test/electricsheep.247.26775.flam3");
+	auto left = must_load_flame("assets/flames_test/electricsheep.247.38128.flam3");
 	auto right = must_load_flame("assets/flames_test/electricsheep.247.27094.flam3");
 
 
 	auto interp = interpolator{ left, right, fdb, false };
 
-	auto k = fc.get_flame_kernel(fdb, rfkt::precision::f32, interp.left_flame());
+	auto k = fc.get_flame_kernel(fdb, rfkt::precision::f32, left);
 
 	constexpr static auto pascal = [](double a, double b) {
 		double result = 1;
@@ -695,7 +706,7 @@ int main() {
 
 	cuStreamSetAttribute(stream, CU_STREAM_ATTRIBUTE_ACCESS_POLICY_WINDOW, &stream_value);
 
-	for (const auto& fname : rfkt::fs::list("assets/flames/", rfkt::fs::filter::has_extension(".flam3"))) {
+	/*for (const auto& fname : rfkt::fs::list("assets/flames/", rfkt::fs::filter::has_extension(".flam3"))) {
 		auto fxml = rfkt::fs::read_string(fname);
 		auto f = rfkt::import_flam3(fdb, fxml);
 
@@ -705,7 +716,7 @@ int main() {
 		}
 
 		auto k = fc.get_flame_kernel(fdb, rfkt::precision::f32, f.value());
-	}
+	}*/
 
 	for (int i = 0; i < num_frames; i++) {
 		SPDLOG_INFO("frame {}", i);
@@ -729,14 +740,14 @@ int main() {
 		auto samples = std::vector<double>{};
 		auto packer = [&samples](double v) { samples.push_back(v); };
 		double fudge = fps / 24.0;
-		interp.pack_samples(packer, invoker, t - fudge * loops_per_frame, fudge * loops_per_frame, 4, pp.input_dims().x, pp.input_dims().y, mix);
+		left.pack_samples(packer, invoker, t - fudge * loops_per_frame, fudge * loops_per_frame, 4, pp.input_dims().x, pp.input_dims().y);
 
 		auto state = k.kernel->warmup(stream, samples, std::move(bins), 0xDEADBEEF, 100);
 		auto q = k.kernel->bin(stream, state, { .millis = 2000, .quality = 512 }).get();
 
-		double gamma = interp.interp_anima(&rfkt::flame::gamma, invoker, t, mix);
-		double brightness = interp.interp_anima(&rfkt::flame::brightness, invoker, t, mix);
-		double vibrancy = interp.interp_anima(&rfkt::flame::vibrancy, invoker, t, mix);;
+		double gamma = left.gamma.sample(t, invoker);
+		double brightness = left.brightness.sample(t, invoker);
+		double vibrancy = left.vibrancy.sample(t, invoker);
 
 		auto res = pp.post_process(state.bins, out, q.quality, gamma, brightness, vibrancy, true, stream).get();
 

@@ -90,7 +90,8 @@ bool preview_panel::show(const rfkt::flamedb& fdb, rfkt::flame& flame, rfkt::fun
 				gbv = double3{ flame.gamma.sample(current_time, invoker), flame.brightness.sample(current_time, invoker), flame.vibrancy.sample(current_time, invoker)},
 				&stream = this->stream, preview_size,
 				target_quality = this->target_quality,
-				upscale = this->upscale]() mutable {
+				upscale = this->upscale,
+				denoise = this->denoise]() mutable {
 
 					if (needs_kernel) {
 						auto result = compiler.get_flame_kernel(fdb, rfkt::precision::f32, *flame_copy);
@@ -107,7 +108,7 @@ bool preview_panel::show(const rfkt::flamedb& fdb, rfkt::flame& flame, rfkt::fun
 						//millis = 100u;
 					}
 
-					auto result = renderer(stream, *kernel, *state, { .millis = millis, .quality = target_quality - state->quality }, gbv, upscale);
+					auto result = renderer(stream, *kernel, *state, { .millis = millis, .quality = target_quality - state->quality }, gbv, upscale, denoise);
 					cuda_map.copy_from(result, stream);
 					result.free_async(stream);
 					
@@ -152,6 +153,10 @@ uint2 preview_panel::gui_logic(rfkt::flame& flame, rfkt::function_table& ft) {
 					render_options_changed = true;
 				}
 				ImFtw::Tooltip("Enables upscaling; improves performance but reduces quality.", false);
+
+				if (ImGui::MenuItem("Denoise", nullptr, &this->denoise)) {
+					render_options_changed = true;
+				}
 			}
 
 			IMFTW_MENU("Quality") {

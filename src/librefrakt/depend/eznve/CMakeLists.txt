@@ -23,12 +23,5 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(nv-codec-headers)
 target_include_directories(eznve PRIVATE ${nv-codec-headers_SOURCE_DIR}/include)
 
-FetchContent_Declare(
-    dylib
-    GIT_REPOSITORY "https://github.com/martin-olivier/dylib"
-    GIT_TAG        "v2.1.0"
-)
-FetchContent_MakeAvailable(dylib)
-
-target_link_libraries(eznve PRIVATE dylib)
+target_link_libraries(eznve PUBLIC dylib)
 target_link_libraries(eznve PUBLIC CUDA::cuda_driver)
