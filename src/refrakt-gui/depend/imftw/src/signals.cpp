@@ -295,6 +295,11 @@ void ImFtw::sigs::opengl::set_target_framerate::handle(ImFtw::context_t& ctx) co
 		ctx.target_framerate = std::nullopt;
 }
 
+void ImFtw::sigs::opengl::set_imgui_ini_path::handle(ImFtw::context_t& ctx) const {
+	ctx.imgui_ini_path = path;
+	ImGui::GetIO().IniFilename = ctx.imgui_ini_path.c_str();
+}
+
 void ImFtw::Sig::SetTargetFramerate(unsigned int fps) {
 	ImFtw::Sig::push_opengl_signal(ImFtw::sigs::opengl::set_target_framerate{ fps });
 }

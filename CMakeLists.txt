@@ -22,7 +22,7 @@ set(BUILD_BENCHMARK OFF CACHE BOOL "" FORCE)
 set(BUILD_SHARED_LIBS OFF)
 set_property(GLOBAL PROPERTY USE_FOLDERS ON)
 
-find_package(CUDAToolkit)
+#find_package(CUDAToolkit)
 
 # spdlog
 FetchContent_Declare(
@@ -54,11 +54,11 @@ add_subdirectory(src/refrakt-server)
 add_subdirectory(src/refrakt-gui)
 
 
-install(TARGETS refrakt-gui RUNTIME DESTINATION . COMPONENT refrakt)
-set(CPACK_COMPONENTS_ALL refrakt)
-include(CPack)
+#install(TARGETS refrakt-gui RUNTIME DESTINATION . COMPONENT refrakt)
+#set(CPACK_COMPONENTS_ALL refrakt)
+#include(CPack)
 
-get_cmake_property(_variableNames VARIABLES)
-foreach (_variableName ${_variableNames})
-    message(STATUS "${_variableName}=${${_variableName}}")
-endforeach()
+#get_cmake_property(_variableNames VARIABLES)
+#foreach (_variableName ${_variableNames})
+#    message(STATUS "${_variableName}=${${_variableName}}")
+#endforeach()

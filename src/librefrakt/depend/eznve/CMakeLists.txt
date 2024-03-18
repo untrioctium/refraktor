@@ -23,5 +23,4 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(nv-codec-headers)
 target_include_directories(eznve PRIVATE ${nv-codec-headers_SOURCE_DIR}/include)
 
-target_link_libraries(eznve PUBLIC dylib)
-target_link_libraries(eznve PUBLIC CUDA::cuda_driver)
+target_link_libraries(eznve PUBLIC dylib roccu)

@@ -149,7 +149,7 @@ double rfkt::function_table::call_impl(std::string_view name, double t, double i
 		return iv;
 	}
 
-	vm["instruction_count"] = 0;
+	//vm["instruction_count"] = 0;
 	SPDLOG_DEBUG("Calling {}", name);
 	auto result = vm_info.func(t, iv, sol::as_args(call_args));
 	SPDLOG_DEBUG("Done calling, {} instructions", vm["instruction_count"].get_or(0));

@@ -1,7 +1,14 @@
-#include <nvml.h>
 #include <chrono>
 
+using nvmlDevice_t = struct nvmlDevice_st*;
+
 namespace rfkt::gpuinfo {
+
+	struct memory_info {
+		std::size_t total;
+		std::size_t free;
+		std::size_t used;
+	};
 
 	void init();
 
@@ -25,6 +32,8 @@ namespace rfkt::gpuinfo {
 		auto max_clock() const -> unsigned int;
 		auto clock_percent() const -> unsigned int;
 
+		auto memory_info() const -> memory_info;
+
 		// returns the total amount of energy used by the GPU in joules since the driver was loaded
 		// use two calls to this function to get the energy used in joules over a period of time
 		auto total_energy_usage() const -> double;
@@ -37,13 +46,6 @@ namespace rfkt::gpuinfo {
 	private:
 		explicit device(nvmlDevice_t dev) : dev(dev) {}
 		mutable nvmlDevice_t dev = nullptr;
-
-		template<nvmlClockId_t Id, nvmlClockType_t Type>
-		unsigned int get_clock() const noexcept {
-			unsigned int value;
-			nvmlDeviceGetClock(dev, Type, Id, &value);
-			return value * 1'000'000;
-		}
 	};
 
 	class power_meter {

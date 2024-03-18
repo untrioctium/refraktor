@@ -89,7 +89,7 @@ private:
 
 inline static const auto api = api_t{};
 
-eznve::encoder::encoder(uint2 dims, uint2 fps, codec c, CUcontext ctx) : dims(dims) {
+eznve::encoder::encoder(uint2 dims, uint2 fps, codec c, RUcontext ctx) : dims(dims) {
 	const auto& funcs = api.funcs();
 
 	auto session_params = pbuf_as<NV_ENC_OPEN_ENCODE_SESSION_EX_PARAMS>();
@@ -150,7 +150,7 @@ eznve::encoder::~encoder() {
 	for (auto& buf : buffers) {
 		funcs.nvEncDestroyBitstreamBuffer(session, buf.out_stream);
 		funcs.nvEncUnregisterResource(session, buf.registration);
-		cuMemFree(buf.ptr);
+		ruMemFree(buf.ptr);
 	}
 
 	funcs.nvEncDestroyEncoder(session);
@@ -236,7 +236,7 @@ void eznve::encoder::push_buffer()
 {
 	auto buf = buffer_t{};
 
-	cuMemAlloc(&buf.ptr, dims.x * dims.y * 4);
+	ruMemAlloc(&buf.ptr, dims.x * dims.y * 4);
 
 	auto out_buf = pbuf_as<NV_ENC_CREATE_BITSTREAM_BUFFER>();
 	out_buf->version = NV_ENC_CREATE_BITSTREAM_BUFFER_VER;

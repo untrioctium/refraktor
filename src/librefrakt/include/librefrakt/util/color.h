@@ -1,6 +1,6 @@
 #pragma once
 
-#include <vector_types.h>
+#include <roccu_vector_types.h>
 
 namespace rfkt::color {
 	auto rgb_to_hsv(const double3&)->double3;

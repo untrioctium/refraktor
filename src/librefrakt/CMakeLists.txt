@@ -16,7 +16,7 @@ set(HEADER_LIST
 	"include/librefrakt/flame_types.h"
 	"include/librefrakt/flame_info.h"
 	"include/librefrakt/flame_compiler.h"
-	"include/librefrakt/cuda_buffer.h"
+	"include/librefrakt/gpu_buffer.h"
 	"include/librefrakt/image/tonemapper.h"
 	"include/librefrakt/image/denoiser.h"
 	"include/librefrakt/image/converter.h"
@@ -195,7 +195,7 @@ target_include_directories(librefrakt PRIVATE $ENV{OPTIX_INCLUDE_DIRECTORY})
 
 target_link_libraries(librefrakt PRIVATE 
 	xxhash 
-	CUDA::nvjpeg
+	#CUDA::nvjpeg
 	stb
 	zip
 	CURL::libcurl_static
@@ -207,8 +207,8 @@ target_link_libraries(librefrakt PUBLIC
 	ezrtc
 	eznve
 	spdlog 
-	CUDA::nvml
-	CUDA::cuda_driver
+	#CUDA::nvml
+	#CUDA::cuda_driver
 	concurrencpp
 	inja
 	lua_static

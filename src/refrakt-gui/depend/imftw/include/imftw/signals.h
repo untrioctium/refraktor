@@ -47,5 +47,7 @@ namespace ImFtw::Sig {
     void SetLowPowerMode(bool);
     void SetTargetFramerate(unsigned int fps);
 
+    void SetImguiIniPath(std::string path);
+
 
 }

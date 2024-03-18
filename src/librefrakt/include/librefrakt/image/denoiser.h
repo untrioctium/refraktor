@@ -1,12 +1,11 @@
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
 
-#include <cuda.h>
-#include <vector_types.h>
+#include <roccu.h>
 #include <memory>
 #include <future>
 
-#include <librefrakt/cuda_buffer.h>
+#include <librefrakt/gpu_buffer.h>
 
 namespace rfkt {
 
@@ -23,7 +22,7 @@ namespace rfkt {
     public:
 
 
-        static void init(CUcontext ctx);
+        static void init(RUcontext ctx);
 
         denoiser(uint2 max_dims, denoiser_flag::flags options = denoiser_flag::none);
 
@@ -36,10 +35,10 @@ namespace rfkt {
         ~denoiser();
 
         using pixel_type = half3;
-        using image_type = cuda_image<pixel_type>;
-        std::future<double> denoise(const image_type& in, image_type& out, cuda_stream& stream);
+        using image_type = gpu_image<pixel_type>;
+        std::future<double> denoise(const image_type& in, image_type& out, gpu_stream& stream);
 
-        static double benchmark(uint2 dims, denoiser_flag::flags options, std::uint32_t num_passes, cuda_stream& stream);
+        static double benchmark(uint2 dims, denoiser_flag::flags options, std::uint32_t num_passes, gpu_stream& stream);
 
     private:
         class denoiser_impl;

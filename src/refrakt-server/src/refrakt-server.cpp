@@ -1,7 +1,7 @@
 #include <App.h>
 #include "concurrencpp/concurrencpp.h"
 
-#include <vector_types.h>
+#include <roccu_vector_types.h>
 
 #include <librefrakt/flame_compiler.h>
 #include <eznve.hpp>
@@ -164,11 +164,11 @@ namespace rfkt {
 		postprocessor(postprocessor&&) = default;
 		postprocessor& operator=(postprocessor&&) = default;
 
-		auto make_output_buffer() const -> rfkt::cuda_buffer<uchar4> {
-			return rfkt::cuda_buffer<uchar4>{ dims_.x* dims_.y };
+		auto make_output_buffer() const -> rfkt::gpu_buffer<uchar4> {
+			return rfkt::gpu_buffer<uchar4>{ dims_.x* dims_.y };
 		}
 
-		auto make_output_buffer(CUstream stream) const -> rfkt::cuda_buffer<uchar4> {
+		auto make_output_buffer(RUstream stream) const -> rfkt::gpu_buffer<uchar4> {
 			return { dims_.x * dims_.y, stream };
 		}
 
@@ -186,12 +186,12 @@ namespace rfkt {
 		}
 
 		std::future<double> post_process(
-			rfkt::cuda_span<float4> in,
-			rfkt::cuda_span<uchar4> out,
+			rfkt::gpu_span<float4> in,
+			rfkt::gpu_span<uchar4> out,
 			double quality,
 			double gamma, double brightness, double vibrancy,
 			bool planar_output,
-			cuda_stream& stream) {
+			gpu_stream& stream) {
 
 			auto promise = std::promise<double>{};
 			auto future = promise.get_future();
@@ -216,8 +216,8 @@ namespace rfkt {
 		rfkt::denoiser dn;
 		rfkt::converter conv;
 
-		rfkt::cuda_image<half3> tonemapped;
-		rfkt::cuda_image<half3> denoised;
+		rfkt::gpu_image<half3> tonemapped;
+		rfkt::gpu_image<half3> denoised;
 
 		rfkt::timer perf_timer;
 
@@ -302,12 +302,12 @@ namespace rfkt {
 	private:
 
 		struct last_frame {
-			rfkt::cuda_image<float4> bins = {};
+			rfkt::gpu_image<float4> bins = {};
 			double quality = 0.0;
 			double gamma = 0.0;
 			double brightness = 0.0;
 			double vibrancy = 0.0;
-			rfkt::cuda_stream pp_stream{};
+			rfkt::gpu_stream pp_stream{};
 
 			std::size_t total_passes = 0;
 			std::size_t total_draws = 0;
@@ -520,7 +520,7 @@ namespace rfkt {
 
 		rfkt::cuda::context ctx;
 
-		rfkt::cuda_stream stream;
+		rfkt::gpu_stream stream;
 
 		ezrtc::compiler& km;
 		rfkt::flame_compiler& fc;
@@ -610,7 +610,7 @@ void session_render_thread(std::shared_ptr<socket_data> ud, rfkt::cuda::context 
 		total_passes += result.total_passes;
 		wait_time += time_since_start() - wait_start;
 
-		denoise_time += ud->pp.post_process(state.bins, rfkt::cuda_span<uchar4>{ ud->session->buffer(), ud->session->buffer_size() }, result.quality, gamma, brightness, vibrancy, false, tls).get();
+		denoise_time += ud->pp.post_process(state.bins, rfkt::gpu_span<uchar4>{ ud->session->buffer(), ud->session->buffer_size() }, result.quality, gamma, brightness, vibrancy, false, tls).get();
 
 		ud->total_frames++;
 
@@ -694,7 +694,7 @@ int main(int argc, char** argv) {
 	km->find_system_cuda();
 	auto fc = rfkt::flame_compiler{ km };
 
-	auto jpeg_stream = rfkt::cuda_stream{};
+	auto jpeg_stream = rfkt::gpu_stream{};
 
 	auto conv = rfkt::converter{ *km };
 	auto jpeg = rfkt::nvjpeg::encoder{ jpeg_stream };
@@ -867,9 +867,9 @@ int main(int argc, char** argv) {
 			auto dn = rfkt::denoiser{ {rd.outwidth, rd.outheight}, rd.upscale };
 
 			auto kernel = rfkt::flame_kernel{ std::move(k_result.kernel.value()) };
-			auto tonemapped = rfkt::cuda_buffer<half3>(rd.width * rd.height, jpeg_stream);
-			auto smoothed = rfkt::cuda_buffer<half3>(rd.outwidth * rd.outheight, jpeg_stream);
-			auto render = rfkt::cuda_buffer<uchar4>(rd.outwidth * rd.outheight, jpeg_stream);
+			auto tonemapped = rfkt::gpu_buffer<half3>(rd.width * rd.height, jpeg_stream);
+			auto smoothed = rfkt::gpu_buffer<half3>(rd.outwidth * rd.outheight, jpeg_stream);
+			auto render = rfkt::gpu_buffer<uchar4>(rd.outwidth * rd.outheight, jpeg_stream);
 			auto state = kernel.warmup(jpeg_stream, fopt.value(), { rd.width, rd.height }, rd.time, rd.segments, double(rd.fps) / rd.loop_speed, rd.seed, 100);
 
 			timer.reset();

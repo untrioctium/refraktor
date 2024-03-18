@@ -193,25 +193,6 @@ bool rfkt::gui::panels::flame_editor(rfkt::flamedb& fdb, rfkt::flame& f, command
 							flame_drag_edit(fdesc::vlink{ xid, i, &rfkt::vlink::mod_y }, "Y", 0.01f);
 							ImGui::Separator();
 
-							ImGui::Text("Effective:");
-
-							rfkt::affine sampled = rfkt::affine{
-								vl.transform.a.sample(0, invoker),
-								vl.transform.d.sample(0, invoker),
-								vl.transform.b.sample(0, invoker),
-								vl.transform.e.sample(0, invoker),
-								vl.transform.c.sample(0, invoker),
-								vl.transform.f.sample(0, invoker)
-							}.scaled(vl.mod_scale.sample(0, invoker)).rotated(vl.mod_rotate.sample(0, invoker)).translated(vl.mod_x.sample(0, invoker), vl.mod_y.sample(0, invoker));
-
-							ImGui::Text("A: %f", sampled.a.t0);
-							ImGui::Text("B: %f", sampled.b.t0);
-							ImGui::Text("C: %f", sampled.c.t0);
-							ImGui::Text("D: %f", sampled.d.t0);
-							ImGui::Text("E: %f", sampled.e.t0);
-							ImGui::Text("F: %f", sampled.f.t0);
-
-
 							//static bool just_opened = false;
 							static char filter[128] = { 0 };
 

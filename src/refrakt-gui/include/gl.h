@@ -1,6 +1,6 @@
 #pragma once
 
-#include <cuda.h>
+#include <roccu.h>
 #include <glad/glad.h>
 #include <cstdint>
 #include <atomic>
@@ -10,12 +10,9 @@
 #include <future>
 
 #include <librefrakt/traits/noncopyable.h>
-#include <librefrakt/cuda_buffer.h>
+#include <librefrakt/gpu_buffer.h>
 
 namespace rfkt::gl {
-
-	std::string show_open_dialog(const rfkt::fs::path& path, std::string_view filter);
-	std::string show_save_dialog(const rfkt::fs::path& path, std::string_view filter);
 
 	enum class texture_format : unsigned char {
 		rgba8,
@@ -52,11 +49,11 @@ namespace rfkt::gl {
 #undef RFKT_TEX_FORMAT_TRAITS
 
 	namespace detail {
-		std::pair<GLuint, CUgraphicsResource> allocate_texture(std::size_t w, std::size_t h, GLenum internal_format, sampling_mode s_mode);
-		void deallocate_texture(GLuint id, CUgraphicsResource res);
+		std::pair<GLuint, RUgraphicsResource> allocate_texture(std::size_t w, std::size_t h, GLenum internal_format, sampling_mode s_mode);
+		void deallocate_texture(GLuint id, RUgraphicsResource res);
 
-		std::pair<CUDA_MEMCPY2D, CUarray> create_mapping(CUgraphicsResource cuda_res, std::size_t w, std::size_t h, std::size_t pixel_size);
-		void destroy_mapping(CUgraphicsResource cuda_res, std::any&& parent);
+		std::pair<RU_MEMCPY2D, RUarray> create_mapping(RUgraphicsResource cuda_res, std::size_t w, std::size_t h, std::size_t pixel_size);
+		void destroy_mapping(RUgraphicsResource cuda_res, std::any&& parent);
 	}
 
 	template<texture_format Format>
@@ -105,20 +102,20 @@ namespace rfkt::gl {
 				return *this;
 			}
 
-			void copy_from(cuda_span<typename texture::traits::pixel_type> buffer) {
+			void copy_from(gpu_span<typename texture::traits::pixel_type> buffer) {
 				if(buffer.size_bytes() < copy_params.WidthInBytes * copy_params.Height)
 					throw std::runtime_error("cuda_map::copy_from: buffer too small");
 
 				copy_params.srcDevice = buffer.ptr();
-				CUDA_SAFE_CALL(cuMemcpy2D(&copy_params));
+				CUDA_SAFE_CALL(ruMemcpy2D(&copy_params));
 			}
 
-			void copy_from(cuda_span<typename texture::traits::pixel_type> buffer, rfkt::cuda_stream& stream) {
+			void copy_from(gpu_span<typename texture::traits::pixel_type> buffer, rfkt::gpu_stream& stream) {
 				if (buffer.size_bytes() < copy_params.WidthInBytes * copy_params.Height)
 					throw std::runtime_error("cuda_map::copy_from: buffer too small");
 
 				copy_params.srcDevice = buffer.ptr();
-				CUDA_SAFE_CALL(cuMemcpy2DAsync(&copy_params, stream));
+				CUDA_SAFE_CALL(ruMemcpy2DAsync(&copy_params, stream));
 			}
 		private:
 
@@ -130,8 +127,8 @@ namespace rfkt::gl {
 
 			friend class texture;
 
-			CUDA_MEMCPY2D copy_params;
-			CUarray arr = nullptr;
+			RU_MEMCPY2D copy_params;
+			RUarray arr = nullptr;
 
 			texture::handle tex;
 
@@ -167,7 +164,7 @@ namespace rfkt::gl {
 		friend class cuda_map;
 
 		GLuint tex_id = 0;
-		CUgraphicsResource cuda_res = nullptr;
+		RUgraphicsResource cuda_res = nullptr;
 
 		std::size_t width_;
 		std::size_t height_;

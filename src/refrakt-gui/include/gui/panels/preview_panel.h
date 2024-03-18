@@ -13,7 +13,7 @@ public:
 	using texture_format = rfkt::gl::texture<rfkt::gl::texture_format::rgba8>;
 	using pixel_type = texture_format::traits::pixel_type;
 
-	using renderer_t = std::function<rfkt::cuda_image<pixel_type>(rfkt::cuda_stream&, const rfkt::flame_kernel&, rfkt::flame_kernel::saved_state&, rfkt::flame_kernel::bailout_args, double3, bool, bool)>;
+	using renderer_t = std::function<rfkt::gpu_image<pixel_type>(rfkt::gpu_stream&, const rfkt::flame_kernel&, rfkt::flame_kernel::saved_state&, rfkt::flame_kernel::bailout_args, double3, bool, bool)>;
 
 	preview_panel() = delete;
 	preview_panel(rfkt::flame_compiler& compiler, executor_t&& submitter, renderer_t&& renderer, command_executor& cmd_exec) :
@@ -45,7 +45,7 @@ private:
 
 	executor_t submitter;
 	renderer_t renderer;
-	rfkt::cuda_stream stream;
+	rfkt::gpu_stream stream;
 	rfkt::flame_compiler& compiler;
 	command_executor& cmd_exec;
 
@@ -58,8 +58,9 @@ private:
 
 	double aspect_ratio = 0.0;
 	bool render_options_changed = false;
-	bool upscale = false;
+	bool upscale = true;
 	bool denoise = true;
+	bool animate = true;
 	bool dragging = false;
 	bool playing = false;
 	double current_time = 0.0;

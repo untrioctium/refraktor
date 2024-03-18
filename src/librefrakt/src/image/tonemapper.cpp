@@ -26,7 +26,7 @@ namespace rfkt {
 		block_size = s_block;
 	}
 
-	void tonemapper::run(cuda_span<float4> bins, cuda_span<half3> out, const args_t& args, cuda_stream& stream) const {
+	void tonemapper::run(gpu_span<float4> bins, gpu_span<half3> out, const args_t& args, gpu_stream& stream) const {
 
 		unsigned int size = bins.size();
 		auto nblocks = size / block_size;

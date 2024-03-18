@@ -1,8 +1,7 @@
 #ifndef EZNVE_HPP
 #define EZNVE_HPP
 
-#include <cuda.h>
-#include <vector_types.h>
+#include <roccu.h>
 
 #include <functional>
 #include <span>
@@ -33,7 +32,7 @@ namespace eznve {
 
 	class encoder {
 	public:
-		encoder(uint2 dims, uint2 fps, codec c, CUcontext ctx);
+		encoder(uint2 dims, uint2 fps, codec c, RUcontext ctx);
 		~encoder();
 
 		encoder(const encoder&) = delete;
@@ -57,7 +56,7 @@ namespace eznve {
 		std::vector<chunk> submit_frame(frame_flag = frame_flag::none);
 		std::vector<chunk> flush();
 
-		CUdeviceptr buffer() const noexcept {
+		RUdeviceptr buffer() const noexcept {
 			return buffers[current_buffer].ptr;
 		}
 
@@ -108,7 +107,7 @@ namespace eznve {
 		void push_buffer();
 
 		struct buffer_t {
-			CUdeviceptr ptr;
+			RUdeviceptr ptr;
 			void* registration;
 			void* out_stream;
 			void* mapped;

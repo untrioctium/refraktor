@@ -1,7 +1,7 @@
 #include <ezrtc.h>
 #include <spdlog/spdlog.h>
 #include <librefrakt/util/cuda.h>
-#include <librefrakt/cuda_buffer.h>
+#include <librefrakt/gpu_buffer.h>
 
 namespace rfkt {
 	class converter {
@@ -31,7 +31,7 @@ namespace rfkt {
 			block_size_planar = s_block_planar;
 		}
 
-		void to_24bit(cuda_span<half3> in, cuda_span<uchar4> out, bool planar, cuda_stream& stream) const {
+		void to_24bit(gpu_span<half3> in, gpu_span<uchar4> out, bool planar, gpu_stream& stream) const {
 			auto kernel = (planar) ? conv.kernel("convert<true>") : conv.kernel("convert<false>");
 
 			auto b_size = (planar) ? block_size_planar : block_size;
@@ -50,7 +50,7 @@ namespace rfkt {
 				));
 		}
 
-		void to_float3(cuda_span<half3> in, cuda_span<float4> out, cuda_stream& stream) const {
+		void to_float3(gpu_span<half3> in, gpu_span<float4> out, gpu_stream& stream) const {
 			unsigned int size = in.size();
 			auto nblocks = size / block_size;
 			if (size % block_size != 0) {

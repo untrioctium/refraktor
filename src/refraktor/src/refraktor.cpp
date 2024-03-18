@@ -307,7 +307,7 @@ public:
 
 private:
 
-	//rfkt::cuda_buffer
+	//rfkt::gpu_buffer
 
 	rfkt::flame_compiler& fc;
 	rfkt::tonemapper& tm;
@@ -339,7 +339,7 @@ int main() {
 	km.find_system_cuda();
 	km.add_include_path("assets/kernels/include");
 
-	auto jpeg_stream = rfkt::cuda_stream{};
+	auto jpeg_stream = rfkt::gpu_stream{};
 
 	auto fc = rfkt::flame_compiler{ km };
 	auto jpeg = rfkt::nvjpeg::encoder{ jpeg_stream };
@@ -400,7 +400,7 @@ int main() {
 		auto kernel = rfkt::flame_kernel{ std::move(k_result.kernel.value()) };
 
 
-		auto render = rfkt::cuda_buffer<half3>{ width * height, tls };
+		auto render = rfkt::gpu_buffer<half3>{ width * height, tls };
 		rfkt::timer t;
 		auto state = kernel.warmup(tls, f, { width, height }, time, 1, double(fps) / loop_speed, 0xdeadbeef, 100);
 		cuStreamSynchronize(tls);
@@ -418,8 +418,8 @@ int main() {
 		cuStreamSynchronize(tls);
 		auto tm_time = t.count();
 
-		auto out = rfkt::cuda_buffer<uchar4>(width * height, tls);
-		auto smooth = rfkt::cuda_buffer<half3>(width * height, tls);
+		auto out = rfkt::gpu_buffer<uchar4>(width * height, tls);
+		auto smooth = rfkt::gpu_buffer<half3>(width * height, tls);
 
 		auto dn_time = (denoise) ? dn.denoise({ width, height }, render, smooth, tls).get() : 0.0;
 
@@ -524,11 +524,11 @@ namespace rfkt {
 		postprocessor(postprocessor&&) = default;
 		postprocessor& operator=(postprocessor&&) = default;
 
-		auto make_output_buffer() const -> rfkt::cuda_buffer<uchar4> {
-			return rfkt::cuda_buffer<uchar4>{ dims_.x* dims_.y };
+		auto make_output_buffer() const -> rfkt::gpu_buffer<uchar4> {
+			return rfkt::gpu_buffer<uchar4>{ dims_.x* dims_.y };
 		}
 
-		auto make_output_buffer(CUstream stream) const -> rfkt::cuda_buffer<uchar4> {
+		auto make_output_buffer(RUstream stream) const -> rfkt::gpu_buffer<uchar4> {
 			return { dims_.x * dims_.y, stream };
 		}
 
@@ -546,12 +546,12 @@ namespace rfkt {
 		}
 
 		std::future<double> post_process(
-			rfkt::cuda_span<float4> in,
-			rfkt::cuda_span<uchar4> out,
+			rfkt::gpu_span<float4> in,
+			rfkt::gpu_span<uchar4> out,
 			double quality,
 			double gamma, double brightness, double vibrancy,
 			bool planar_output,
-			cuda_stream& stream) {
+			gpu_stream& stream) {
 
 			auto promise = std::promise<double>{};
 			auto future = promise.get_future();
@@ -576,8 +576,8 @@ namespace rfkt {
 		rfkt::denoiser dn;
 		rfkt::converter conv;
 
-		rfkt::cuda_image<half3> tonemapped;
-		rfkt::cuda_image<half3> denoised;
+		rfkt::gpu_image<half3> tonemapped;
+		rfkt::gpu_image<half3> denoised;
 
 		rfkt::timer perf_timer;
 
@@ -593,22 +593,15 @@ consteval auto demangle() {
 
 int main() {
 
-	auto ret = roccuInit();
-
 	auto ctx = rfkt::cuda::init();
 
-	auto test = ruMemAlloc;
-	auto cumem = &cuMemAlloc;
-
-	CUdeviceptr ptr = 0;
-	auto res = ruMemAlloc(&ptr, 1024);
-
 	rfkt::denoiser::init(ctx);
+	rfkt::nvjpeg::init();
 
 	rfkt::flamedb fdb;
 	rfkt::initialize(fdb, "config");
 
-	auto stream = rfkt::cuda_stream{};
+	auto stream = rfkt::gpu_stream{};
 	auto kernel = std::make_shared<ezrtc::sqlite_cache>((rfkt::fs::user_local_directory() / "kernel.sqlite3").string());
 	auto zlib = std::make_shared<ezrtc::cache_adaptors::zlib>(kernel);
 	auto km = std::make_shared<ezrtc::compiler>(zlib);
@@ -616,13 +609,13 @@ int main() {
 	km->find_system_cuda();
 	auto fc = rfkt::flame_compiler{ km };
 
-	uint2 dims = { 800, 592 };
+	uint2 dims = { 1920, 1080 };
 
 	auto pp = rfkt::postprocessor{ *km, dims };
 	auto je = rfkt::nvjpeg::encoder{ stream };
 
-	auto bins = rfkt::cuda_image<float4>{ pp.input_dims().x, pp.input_dims().y };
-	auto out = rfkt::cuda_image<uchar4>{ dims.x, dims.y };
+	auto bins = rfkt::gpu_image<float4>{ pp.input_dims().x, pp.input_dims().y };
+	auto out = rfkt::gpu_image<uchar4>{ dims.x, dims.y };
 
 	constexpr static auto fps = 60;
 	constexpr static auto seconds_per_loop = 5;
@@ -665,13 +658,13 @@ int main() {
 		return f.value();
 	};
 
-	auto left = must_load_flame("assets/flames_test/electricsheep.247.38128.flam3");
-	auto right = must_load_flame("assets/flames_test/electricsheep.247.27094.flam3");
+	auto left = must_load_flame("assets/flames_test/electricsheep.247.17353.flam3");
+	auto right = must_load_flame("assets/flames_test/electricsheep.247.26177.flam3");
 
 
 	auto interp = interpolator{ left, right, fdb, false };
 
-	auto k = fc.get_flame_kernel(fdb, rfkt::precision::f32, left);
+	auto k = fc.get_flame_kernel(fdb, rfkt::precision::f32, interp.left_flame());
 
 	constexpr static auto pascal = [](double a, double b) {
 		double result = 1;
@@ -691,20 +684,24 @@ int main() {
 		return result;
 	};
 
-	if (!k.kernel) {
+	//if (!k.kernel) {
 		SPDLOG_INFO("\n{}\n{}", k.source, k.log);
-		return -1;
-	}
+	//	return -1;
+//	}
 
-	CUstreamAttrValue stream_value{};
-	auto max_l2 = rfkt::cuda::context::current().device().max_persist_l2_cache_size();
-	stream_value.accessPolicyWindow.base_ptr = std::bit_cast<void*>(bins.ptr());
-	stream_value.accessPolicyWindow.num_bytes = std::min(bins.size_bytes(), static_cast<std::size_t>(max_l2));
-	stream_value.accessPolicyWindow.hitProp = CU_ACCESS_PROPERTY_PERSISTING;
+		if (!k.kernel) { return -1; }
+
+		SPDLOG_INFO("left: {}\n", left.serialize().dump(2));
+
+	RUlaunchAttributeValue stream_value{};
+	auto max_l2 = rfkt::cuda::context::current().device().max_access_policy_window_size();
+	stream_value.accessPolicyWindow.basePtr = bins.ptr();
+	stream_value.accessPolicyWindow.numBytes = std::min(bins.size_bytes(), static_cast<std::size_t>(max_l2));
+	stream_value.accessPolicyWindow.hitProp = RU_ACCESS_PROPERTY_PERSISTING;
 	stream_value.accessPolicyWindow.hitRatio = 1.0f;
-	stream_value.accessPolicyWindow.missProp = CU_ACCESS_PROPERTY_NORMAL;
+	stream_value.accessPolicyWindow.missProp = RU_ACCESS_PROPERTY_STREAMING;
 
-	cuStreamSetAttribute(stream, CU_STREAM_ATTRIBUTE_ACCESS_POLICY_WINDOW, &stream_value);
+	CUDA_SAFE_CALL(ruStreamSetAttribute(stream, RU_LAUNCH_ATTRIBUTE_ACCESS_POLICY_WINDOW, &stream_value));
 
 	/*for (const auto& fname : rfkt::fs::list("assets/flames/", rfkt::fs::filter::has_extension(".flam3"))) {
 		auto fxml = rfkt::fs::read_string(fname);
@@ -734,20 +731,20 @@ int main() {
 
 		double mix = i / double(num_frames);
 
-		mix = smoothstep(mix, 10);
+		mix = smoothstep(mix, 4);
 
 		auto t = i* loops_per_frame;
 		auto samples = std::vector<double>{};
 		auto packer = [&samples](double v) { samples.push_back(v); };
 		double fudge = fps / 24.0;
-		left.pack_samples(packer, invoker, t - fudge * loops_per_frame, fudge * loops_per_frame, 4, pp.input_dims().x, pp.input_dims().y);
+		interp.pack_samples(packer, invoker, t - fudge * loops_per_frame, fudge* loops_per_frame, 4, pp.input_dims().x, pp.input_dims().y, mix);
 
 		auto state = k.kernel->warmup(stream, samples, std::move(bins), 0xDEADBEEF, 100);
 		auto q = k.kernel->bin(stream, state, { .millis = 2000, .quality = 512 }).get();
 
-		double gamma = left.gamma.sample(t, invoker);
-		double brightness = left.brightness.sample(t, invoker);
-		double vibrancy = left.vibrancy.sample(t, invoker);
+		double gamma = interp.interp_anima(&rfkt::flame::gamma, invoker, t, mix);
+		double brightness = interp.interp_anima(&rfkt::flame::brightness, invoker, t, mix);
+		double vibrancy = interp.interp_anima(&rfkt::flame::vibrancy, invoker, t, mix);
 
 		auto res = pp.post_process(state.bins, out, q.quality, gamma, brightness, vibrancy, true, stream).get();
 

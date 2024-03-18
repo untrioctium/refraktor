@@ -26,6 +26,11 @@ bool preview_panel::show(const rfkt::flamedb& fdb, rfkt::flame& flame, rfkt::fun
 
 	auto preview_size = gui_logic(flame, ft);
 
+	if (upscale) {
+		if (preview_size.x % 2 == 1) preview_size.x -= 1;
+		if (preview_size.y % 2 == 1) preview_size.y -= 1;
+	}
+
 	const auto given_struct_hash = flame.hash();
 	const auto given_value_hash = flame.value_hash();
 	const auto given_fdb_hash = fdb.hash();
@@ -46,11 +51,6 @@ bool preview_panel::show(const rfkt::flamedb& fdb, rfkt::flame& flame, rfkt::fun
 
 	if (!rendering_texture) {
 
-		if (upscale) {
-			if (preview_size.x % 2 == 1) preview_size.x -= 1;
-			if (preview_size.y % 2 == 1) preview_size.y -= 1;
-		}
-
 		bool needs_render = needs_clear || (current_state && current_state->quality < target_quality);
 
 		if (needs_render) {
@@ -64,7 +64,10 @@ bool preview_panel::show(const rfkt::flamedb& fdb, rfkt::flame& flame, rfkt::fun
 
 				const auto loops_per_frame = 1 / 150.0;
 
-				flame.pack_samples(packer, invoker, current_time - loops_per_frame, loops_per_frame, 4, state_size.x, state_size.y);
+				if(animate)
+					flame.pack_samples(packer, invoker, current_time - loops_per_frame, loops_per_frame, 4, state_size.x, state_size.y);
+				else
+					flame.pack_samples(packer, invoker, current_time, 0, 4, state_size.x, state_size.y);
 			}
 
 			std::optional<rfkt::flame> flame_copy = std::nullopt;
@@ -153,10 +156,6 @@ uint2 preview_panel::gui_logic(rfkt::flame& flame, rfkt::function_table& ft) {
 					render_options_changed = true;
 				}
 				ImFtw::Tooltip("Enables upscaling; improves performance but reduces quality.", false);
-
-				if (ImGui::MenuItem("Denoise", nullptr, &this->denoise)) {
-					render_options_changed = true;
-				}
 			}
 
 			IMFTW_MENU("Quality") {
@@ -198,6 +197,9 @@ uint2 preview_panel::gui_logic(rfkt::flame& flame, rfkt::function_table& ft) {
 				}
 
 			}
+
+			render_options_changed |= ImGui::Checkbox("Animate", &animate);
+			render_options_changed |= ImGui::Checkbox("Denoise", &denoise);
 		}
 
 		static double tmin = 0.0;
@@ -237,9 +239,13 @@ uint2 preview_panel::gui_logic(rfkt::flame& flame, rfkt::function_table& ft) {
 		if (displayed_texture.has_value()) {
 			auto& tex = displayed_texture.value();
 
-			ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (avail.x - preview_size.x) / 2.0);
-			ImGui::SetCursorPosY(ImGui::GetCursorPosY() + (avail.y - preview_size.y) / 2.0);
-			ImGui::Image((void*)(intptr_t)tex->id(), ImVec2(preview_size.x, preview_size.y));
+			auto draw_size = preview_size;
+			if (draw_size.x % 2 == 1) draw_size.x -= 1;
+			if (draw_size.y % 2 == 1) draw_size.y -= 1;
+
+			ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (avail.x - draw_size.x) / 2.0);
+			ImGui::SetCursorPosY(ImGui::GetCursorPosY() + (avail.y - draw_size.y) / 2.0);
+			ImGui::Image((void*)(intptr_t)tex->id(), ImVec2(draw_size.x, draw_size.y));
 			preview_hovered = ImGui::IsItemHovered();
 		}
 	}

@@ -60,17 +60,19 @@ std::optional<rfkt::fs::path> rfkt::cuda::check_and_download_cudart()
 
 auto rfkt::cuda::init() -> context
 {
-    CUdevice dev;
-    CUcontext ctx;
+    RUdevice dev;
+    RUcontext ctx;
 
-    cuInit(0);
-    cuDeviceGet(&dev, 0);
-    cuCtxCreate(&ctx, CU_CTX_SCHED_SPIN | CU_CTX_MAP_HOST, dev);
+    roccuInit();
+
+    ruInit(0);
+    ruDeviceGet(&dev, 0);
+    ruCtxCreate(&ctx, 0x01 | 0x08, dev);
 
     auto devobj = rfkt::cuda::device_t{ dev };
 
     std::size_t max_persist_l2 = devobj.max_persist_l2_cache_size();
-    CUDA_SAFE_CALL(cuCtxSetLimit(CU_LIMIT_PERSISTING_L2_CACHE_SIZE, max_persist_l2));
+    CUDA_SAFE_CALL(ruCtxSetLimit(RU_LIMIT_PERSISTING_L2_CACHE_SIZE, max_persist_l2));
 
     return { ctx, dev };
 }

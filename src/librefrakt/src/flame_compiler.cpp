@@ -451,8 +451,13 @@ std::string rfkt::flame_compiler::make_source(const flamedb& fdb, const rfkt::fl
         {"xform_definitions", json::object()},
         {"xforms", json::array()},
         {"num_standard_xforms", f.xforms().size()},
-        {"use_chaos", f.chaos_table.has_value()}
+        {"use_chaos", f.chaos_table.has_value()},
+        {"affine_indices", json::array()}
     });
+
+    for(auto idx: f.affine_indices()) {
+		info["affine_indices"].push_back(idx);
+	}
 
     auto& xfs = info["xforms"];
     auto& xfd = info["xform_definitions"];
@@ -639,15 +644,20 @@ auto rfkt::flame_compiler::get_flame_kernel(const flamedb& fdb, precision prec, 
     }
     SPDLOG_INFO("Loaded flame kernel {}: {} temp. samples, {} flame params, {} regs, {} shared, {} local, {:.4} ms", f.hash().str64(), max_blocks, f.size_reals(), func.register_count(), func.shared_bytes(), func.local_bytes(), duration_ms);
 
+    if (func.local_bytes() > 0) {
+        SPDLOG_WARN("Kernel for {} uses {} local memory", f.hash().str64(), func.local_bytes());
+        __debugbreak();
+    }
+
     auto shuf_dev = compile_result.module.value()["shuf_bufs"];
-    cuMemcpyDtoD(shuf_dev.ptr(), shuf_bufs[most_blocks.block].ptr(), shuf_dev.size());
+    ruMemcpyDtoD(shuf_dev.ptr(), shuf_bufs[most_blocks.block].ptr(), shuf_dev.size());
 
     r.kernel = flame_kernel{ f.size_reals(), std::move(compile_result.module.value()), std::pair<int, int>{most_blocks.grid, most_blocks.block}, srt, f.affine_indices()};
 
     return r;
 }
 
-rfkt::cuda_buffer<unsigned short> make_shuffle_buffers(std::size_t ppts, std::size_t count) {
+rfkt::gpu_buffer<unsigned short> make_shuffle_buffers(std::size_t ppts, std::size_t count) {
     using shuf_t = unsigned short;
     const auto shuf_size = ppts * count;
     SPDLOG_INFO("shuf_size: {} bytes", shuf_size * 2);
@@ -669,7 +679,7 @@ rfkt::cuda_buffer<unsigned short> make_shuffle_buffers(std::size_t ppts, std::si
         std::shuffle(start, end, engine);
     }
 
-    auto buf = rfkt::cuda_buffer<unsigned short>(shuf_local.size());
+    auto buf = rfkt::gpu_buffer<unsigned short>(shuf_local.size());
     buf.from_host(shuf_local);
     return buf;
 }
@@ -710,11 +720,11 @@ rfkt::flame_compiler::flame_compiler(std::shared_ptr<ezrtc::compiler> k_manager)
     }
 
     check_result.module->kernel(check_kernel_name).launch(1, 1)();
-    cuStreamSynchronize(0);
+    ruStreamSynchronize(0);
     auto var = check_result.module.value()[check_kernel_result_name];
     std::vector<unsigned long long> shared_sizes{};
     shared_sizes.resize(exec_configs.size() * 2);
-    cuMemcpyDtoH(shared_sizes.data(), var.ptr(), var.size());
+    ruMemcpyDtoH(shared_sizes.data(), var.ptr(), var.size());
 
     auto base_shared = cuda::context::current().device().reserved_shared_per_block();
 
@@ -738,8 +748,6 @@ rfkt::flame_compiler::flame_compiler(std::shared_ptr<ezrtc::compiler> k_manager)
             SPDLOG_INFO("{}x{}xf64: {:> 5} leftover shared ({:> 5} doubles)", exec.grid, exec.block, leftover, leftover / 8);
         }
     }
-
-    const auto catmull_spec = ezrtc::spec::source_file("catmull", "assets/kernels/catmull.cu");
 
     auto result = km->compile(
         ezrtc::spec::
@@ -782,9 +790,10 @@ auto rfkt::flame_compiler::make_opts(precision prec, const flame& f)->std::pair<
     // four warps per block so that there is a diversity of executed xforms
     // per temporal sample. this is not necessary for chaos because the
     // threads within a warp are already divergent.
-    if(!f.chaos_table.has_value())
-        while (exec_configs[most_blocks_idx].block / 32 < 4) most_blocks_idx--;
-
+    if (!f.chaos_table.has_value()) {
+        const auto warp_size = cuda::context::current().device().warp_size();
+        while (exec_configs[most_blocks_idx].block / warp_size < 4) most_blocks_idx--;
+    }
     auto& most_blocks = exec_configs[most_blocks_idx];
 
 
@@ -818,7 +827,7 @@ auto rfkt::flame_compiler::make_opts(precision prec, const flame& f)->std::pair<
     return { most_blocks, opts };
 }
 
-auto rfkt::flame_kernel::bin(cuda_stream& stream, flame_kernel::saved_state & state, const bailout_args& bo) const -> std::future<bin_result>
+auto rfkt::flame_kernel::bin(gpu_stream& stream, flame_kernel::saved_state & state, const bailout_args& bo) const -> std::future<bin_result>
 {
     using counter_type = std::size_t;
     static constexpr auto counter_size = sizeof(counter_type);
@@ -829,7 +838,7 @@ auto rfkt::flame_kernel::bin(cuda_stream& stream, flame_kernel::saved_state & st
         std::size_t total_bins;
         std::size_t num_threads;
 
-        rfkt::cuda_span<std::size_t> qpx_dev;
+        rfkt::gpu_span<std::size_t> qpx_dev;
 
         std::promise<flame_kernel::bin_result> promise{};
         std::span<std::size_t> qpx_host;
@@ -838,7 +847,6 @@ auto rfkt::flame_kernel::bin(cuda_stream& stream, flame_kernel::saved_state & st
     auto stream_state = std::make_shared<stream_state_t>();
     auto future = stream_state->promise.get_future();
     const auto num_counters = 2;
-    const auto alloc_size = counter_size * num_counters;
 
     stream_state->qpx_host = srt->pra.reserve<std::size_t>(num_counters);
 
@@ -887,11 +895,12 @@ auto rfkt::flame_kernel::bin(cuda_stream& stream, flame_kernel::saved_state & st
     return future;
 }
 
-void fix_rotation(std::span<double> samples, std::size_t sample_size, std::span<const std::size_t> indices) {
-    for (auto idx : indices) {
+void fix_rotation(std::span<double> samples, std::size_t sample_size, std::size_t flame_size, std::span<const std::size_t> indices) {
 
-        constexpr static auto pi = 3.14159265358979323846;
-        constexpr static auto eps = 1e-10;
+    constexpr static auto pi = 3.14159265358979323846;
+    constexpr static auto eps = 1e-10;
+
+    for (auto idx : indices) {
 
         for (int i = 0; i < 4; i++) {
 
@@ -906,7 +915,7 @@ void fix_rotation(std::span<double> samples, std::size_t sample_size, std::span<
             double tr = samples[offset + 4];
 
             ang.x = atan2(c1.y, c1.x);
-            mag.x = log(sqrt(c1.x * c1.x + c1.y * c1.y));
+            mag.x = sqrt(c1.x * c1.x + c1.y * c1.y);
 
             if (mag.x == 0.0) zlm.x = 1;
             trans.x = tr;
@@ -915,7 +924,7 @@ void fix_rotation(std::span<double> samples, std::size_t sample_size, std::span<
             tr = samples[offset + 5];
 
             ang.y = atan2(c1.y, c1.x);
-            mag.y = log(sqrt(c1.x * c1.x + c1.y * c1.y));
+            mag.y = sqrt(c1.x * c1.x + c1.y * c1.y);
 
             if (mag.y == 0.0) zlm.y = 1;
             trans.y = tr;
@@ -925,8 +934,8 @@ void fix_rotation(std::span<double> samples, std::size_t sample_size, std::span<
 
             samples[offset] = ang.x;
             samples[offset + 1] = ang.y;
-            samples[offset + 2] = mag.x;
-            samples[offset + 3] = mag.y;
+            samples[offset + 2] = log(mag.x);
+            samples[offset + 3] = log(mag.y);
             samples[offset + 4] = trans.x;
             samples[offset + 5] = trans.y;
         }
@@ -947,9 +956,25 @@ void fix_rotation(std::span<double> samples, std::size_t sample_size, std::span<
             }
         }
     }
+
+    for (int i = flame_size; i < sample_size; i += 3) {
+        for (int j = 1; j < 4; j++) {
+            auto my_index = i + j * sample_size;
+            auto prev_index = i + (j - 1) * sample_size;
+
+            auto ang_diff = samples[my_index] - samples[prev_index];
+
+            if (ang_diff > 180.0 + eps) {
+                samples[my_index] -= 360.0;
+            } 			
+            else if (ang_diff < -(180.0 - eps)) {
+				samples[my_index] += 360.0;
+			}
+        }
+    }
 }
 
-auto rfkt::flame_kernel::warmup(cuda_stream& stream, std::span<double> samples, cuda_image<float4>&& bins, std::uint32_t seed, std::uint32_t count) const -> flame_kernel::saved_state
+auto rfkt::flame_kernel::warmup(gpu_stream& stream, std::span<double> samples, gpu_image<float4>&& bins, std::uint32_t seed, std::uint32_t count) const -> flame_kernel::saved_state
 {
     const auto sample_size = flame_size_reals + 256 * 3;
     const auto sample_count = samples.size() / sample_size;
@@ -962,7 +987,7 @@ auto rfkt::flame_kernel::warmup(cuda_stream& stream, std::span<double> samples, 
     auto pinned_samples = srt->pra.reserve<double>(nreals);
 
     std::copy(samples.begin(), samples.end(), pinned_samples.begin());
-    fix_rotation(pinned_samples, sample_size, affine_indices);
+    fix_rotation(pinned_samples, sample_size, flame_size_reals, affine_indices);
 
     auto samples_dev = srt->dra.reserve<double>(nreals);
     samples_dev.from_host(pinned_samples, stream);
@@ -983,6 +1008,7 @@ auto rfkt::flame_kernel::warmup(cuda_stream& stream, std::span<double> samples, 
 
 
     auto state = flame_kernel::saved_state{ std::move(bins), this->saved_state_size(), stream};
+    state.stopper = srt->dra.reserve<bool>(1);
 
     CUDA_SAFE_CALL(
         this->mod.kernel("warmup")
@@ -997,9 +1023,9 @@ auto rfkt::flame_kernel::warmup(cuda_stream& stream, std::span<double> samples, 
     return state;
 }
 
-auto rfkt::flame_kernel::warmup(cuda_stream& stream, std::span<double> samples, uint2 dims, std::uint32_t seed, std::uint32_t count) const->flame_kernel::saved_state
+auto rfkt::flame_kernel::warmup(gpu_stream& stream, std::span<double> samples, uint2 dims, std::uint32_t seed, std::uint32_t count) const->flame_kernel::saved_state
 {
-    auto bins = cuda_image<float4>{ dims.x, dims.y, stream };
+    auto bins = gpu_image<float4>{ dims.x, dims.y, stream };
     bins.clear(stream);
     return warmup(stream, samples, std::move(bins), seed, count);
 }

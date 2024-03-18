@@ -1,5 +1,7 @@
 constexpr static uint64 num_xforms = @num_standard_xforms@;
 constexpr static bool has_final_xform = @num_standard_xforms < length(xforms)@;
+constexpr static uint32 affine_indices[] = {@join(affine_indices, ", ")@};
+constexpr static uint32 num_affines = @length(affine_indices)@;
 
 template<typename FloatT>
 struct affine {
@@ -9,18 +11,6 @@ struct affine {
         auto tmp = fl::fma(a, px, fl::fma(b, py, c));
         py = fl::fma(d, px, fl::fma(e, py, f));
         px = tmp;
-    }
-
-    void depolar() {
-        FloatT angx = a;
-        FloatT magx = exp(b);
-        FloatT angy = d;
-        FloatT magy = exp(e);
-
-        a = magx * cos(angx);
-        d = magx * sin(angx);
-        b = magy * cos(angy);
-        e = magy * sin(angy);
     }
 };
 
@@ -67,8 +57,6 @@ struct xform_@hash@_t {
         }
 
         __device__ void do_precalc(RandCtx* rs) {
-            aff.depolar();
-
             <# for variation in vlink.variations #>
             <# if variation_has_precalc(variation.name) #>
             // @variation.name@
@@ -176,10 +164,6 @@ struct flame_t {
     }
 
     __device__ void do_precalc(RandCtx* rs) {
-
-        //screen_space.depolar();
-        //plane_space.depolar();
-
         // calculate weight sum
         weight_sum = <# for xid in range(num_standard_xforms) #>xform_@xid@.weight<# if not loop.is_last #> +<# endif #><# endfor #>;
 
@@ -193,7 +177,7 @@ struct flame_t {
         <# endif #>
 
         // jitter screen_space a bit for antialiasing
-        auto jitter = rs->randgauss(1/2.0f);
+        auto jitter = rs->randgauss(1/3.0f);
         screen_space.c += jitter.x;
         screen_space.f += jitter.y;
 

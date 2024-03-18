@@ -12,9 +12,9 @@ template<class... Ts> overloaded(Ts...)->overloaded<Ts...>;
 
 namespace rfkt {
 
-	inline std::string stacktrace() {
+	inline std::string stacktrace(const decltype(std::stacktrace::current())& trace = std::stacktrace::current()) {
 		std::string ret;
-		for (const auto& st : std::stacktrace::current()) {
+		for (const auto& st: trace) {
 			ret += std::format("{}({}): {}\n", st.source_file(), st.source_line(), st.description());
 		}
 		return ret;

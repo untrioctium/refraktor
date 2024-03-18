@@ -25,7 +25,7 @@ heart: |-
   result.x += r * sca.x;
   result.y -= r * sca.y;
 
-disc: result += weight * common.atan * math.inv_pi * sincos(math.pi * common.sqrt);
+disc: result += weight * common.atan * math.inv_pi * sincospi(common.sqrt);
 
 spiral: |-
   r := eps(common.sqrt);

@@ -7,7 +7,7 @@
 
 #include <librefrakt/flame_info.h>
 #include <librefrakt/flame_types.h>
-#include <librefrakt/cuda_buffer.h>
+#include <librefrakt/gpu_buffer.h>
 #include <librefrakt/util/cuda.h>
 #include <librefrakt/util/hash.h>
 
@@ -32,10 +32,10 @@ namespace rfkt {
 		};
 
 		struct saved_state: public traits::noncopyable {
-			cuda_image<float4> bins = {};
+			gpu_image<float4> bins = {};
 			double quality = 0.0;
-			cuda_buffer<> shared = {};
-			cuda_buffer<bool> stopper;
+			gpu_buffer<> shared = {};
+			gpu_span<bool> stopper;
 
 			saved_state() = default;
 			saved_state(saved_state&& o) noexcept {
@@ -49,23 +49,21 @@ namespace rfkt {
 				return *this;
 			}
 
-			saved_state(uint2 dims, std::size_t nbytes, CUstream stream) :
+			saved_state(uint2 dims, std::size_t nbytes, RUstream stream) :
 				bins(dims.x, dims.y, stream),
-				shared(nbytes, stream),
-				stopper(1, stream) {
+				shared(nbytes, stream) {
 				bins.clear(stream);
 			}
 
-			saved_state(decltype(saved_state::bins)&& bins, std::size_t nbytes, CUstream stream) :
+			saved_state(decltype(saved_state::bins)&& bins, std::size_t nbytes, RUstream stream) :
 				bins(std::move(bins)),
-				shared(nbytes, stream),
-				stopper(1, stream) {
+				shared(nbytes, stream) {
 				bins.clear(stream);
 			}
 
 			void abort_binning() {
 				const static bool stop = true;
-				stopper.from_host({ &stop, 1 }, nullptr);
+				stopper.from_host(std::span<const bool>{ &stop, 1 }, nullptr);
 			}
 
 		};
@@ -76,9 +74,9 @@ namespace rfkt {
 			double quality = 128.0;
 		};
 
-		auto bin(cuda_stream& stream, flame_kernel::saved_state& state, const bailout_args&) const-> std::future<bin_result>;
-		auto warmup(cuda_stream& stream, std::span<double> samples, uint2 dims, std::uint32_t seed, std::uint32_t count) const->flame_kernel::saved_state;
-		auto warmup(cuda_stream& stream, std::span<double> samples, cuda_image<float4>&& bins, std::uint32_t seed, std::uint32_t count) const->flame_kernel::saved_state;
+		auto bin(gpu_stream& stream, flame_kernel::saved_state& state, const bailout_args&) const-> std::future<bin_result>;
+		auto warmup(gpu_stream& stream, std::span<double> samples, uint2 dims, std::uint32_t seed, std::uint32_t count) const->flame_kernel::saved_state;
+		auto warmup(gpu_stream& stream, std::span<double> samples, gpu_image<float4>&& bins, std::uint32_t seed, std::uint32_t count) const->flame_kernel::saved_state;
 
 		flame_kernel(flame_kernel&& o) noexcept {
 			*this = std::move(o);
@@ -183,7 +181,7 @@ namespace rfkt {
 		std::pair<cuda::execution_config, ezrtc::spec> make_opts(precision prec, const flame& f);
 
 		std::shared_ptr<ezrtc::compiler> km;
-		std::map<std::size_t, cuda_buffer<unsigned short>> shuf_bufs;
+		std::map<std::size_t, gpu_buffer<unsigned short>> shuf_bufs;
 		decltype(std::declval<cuda::device_t>().concurrent_block_configurations()) exec_configs;
 
 		std::map<std::pair<precision, int>, int> required_smem;

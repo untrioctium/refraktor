@@ -1,7 +1,6 @@
 #pragma once
 
-#include <cuda.h>
-#include <vector_types.h>
+#include <roccu.h>
 #include <functional>
 #include <vector>
 #include <string>
@@ -14,11 +13,11 @@
 
 #define CUDA_SAFE_CALL(x)                                         \
   do {                                                            \
-    CUresult result = x;                                          \
-    if (result != CUDA_SUCCESS) {                                 \
+    RUresult result = x;                                          \
+    if (result != RU_SUCCESS) {                                 \
       const char *msg;                                            \
-      cuGetErrorName(result, &msg);                               \
-      printf("`%s` failed with result: %s", #x, msg);             \
+      ruGetErrorName(result, &msg);                               \
+      printf("`%s` failed with result: %s\n", #x, msg);             \
       printf("%s", rfkt::stacktrace().c_str());                   \
       __debugbreak();                                             \
       exit(1);                                                    \
@@ -41,22 +40,24 @@ namespace rfkt::cuda {
 
     class device_t {
     public:
-        explicit(false) device_t(CUdevice dev) : dev_(dev) {}
+        explicit(false) device_t(RUdevice dev) : dev_(dev) {}
 
-        auto max_threads_per_block() const noexcept { return attribute<CU_DEVICE_ATTRIBUTE_MAX_THREADS_PER_BLOCK>(); }
-        auto max_shared_per_block() const noexcept { return attribute<CU_DEVICE_ATTRIBUTE_MAX_SHARED_MEMORY_PER_BLOCK>(); }
-        auto clock_rate() const noexcept { return attribute<CU_DEVICE_ATTRIBUTE_CLOCK_RATE>(); }
-        auto mp_count() const noexcept { return attribute<CU_DEVICE_ATTRIBUTE_MULTIPROCESSOR_COUNT>(); }
-        auto max_threads_per_mp() const noexcept { return attribute<CU_DEVICE_ATTRIBUTE_MAX_THREADS_PER_MULTIPROCESSOR>(); }
-        auto compute_major() const noexcept { return attribute<CU_DEVICE_ATTRIBUTE_COMPUTE_CAPABILITY_MAJOR>(); }
-        auto compute_minor() const noexcept { return attribute<CU_DEVICE_ATTRIBUTE_COMPUTE_CAPABILITY_MINOR>(); }
-        auto max_shared_per_mp() const noexcept { return attribute<CU_DEVICE_ATTRIBUTE_MAX_SHARED_MEMORY_PER_MULTIPROCESSOR>(); }
-        auto max_blocks_per_mp() const noexcept { return attribute<CU_DEVICE_ATTRIBUTE_MAX_BLOCKS_PER_MULTIPROCESSOR>(); }
-        auto warp_size() const noexcept { return attribute<CU_DEVICE_ATTRIBUTE_WARP_SIZE>(); }
-        auto reserved_shared_per_block() const noexcept { return attribute<CU_DEVICE_ATTRIBUTE_RESERVED_SHARED_MEMORY_PER_BLOCK>(); }
-        bool cooperative_supported() const noexcept { return attribute<CU_DEVICE_ATTRIBUTE_COOPERATIVE_LAUNCH>() == 1; }
-        auto l2_cache_size() const noexcept { return attribute<CU_DEVICE_ATTRIBUTE_L2_CACHE_SIZE>(); }
-        auto max_persist_l2_cache_size() const noexcept { return attribute<CU_DEVICE_ATTRIBUTE_MAX_PERSISTING_L2_CACHE_SIZE>(); }
+        auto max_threads_per_block() const noexcept { return attribute<RU_DEVICE_ATTRIBUTE_MAX_THREADS_PER_BLOCK>(); }
+        auto max_shared_per_block() const noexcept { return attribute<RU_DEVICE_ATTRIBUTE_MAX_SHARED_MEMORY_PER_BLOCK>(); }
+        auto clock_rate() const noexcept { return attribute<RU_DEVICE_ATTRIBUTE_CLOCK_RATE>(); }
+        auto mp_count() const noexcept { return attribute<RU_DEVICE_ATTRIBUTE_MULTIPROCESSOR_COUNT>(); }
+        auto max_threads_per_mp() const noexcept { return attribute<RU_DEVICE_ATTRIBUTE_MAX_THREADS_PER_MULTIPROCESSOR>(); }
+        auto compute_major() const noexcept { return attribute<RU_DEVICE_ATTRIBUTE_COMPUTE_CAPABILITY_MAJOR>(); }
+        auto compute_minor() const noexcept { return attribute<RU_DEVICE_ATTRIBUTE_COMPUTE_CAPABILITY_MINOR>(); }
+        auto max_shared_per_mp() const noexcept { return attribute<RU_DEVICE_ATTRIBUTE_MAX_SHARED_MEMORY_PER_MULTIPROCESSOR>(); }
+        auto max_blocks_per_mp() const noexcept { return attribute<RU_DEVICE_ATTRIBUTE_MAX_BLOCKS_PER_MULTIPROCESSOR>(); }
+        auto warp_size() const noexcept { return attribute<RU_DEVICE_ATTRIBUTE_WARP_SIZE>(); }
+        auto reserved_shared_per_block() const noexcept { return attribute<RU_DEVICE_ATTRIBUTE_RESERVED_SHARED_MEMORY_PER_BLOCK>(); }
+        bool cooperative_supported() const noexcept { return attribute<RU_DEVICE_ATTRIBUTE_COOPERATIVE_LAUNCH>() == 1; }
+        auto l2_cache_size() const noexcept { return attribute<RU_DEVICE_ATTRIBUTE_L2_CACHE_SIZE>(); }
+        auto max_persist_l2_cache_size() const noexcept { return attribute<RU_DEVICE_ATTRIBUTE_MAX_PERSISTING_L2_CACHE_SIZE>(); }
+        auto max_access_policy_window_size() const noexcept { return attribute<RU_DEVICE_ATTRIBUTE_MAX_ACCESS_POLICY_WINDOW_SIZE>(); }
+        auto max_registers_per_block() const noexcept { return attribute<RU_DEVICE_ATTRIBUTE_MAX_REGISTERS_PER_BLOCK>(); }
         
         auto max_concurrent_threads() const noexcept { return max_threads_per_mp() * mp_count(); }
         auto max_concurrent_blocks() const noexcept { return max_blocks_per_mp() * mp_count(); }
@@ -78,21 +79,21 @@ namespace rfkt::cuda {
         std::string_view name() const noexcept {
             if(!name_.empty()) return name_;
             name_.resize(128);
-            cuDeviceGetName(name_.data(), static_cast<int>(name_.size()), dev_);
+            ruDeviceGetName(name_.data(), static_cast<int>(name_.size()), dev_);
             return name_;
         }
 
     private:
-        CUdevice dev_;
+        RUdevice dev_;
 
-        mutable std::map<CUdevice_attribute, int> cached_attrs;
+        mutable std::map<RUdevice_attribute, int> cached_attrs;
         mutable std::string name_;
 
-        template<CUdevice_attribute attrib>
+        template<RUdevice_attribute attrib>
         int attribute() const noexcept {
             if (cached_attrs.contains(attrib)) return cached_attrs[attrib];
             int ret;
-            cuDeviceGetAttribute(&ret, attrib, dev_);
+            ruDeviceGetAttribute(&ret, attrib, dev_);
             cached_attrs[attrib] = ret;
             return ret;
         }
@@ -100,43 +101,43 @@ namespace rfkt::cuda {
 
     class context {
     public:
-        context(CUcontext ctx, CUdevice dev) : ctx_(ctx), dev_(dev) {}
+        context(RUcontext ctx, RUdevice dev) : ctx_(ctx), dev_(dev) {}
         context() = default;
 
-        explicit(false) operator CUcontext () const { return ctx_; }
-        CUcontext* ptr() { return &ctx_; }
+        explicit(false) operator RUcontext () const { return ctx_; }
+        RUcontext* ptr() { return &ctx_; }
 
         device_t device() const {
             return device_t{ dev_ };
         }
 
         static context current() {
-            CUcontext ctx;
-            CUdevice dev;
-            cuCtxGetCurrent(&ctx);
-            cuCtxGetDevice(&dev);
+            RUcontext ctx;
+            RUdevice dev;
+            ruCtxGetCurrent(&ctx);
+            ruCtxGetDevice(&dev);
             return { ctx, dev };
         }
 
         void make_current() const {
-            cuCtxSetCurrent(ctx_);
+            ruCtxSetCurrent(ctx_);
         }
 
         void make_current_if_not() const {
-            CUcontext current;
-            cuCtxGetCurrent(&current);
+            RUcontext current;
+            ruCtxGetCurrent(&current);
 
             if (current != ctx_) make_current();
         }
 
         void restart() {
-            cuCtxDestroy(ctx_);
-            cuCtxCreate(&ctx_, CU_CTX_SCHED_SPIN | CU_CTX_MAP_HOST, dev_);
+            ruCtxDestroy(ctx_);
+            ruCtxCreate(&ctx_, 0x01 | 0x08, dev_);
         }
 
     private:
-        CUcontext ctx_ = nullptr;
-        CUdevice dev_ = 0;
+        RUcontext ctx_ = nullptr;
+        RUdevice dev_ = 0;
     };
 
     auto init()->context;
@@ -144,56 +145,56 @@ namespace rfkt::cuda {
 }
 
 namespace rfkt {
-    class cuda_stream {
+    class gpu_stream {
     public:
 
-        cuda_stream() noexcept {
-            CUstream stream;
+        gpu_stream() noexcept {
+            RUstream stream;
             int least, most;
-            CUDA_SAFE_CALL(cuCtxGetStreamPriorityRange(&least, &most));
-            CUDA_SAFE_CALL(cuStreamCreateWithPriority(&stream, CU_STREAM_NON_BLOCKING, most));
+            CUDA_SAFE_CALL(ruCtxGetStreamPriorityRange(&least, &most));
+            CUDA_SAFE_CALL(ruStreamCreateWithPriority(&stream, 0x1, most));
 
             this->stream = stream;
         }
 
-        ~cuda_stream() {
+        ~gpu_stream() {
             if (not stream) return;
             sync();
-            cuStreamDestroy(stream);
+            ruStreamDestroy(stream);
         }
 
-        cuda_stream(const cuda_stream&) noexcept = delete;
-        cuda_stream& operator=(const cuda_stream&) noexcept = delete;
+        gpu_stream(const gpu_stream&) noexcept = delete;
+        gpu_stream& operator=(const gpu_stream&) noexcept = delete;
 
-        cuda_stream(cuda_stream&& o) noexcept {
+        gpu_stream(gpu_stream&& o) noexcept {
             std::swap(stream, o.stream);
         }
 
-        cuda_stream& operator=(cuda_stream&& o) noexcept {
+        gpu_stream& operator=(gpu_stream&& o) noexcept {
             std::swap(stream, o.stream);
             return *this;
         }
 
-        explicit(false) [[nodiscard]] operator CUstream() const noexcept {
+        explicit(false) [[nodiscard]] operator RUstream() const noexcept {
             return stream;
         }
 
         void sync() {
             if (not stream) return;
-            CUDA_SAFE_CALL(cuStreamSynchronize(stream));
+            CUDA_SAFE_CALL(ruStreamSynchronize(stream));
         }
 
         using host_func_t = std::move_only_function<void(void)>;
         void host_func(host_func_t&& cb) noexcept {
             auto func = new host_func_t{ std::move(cb) };
 
-            auto res = cuLaunchHostFunc(stream, [](void* ud) {
+            auto res = ruLaunchHostFunc(stream, [](void* ud) {
                 auto func_p = (host_func_t*)ud;
                 (*func_p)();
                 delete func_p;
                 }, func);
 
-            if (res != CUDA_SUCCESS) {
+            if (res != RU_SUCCESS) {
                 delete func;
             }
 
@@ -201,6 +202,6 @@ namespace rfkt {
         }
 
     private:
-        CUstream stream = nullptr;
+        RUstream stream = nullptr;
     };
 }

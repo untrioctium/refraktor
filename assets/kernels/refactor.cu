@@ -92,7 +92,7 @@ struct void_t {};
 struct segment {
 	double a, b, c, d;
 	
-	Real sample(Real t) const { return Real(a * t * t * t + b * t * t + c * t + d); }
+	double sample(double t) const { return a * t * t * t + b * t * t + c * t + d; }
 };
 
 __shared__ shared_state_t state;
@@ -297,8 +297,27 @@ void warmup(
 
 	interpolate_flame<flame_size_reals>(t, segments + (seg_offset) * seg, state.flame.as_array());
 	interpolate_palette<256>(t, segments + flame_size_reals + (seg_offset) * seg, state.palette);
-	
+
+	// convert affines from polar while we are still in double land
+	if(fl::block_rank() < num_affines) {
+
+		Real* flame_array = state.flame.as_array();
+
+		const auto aff = affine_indices[fl::block_rank()];
+
+		double angx = segments[aff].sample(t);
+		double angy = segments[aff + 1].sample(t);
+		double magx = exp(segments[aff + 2].sample(t));
+		double magy = exp(segments[aff + 3].sample(t));
+
+		flame_array[aff] = magx * cos(angx);
+		flame_array[aff + 1] = magx * sin(angx);
+		flame_array[aff + 2] = magy * cos(angy);
+		flame_array[aff + 3] = magy * sin(angy);
+	}
+
 	if(fl::is_block_leader()) {
+
 		state.flame.do_precalc(&my_rand());
 	}
 
@@ -394,7 +413,6 @@ void bin(
 			new_bin.w += transformed.w;
 			bin = new_bin;
 			hit = (unsigned int)(255.0f * transformed.w);
-
 		}
 		hit = fl::warp_reduce(hit);
 		if(fl::is_warp_leader()) {

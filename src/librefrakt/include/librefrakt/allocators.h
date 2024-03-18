@@ -1,6 +1,6 @@
 #include <cstdint>
 #include <concepts>
-#include <cuda.h>
+#include <roccu.h>
 #include <atomic>
 
 namespace rfkt {
@@ -12,21 +12,21 @@ namespace rfkt {
     };
 
     struct device_allocator_traits {
-        using PtrType = CUdeviceptr;
+        using PtrType = RUdeviceptr;
 
         static PtrType alloc(std::size_t sz) {
             PtrType ptr;
-            cuMemAlloc(&ptr, sz);
+            ruMemAlloc(&ptr, sz);
             return ptr;
         }
 
         static void free(PtrType ptr) {
-            cuMemFree(ptr);
+            ruMemFree(ptr);
         }
 
         template<typename StoredT>
         static auto to_span(PtrType ptr, std::size_t sz) {
-            return rfkt::cuda_span<StoredT>{ ptr, sz };
+            return rfkt::gpu_span<StoredT>{ ptr, sz };
         }
     };
 
@@ -35,12 +35,12 @@ namespace rfkt {
 
         static PtrType alloc(std::size_t sz) {
             std::byte* memory = nullptr;
-            cuMemAllocHost((void**)&memory, sz);
+            ruMemAllocHost((void**)&memory, sz);
             return memory;
         }
 
         static void free(PtrType ptr) {
-            cuMemFreeHost(ptr);
+            ruMemFreeHost(ptr);
         }
 
         template<typename StoredT>
@@ -53,9 +53,7 @@ namespace rfkt {
     class ring_allocator {
     public:
 
-        ring_allocator(std::size_t size): size(size), counter() {
-            memory = Traits::alloc(size);
-        }
+        ring_allocator(std::size_t size) : size(size), memory(Traits::alloc(size)) {}
 
         ~ring_allocator() {
             Traits::free(memory);
@@ -63,6 +61,9 @@ namespace rfkt {
 
         template<typename T>
         auto reserve(std::size_t amount) {
+            if (amount * sizeof(T) > size)
+                throw std::bad_alloc{};
+
             return Traits::template to_span<T>(reserve(amount * sizeof(T)), amount);
         }
 
@@ -95,7 +96,7 @@ namespace rfkt {
         };
 
         typename Traits::PtrType reserve(std::size_t amount) {
-            return memory + counter.increment(amount, size);
+            return memory + counter.increment(amount + (16 - amount % 16), size);
         }
 
         std::size_t size;

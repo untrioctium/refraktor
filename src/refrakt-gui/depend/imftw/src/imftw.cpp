@@ -180,6 +180,7 @@ void setup_imgui(ImFtw::context_t& ctx) {
 	ImGui::CreateContext();
 
 	ImGuiIO& io = ImGui::GetIO();
+	io.IniFilename = ctx.imgui_ini_path.c_str();
 	io.ConfigFlags |= ImGuiConfigFlags_DockingEnable | ImGuiConfigFlags_NavEnableSetMousePos;
 	io.BackendFlags |= ImGuiBackendFlags_HasMouseCursors | ImGuiBackendFlags_HasSetMousePos;
 
@@ -220,9 +221,10 @@ void setup_imgui(ImFtw::context_t& ctx) {
 	ImGui_ImplOpenGL3_Init("#version 460");
 }
 
-int ImFtw::Run(std::string_view window_title, std::move_only_function<int()>&& main_function) {
+int ImFtw::Run(std::string_view window_title, std::string_view ini_path, std::move_only_function<int()>&& main_function) {
 
 	auto& ctx = context();
+	ctx.imgui_ini_path = ini_path;
 
 	if (!glfwInit()) {
 		return 1;

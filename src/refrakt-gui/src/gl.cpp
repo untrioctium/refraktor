@@ -5,11 +5,11 @@
 
 #include "gl.h"
 
-#include <cudaGL.h>
+//#include <cudaGL.h>
 
-std::pair<GLuint, CUgraphicsResource> rfkt::gl::detail::allocate_texture(std::size_t w, std::size_t h, GLenum internal_format, sampling_mode s_mode)
+std::pair<GLuint, RUgraphicsResource> rfkt::gl::detail::allocate_texture(std::size_t w, std::size_t h, GLenum internal_format, sampling_mode s_mode)
 {
-	auto ret = std::make_pair<GLuint, CUgraphicsResource>(0, nullptr);
+	auto ret = std::make_pair<GLuint, RUgraphicsResource>(0, nullptr);
 
 	glGenTextures(1, &ret.first);
 	glBindTexture(GL_TEXTURE_2D, ret.first);
@@ -20,17 +20,17 @@ std::pair<GLuint, CUgraphicsResource> rfkt::gl::detail::allocate_texture(std::si
 	glTexImage2D(GL_TEXTURE_2D, 0, internal_format, w, h, 0, GL_RGBA, GL_FLOAT, nullptr);
 	glBindTexture(GL_TEXTURE_2D, 0);
 
-	CUDA_SAFE_CALL(cuGraphicsGLRegisterImage(&ret.second, ret.first, GL_TEXTURE_2D, CU_GRAPHICS_REGISTER_FLAGS_WRITE_DISCARD));
+	CUDA_SAFE_CALL(ruGraphicsGLRegisterImage(&ret.second, ret.first, GL_TEXTURE_2D, /*CU_GRAPHICS_REGISTER_FLAGS_WRITE_DISCARD*/ 0x02));
 
 	return ret;
 }
 
-void rfkt::gl::detail::deallocate_texture(GLuint tex_id, CUgraphicsResource cuda_res)
+void rfkt::gl::detail::deallocate_texture(GLuint tex_id, RUgraphicsResource cuda_res)
 {
 	if (tex_id == 0) return;
 
 	auto deleter = [cuda_res, tex_id]() {
-		CUDA_SAFE_CALL(cuGraphicsUnregisterResource(cuda_res));
+		CUDA_SAFE_CALL(ruGraphicsUnregisterResource(cuda_res));
 		glDeleteTextures(1, &tex_id);
 	};
 
@@ -38,12 +38,12 @@ void rfkt::gl::detail::deallocate_texture(GLuint tex_id, CUgraphicsResource cuda
 	else ImFtw::DeferNextFrame(std::move(deleter));
 }
 
-std::pair<CUDA_MEMCPY2D, CUarray> rfkt::gl::detail::create_mapping(CUgraphicsResource cuda_res, std::size_t w, std::size_t h, std::size_t pixel_size)
+std::pair<RU_MEMCPY2D, RUarray> rfkt::gl::detail::create_mapping(RUgraphicsResource cuda_res, std::size_t w, std::size_t h, std::size_t pixel_size)
 {
-	auto ret = std::make_pair<CUDA_MEMCPY2D, CUarray>(CUDA_MEMCPY2D(), nullptr);
+	auto ret = std::make_pair<RU_MEMCPY2D, RUarray>(RU_MEMCPY2D(), nullptr);
 
-	if (auto res = cuGraphicsMapResources(1, &cuda_res, 0); res == CUDA_SUCCESS || res == CUDA_ERROR_ALREADY_MAPPED) {
-		CUDA_SAFE_CALL(cuGraphicsSubResourceGetMappedArray(&ret.second, cuda_res, 0, 0));
+	if (auto res = ruGraphicsMapResources(1, &cuda_res, 0); res == RU_SUCCESS) {
+		CUDA_SAFE_CALL(ruGraphicsSubResourceGetMappedArray(&ret.second, cuda_res, 0, 0));
 	}
 	else {
 		CUDA_SAFE_CALL(res);
@@ -52,13 +52,13 @@ std::pair<CUDA_MEMCPY2D, CUarray> rfkt::gl::detail::create_mapping(CUgraphicsRes
 	std::memset(&ret.first, 0, sizeof(ret.first));
 	ret.first.srcXInBytes = 0;
 	ret.first.srcY = 0;
-	ret.first.srcMemoryType = CU_MEMORYTYPE_DEVICE;
+	ret.first.srcMemoryType = RU_MEMORYTYPE_DEVICE;
 	ret.first.srcPitch = w * pixel_size;
 	ret.first.srcDevice = 0;
 
 	ret.first.dstXInBytes = 0;
 	ret.first.dstY = 0;
-	ret.first.dstMemoryType = CU_MEMORYTYPE_ARRAY;
+	ret.first.dstMemoryType = RU_MEMORYTYPE_ARRAY;
 	ret.first.dstArray = ret.second;
 
 	ret.first.WidthInBytes = w * pixel_size;
@@ -67,12 +67,12 @@ std::pair<CUDA_MEMCPY2D, CUarray> rfkt::gl::detail::create_mapping(CUgraphicsRes
 	return ret;
 }
 
-void rfkt::gl::detail::destroy_mapping(CUgraphicsResource cuda_res, std::any&& parent)
+void rfkt::gl::detail::destroy_mapping(RUgraphicsResource cuda_res, std::any&& parent)
 {
 	if (cuda_res == nullptr) return;
 
 	auto deleter = [cuda_res, parent = std::move(parent)]() mutable {
-		if(auto res = cuGraphicsUnmapResources(1, &cuda_res, 0); res != CUDA_SUCCESS && res != CUDA_ERROR_NOT_MAPPED) CUDA_SAFE_CALL(res);
+		if(auto res = ruGraphicsUnmapResources(1, &cuda_res, 0); res != RU_SUCCESS) CUDA_SAFE_CALL(res);
 	};
 
 	if (ImFtw::OnRenderingThread()) deleter();

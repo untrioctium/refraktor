@@ -10,8 +10,7 @@
 
 #include <librefrakt/traits/hashable.h>
 
-#include <experimental/generator>
-#include <vector_types.h>
+#include <roccu_vector_types.h>
 
 #include <glm/mat4x4.hpp>
 #include <glm/gtc/matrix_transform.hpp>
@@ -20,9 +19,6 @@ using json = nlohmann::json;
 using ordered_json = nlohmann::ordered_json;
 
 namespace rfkt {
-
-	template<typename... Args>
-	using generator = std::experimental::generator<Args...>;
 
 	class function_table;
 	class flamedb;
@@ -160,10 +156,6 @@ namespace rfkt {
 			p(a); p(d); p(b); p(e); p(c); p(f);
 		}
 
-		rfkt::generator<anima*> pack() {
-			co_yield &a; co_yield &d; co_yield &b; co_yield &e; co_yield &c; co_yield &f;
-		}
-
 		std::size_t size_reals() const noexcept {
 			return 6;
 		}
@@ -221,6 +213,7 @@ namespace rfkt {
 			if (name == "f") return &affine::f;
 			return nullptr;
 		}
+
 	};
 
 	class vardata {
@@ -250,19 +243,6 @@ namespace rfkt {
 
 			for (auto i = 0; i < precalc_count_; i++) {
 				p(0.0);
-			}
-		}
-
-		template<typename Invoker>
-		rfkt::generator<double> pack_sample(Invoker& i, double t) const {
-			co_yield weight.sample(t, i);
-
-			for (const auto& [_, value] : parameters_) {
-				co_yield value.sample(t, i);
-			}
-
-			for (auto i = 0; i < precalc_count_; i++) {
-				co_yield 0.0;
 			}
 		}
 
@@ -411,35 +391,6 @@ namespace rfkt {
 			}
 		}
 
-		template<typename Invoker>
-		rfkt::generator<double> pack_sample(Invoker& i, double t) const {
-			auto sampled_aff =
-				rfkt::affine{
-					transform.a.sample(t, i),
-					transform.d.sample(t, i),
-					transform.b.sample(t, i),
-					transform.e.sample(t, i),
-					transform.c.sample(t, i),
-					transform.f.sample(t, i),
-				}
-				.scaled(mod_scale.sample(t, i))
-				.rotated(mod_rotate.sample(t, i))
-				.translated(mod_x.sample(t, i), mod_y.sample(t, i));
-
-			co_yield sampled_aff.a.t0;
-			co_yield sampled_aff.d.t0;
-			co_yield sampled_aff.b.t0;
-			co_yield sampled_aff.e.t0;
-			co_yield sampled_aff.c.t0;
-			co_yield sampled_aff.f.t0;
-
-			for (const auto& [_, v] : variations_) {
-				for (auto ret : v.pack_sample(i, t)) {
-					co_yield ret;
-				}
-			}
-		}
-
 		auto size_variations() const noexcept {
 			return variations_.size();
 		}
@@ -502,7 +453,7 @@ namespace rfkt {
 		anima weight = 0.0;
 		anima color = 0.0;
 		anima color_speed = 0.0;
-		anima opacity = 0.0;
+		anima opacity = 1.0;
 
 		std::vector<vlink> vchain;
 
@@ -531,20 +482,6 @@ namespace rfkt {
 
 			for (const auto& link : vchain) {
 				link.pack_sample(p, i, t);
-			}
-		}
-
-		template<typename Invoker>
-		rfkt::generator<double> pack_sample(Invoker& i, double t) const {
-			co_yield weight.sample(t, i);
-			co_yield color.sample(t, i);
-			co_yield color_speed.sample(t, i);
-			co_yield opacity.sample(t, i);
-
-			for (const auto& link : vchain) {
-				for (auto ret : link.sample(i, t)) {
-					co_yield ret;
-				}
 			}
 		}
 
@@ -727,8 +664,8 @@ namespace rfkt {
 		std::vector<std::size_t> affine_indices() const {
 
 			auto ret = std::vector<std::size_t>{};
-			//ret.push_back(0);
-			//ret.push_back(6);
+			ret.push_back(0);
+			ret.push_back(6);
 
 			constexpr static std::size_t flame_offset = 13;
 			constexpr static std::size_t xform_base_reals = 4;
