@@ -13,3 +13,4 @@ add_library(roccu STATIC
 
 target_include_directories(roccu PUBLIC include)
 target_link_libraries(roccu PUBLIC dylib)
+set_target_properties(roccu PROPERTIES FIRST_PARTY true)

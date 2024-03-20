@@ -26,8 +26,30 @@ unsigned char half2uchar(__half v) {
     return static_cast<unsigned char>(min(__half2float(v) * 255.0, 255.0f));
 }
 
+template<typename T, unsigned int N>
+struct array {
+    T data[N];
+
+    __device__ T& operator[](unsigned int idx) {
+        return data[idx];
+    }
+};
+
+//template<typename SourceType, unsigned int SourceComponents, typename DestType, unsigned int DestComponents, bool PlanarDest>
+//void convert(const array<SourceType, SourceComponents>* const restrict __in)
+
+__global__ void convert_24(const half3* const __restrict__ in, uchar3* out, unsigned int size) {
+    const unsigned int bin_idx = blockIdx.x * blockDim.x + threadIdx.x;
+
+    if (bin_idx > size) return;
+
+    const half3 in_val = in[bin_idx];
+
+    out[bin_idx] = uchar3{half2uchar(in_val.x), half2uchar(in_val.y), half2uchar(in_val.z)};
+}
+
 template<bool Planar>
-__global__ void convert(const half3* const __restrict__ in, decltype(image_type<Planar>()) __restrict__ out, unsigned int size) {
+__global__ void convert_32(const half3* const __restrict__ in, decltype(image_type<Planar>()) __restrict__ out, unsigned int size) {
 
     const unsigned int bin_idx = blockIdx.x * blockDim.x + threadIdx.x;
 

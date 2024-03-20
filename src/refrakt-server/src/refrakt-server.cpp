@@ -5,7 +5,7 @@
 
 #include <librefrakt/flame_compiler.h>
 #include <eznve.hpp>
-#include <librefrakt/util/nvjpeg.h>
+//#include <librefrakt/util/nvjpeg.h>
 #include <librefrakt/util/filesystem.h>
 #include <librefrakt/util.h>
 
@@ -203,7 +203,7 @@ namespace rfkt {
 
 			tm.run(in, tonemapped, { quality, gamma, brightness, vibrancy }, stream);
 			dn.denoise(tonemapped, denoised, stream);
-			conv.to_24bit(denoised, out, planar_output, stream);
+			conv.to_32bit(denoised, out, planar_output, stream);
 			stream.host_func([&t = perf_timer, p = std::move(promise)]() mutable {
 				p.set_value(t.count());
 				});
@@ -697,7 +697,7 @@ int main(int argc, char** argv) {
 	auto jpeg_stream = rfkt::gpu_stream{};
 
 	auto conv = rfkt::converter{ *km };
-	auto jpeg = rfkt::nvjpeg::encoder{ jpeg_stream };
+	//auto jpeg = rfkt::nvjpeg::encoder{ jpeg_stream };
 
 	auto do_bench = [&](uint2 dims, bool upscale) {
 		auto t = rfkt::denoiser::benchmark(dims, upscale, 10, jpeg_stream);
@@ -888,7 +888,7 @@ int main(int argc, char** argv) {
 
 			tm.run(state.bins, tonemapped, { rd.width, rd.height }, result.quality, fopt->gamma.sample(rd.time), fopt->brightness.sample(rd.time), fopt->vibrancy.sample(rd.time), jpeg_stream);
 			dn.denoise({ rd.outwidth, rd.outheight }, tonemapped, smoothed, jpeg_stream);
-			conv.to_24bit((!rd.noisy)? smoothed: tonemapped, render, { rd.outwidth, rd.outheight }, true, jpeg_stream);
+			conv.to_32bit((!rd.noisy)? smoothed: tonemapped, render, { rd.outwidth, rd.outheight }, true, jpeg_stream);
 			auto data = jpeg.encode_image(render.ptr(), rd.outwidth, rd.outheight, rd.jpeg_quality, jpeg_stream).get();
  
 			std::map<std::string, double> metadata = {};

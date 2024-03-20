@@ -27,3 +27,4 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(pegtl)
 target_include_directories(flang PUBLIC include)
 target_link_libraries(flang PUBLIC pegtl)
+set_target_properties(flang PROPERTIES FIRST_PARTY true)

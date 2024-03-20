@@ -20,6 +20,7 @@ target_precompile_headers(refrakt-gui PRIVATE include/pch.h)
 target_include_directories(refrakt-gui PRIVATE include/)
 
 set_target_properties(refrakt-gui PROPERTIES VS_DEBUGGER_WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+set_target_properties(refrakt-gui PROPERTIES FIRST_PARTY true)
 
 # rtmidi
 FetchContent_Declare(

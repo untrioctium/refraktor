@@ -70,6 +70,7 @@ public:
 		OptixDenoiserOptions denoiser_options = {};
 		denoiser_options.guideAlbedo = 0;
 		denoiser_options.guideNormal = 0;
+		denoiser_options.denoiseAlpha = OPTIX_DENOISER_ALPHA_MODE_COPY;
 
 		CHECK_OPTIX(optixDenoiserCreate(optix_context, (d.upscale_2x)? OPTIX_DENOISER_MODEL_KIND_UPSCALE2X : OPTIX_DENOISER_MODEL_KIND_LDR, &denoiser_options, &d.handle));
 
@@ -94,7 +95,6 @@ public:
 			d.scratch_buffer.ptr(), d.scratch_buffer.size_bytes()));
 
 		d.dp.blendFactor = 0;
-		d.dp.denoiseAlpha = OPTIX_DENOISER_ALPHA_MODE_COPY;
 		d.dp.hdrIntensity = 0;
 		//cuMemAlloc(&d.dp.hdrIntensity, sizeof(float));
 

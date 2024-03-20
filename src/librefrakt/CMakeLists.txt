@@ -10,9 +10,9 @@ set(HEADER_LIST
 	"include/librefrakt/util/stb.h"
 	"include/librefrakt/util/zlib.h"
 	"include/librefrakt/util/color.h"
-	"include/librefrakt/util/nvjpeg.h"
 	"include/librefrakt/util/http.h"
 	"include/librefrakt/util.h"
+	"include/librefrakt/interface/jpeg_encoder.h"
 	"include/librefrakt/flame_types.h"
 	"include/librefrakt/flame_info.h"
 	"include/librefrakt/flame_compiler.h"
@@ -22,9 +22,10 @@ set(HEADER_LIST
 	"include/librefrakt/image/converter.h"
 	"include/librefrakt/anima.h"
 	"include/librefrakt/allocators.h"
+	"include/librefrakt/factory.h"
 )
 
-add_library(librefrakt STATIC
+add_library(librefrakt OBJECT
 	"src/util/hash.cpp"
 	"src/util/cuda.cpp"
 	"src/util/filesystem.cpp"
@@ -32,7 +33,7 @@ add_library(librefrakt STATIC
 	"src/util/zlib.cpp"
 	"src/util/color.cpp"
 	"src/util/stb.cpp"
-	"src/util/nvjpeg.cpp"
+	"src/impl/jpeg_encoder/nvjpeg.cpp"
 	"src/util/http.cpp"
 	"src/flame_types.cpp"
 	"src/flame_info.cpp"
@@ -48,6 +49,7 @@ add_library(librefrakt STATIC
 #set_property(TARGET librefrakt PROPERTY INTERPROCEDURAL_OPTIMIZATION TRUE)
 
 target_include_directories(librefrakt PUBLIC include)
+set_target_properties(librefrakt PROPERTIES FIRST_PARTY true)
 
 # yaml-cpp
 set(YAML_CPP_BUILD_TESTS OFF)

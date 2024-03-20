@@ -13,3 +13,4 @@ add_library(ezrtc STATIC
 target_include_directories(ezrtc PUBLIC include)
 
 target_link_libraries(ezrtc PUBLIC roccu)
+set_target_properties(ezrtc PROPERTIES FIRST_PARTY true)

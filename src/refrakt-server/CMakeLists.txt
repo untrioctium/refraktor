@@ -1,6 +1,7 @@
 add_executable(refrakt-server src/refrakt-server.cpp)
 
 set_target_properties(refrakt-server PROPERTIES VS_DEBUGGER_WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+set_target_properties(refrakt-server PROPERTIES FIRST_PARTY true)
 
 target_link_libraries(refrakt-server
 	PRIVATE 

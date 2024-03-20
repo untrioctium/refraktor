@@ -12,7 +12,7 @@
 #include <librefrakt/image/denoiser.h>
 #include <librefrakt/image/converter.h>
 #include <librefrakt/util/cuda.h>
-#include <librefrakt/util/nvjpeg.h>
+//#include <librefrakt/util/nvjpeg.h>
 #include <librefrakt/util/filesystem.h>
 #include <librefrakt/util/gpuinfo.h>
 #include <librefrakt/util/http.h>
@@ -777,7 +777,7 @@ private:
 					convert->to_float3(denoised, out_buf, stream);
 				}
 				else {
-					convert->to_24bit((denoise)? denoised: tonemapped, out_buf, false, stream);
+					convert->to_32bit((denoise)? denoised: tonemapped, out_buf, false, stream);
 				}
 				tonemapped.free_async(stream);
 				denoised.free_async(stream);

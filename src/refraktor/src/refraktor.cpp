@@ -12,7 +12,7 @@
 #include <eznve.hpp>
 
 #include <sol/sol.hpp>
-#include <librefrakt/util/nvjpeg.h>
+#include <librefrakt/interface/jpeg_encoder.h>
 
 #include <librefrakt/util/gpuinfo.h>
 #include <librefrakt/image/denoiser.h>
@@ -424,7 +424,7 @@ int main() {
 		auto dn_time = (denoise) ? dn.denoise({ width, height }, render, smooth, tls).get() : 0.0;
 
 		t.reset();
-		conv.to_24bit((denoise) ? smooth : render, out, { width, height }, true, tls);
+		conv.to_32bit((denoise) ? smooth : render, out, { width, height }, true, tls);
 		cuStreamSynchronize(tls);
 		auto conv_time = t.count();
 
@@ -547,7 +547,7 @@ namespace rfkt {
 
 		std::future<double> post_process(
 			rfkt::gpu_span<float4> in,
-			rfkt::gpu_span<uchar4> out,
+			rfkt::gpu_span<uchar3> out,
 			double quality,
 			double gamma, double brightness, double vibrancy,
 			bool planar_output,
@@ -562,8 +562,9 @@ namespace rfkt {
 				});
 
 			tm.run(in, tonemapped, { quality, gamma, brightness, vibrancy }, stream);
-			dn.denoise(tonemapped, denoised, stream);
-			conv.to_24bit(denoised, out, planar_output, stream);
+			auto dnt = dn.denoise(tonemapped, denoised, stream).get();
+			SPDLOG_INFO("denoise time: {}", dnt);
+			conv.to_24bit(denoised, out, stream);
 			stream.host_func([&t = perf_timer, p = std::move(promise)]() mutable {
 				p.set_value(t.count());
 				});
@@ -586,17 +587,11 @@ namespace rfkt {
 	};
 }
 
-template<auto T>
-consteval auto demangle() {
-	return std::string_view{ std::source_location::current().function_name() };
-}
-
 int main() {
 
 	auto ctx = rfkt::cuda::init();
 
 	rfkt::denoiser::init(ctx);
-	rfkt::nvjpeg::init();
 
 	rfkt::flamedb fdb;
 	rfkt::initialize(fdb, "config");
@@ -612,10 +607,18 @@ int main() {
 	uint2 dims = { 1920, 1080 };
 
 	auto pp = rfkt::postprocessor{ *km, dims };
-	auto je = rfkt::nvjpeg::encoder{ stream };
+
+	for (auto encoder : rfkt::jpeg_encoder::names()) {
+				SPDLOG_INFO("encoder: {}", encoder);
+	
+	}
+
+	auto je = rfkt::jpeg_encoder::make("rfkt::nvjpeg_encoder", stream);
+
+	roccuPrintAllocations();
 
 	auto bins = rfkt::gpu_image<float4>{ pp.input_dims().x, pp.input_dims().y };
-	auto out = rfkt::gpu_image<uchar4>{ dims.x, dims.y };
+	auto out = rfkt::gpu_image<uchar3>{ dims.x, dims.y };
 
 	constexpr static auto fps = 60;
 	constexpr static auto seconds_per_loop = 5;
@@ -658,8 +661,8 @@ int main() {
 		return f.value();
 	};
 
-	auto left = must_load_flame("assets/flames_test/electricsheep.247.17353.flam3");
-	auto right = must_load_flame("assets/flames_test/electricsheep.247.26177.flam3");
+	auto left = must_load_flame("assets/flames_test/electricsheep.247.24155.flam3");
+	auto right = must_load_flame("assets/flames_test/electricsheep.247.11256.flam3");
 
 
 	auto interp = interpolator{ left, right, fdb, false };
@@ -718,7 +721,7 @@ int main() {
 	for (int i = 0; i < num_frames; i++) {
 		SPDLOG_INFO("frame {}", i);
 
-		/*auto loop_id = i / frames_per_loop;
+		auto loop_id = i / frames_per_loop;
 		double mix = 0;
 		if (loop_id % 2 == 0) {
 			mix = (loop_id / 2) % 2;
@@ -727,20 +730,20 @@ int main() {
 			mix = (i % frames_per_loop) / double(frames_per_loop);
 
 			if((loop_id - 1)/2 % 2 == 1) mix = 1 - mix;
-		}*/
+		}
 
-		double mix = i / double(num_frames);
+		//double mix = i / double(num_frames);
 
-		mix = smoothstep(mix, 4);
+		mix = smoothstep(mix, 2);
 
 		auto t = i* loops_per_frame;
 		auto samples = std::vector<double>{};
 		auto packer = [&samples](double v) { samples.push_back(v); };
 		double fudge = fps / 24.0;
 		interp.pack_samples(packer, invoker, t - fudge * loops_per_frame, fudge* loops_per_frame, 4, pp.input_dims().x, pp.input_dims().y, mix);
-
+		 
 		auto state = k.kernel->warmup(stream, samples, std::move(bins), 0xDEADBEEF, 100);
-		auto q = k.kernel->bin(stream, state, { .millis = 2000, .quality = 512 }).get();
+		auto q = k.kernel->bin(stream, state, { .millis = 2000, .quality = 256 }).get();
 
 		double gamma = interp.interp_anima(&rfkt::flame::gamma, invoker, t, mix);
 		double brightness = interp.interp_anima(&rfkt::flame::brightness, invoker, t, mix);
@@ -748,7 +751,7 @@ int main() {
 
 		auto res = pp.post_process(state.bins, out, q.quality, gamma, brightness, vibrancy, true, stream).get();
 
-		auto vec = je.encode_image(out.ptr(), pp.output_dims().x, pp.output_dims().y, 100, stream).get()();
+		auto vec = je->encode_image(out, 100, stream).get()();
 
 		auto basename = std::format("frame_{:04d}.jpg", i);
 		rfkt::fs::write("testrender/" + basename, (const char*)vec.data(), vec.size(), false);

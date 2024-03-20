@@ -3,8 +3,6 @@ include(FetchContent)
 
 project(eznve LANGUAGES CXX)
 
-find_package(CUDAToolkit)
-
 set(CMAKE_CXX_STANDARD 23)
 set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
 
@@ -24,3 +22,4 @@ FetchContent_MakeAvailable(nv-codec-headers)
 target_include_directories(eznve PRIVATE ${nv-codec-headers_SOURCE_DIR}/include)
 
 target_link_libraries(eznve PUBLIC dylib roccu)
+set_target_properties(eznve PROPERTIES FIRST_PARTY true)

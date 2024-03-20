@@ -48,10 +48,36 @@ target_include_directories(zlib PUBLIC ${zlib_SOURCE_DIR})
 add_library(ZLIB::ZLIB ALIAS zlib)
 set(ZLIB_INCLUDE_DIR "${zlib_SOURCE_DIR}" "${zlib_BINARY_DIR}")
 
+
 add_subdirectory(src/librefrakt)
 add_subdirectory(src/refraktor)
 add_subdirectory(src/refrakt-server)
 add_subdirectory(src/refrakt-gui)
+
+function(get_all_targets var)
+    set(targets)
+    get_all_targets_recursive(targets ${CMAKE_CURRENT_SOURCE_DIR})
+    set(${var} ${targets} PARENT_SCOPE)
+endfunction()
+
+macro(get_all_targets_recursive targets dir)
+    get_property(subdirectories DIRECTORY ${dir} PROPERTY SUBDIRECTORIES)
+    foreach(subdir ${subdirectories})
+        get_all_targets_recursive(${targets} ${subdir})
+    endforeach()
+
+    get_property(current_targets DIRECTORY ${dir} PROPERTY BUILDSYSTEM_TARGETS)
+    list(APPEND ${targets} ${current_targets})
+endmacro()
+
+get_all_targets(all_targets)
+
+foreach(target_name ${all_targets})
+	get_target_property(is_first_party ${target_name} FIRST_PARTY)
+	if(NOT ${is_first_party} STREQUAL true)
+		set_property(TARGET ${target_name} PROPERTY FOLDER "Dependencies")
+	endif()
+endforeach()
 
 
 #install(TARGETS refrakt-gui RUNTIME DESTINATION . COMPONENT refrakt)
