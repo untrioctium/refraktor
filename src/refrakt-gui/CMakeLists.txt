@@ -43,16 +43,6 @@ target_include_directories(implot PUBLIC ${implot_SOURCE_DIR})
 target_link_libraries(implot PUBLIC imgui)
 target_link_libraries(refrakt-gui PRIVATE implot)
 
-set(REPROC++ ON)
-# reproc
-FetchContent_Declare(
-  reproc
-  GIT_REPOSITORY https://github.com/DaanDeMeyer/reproc.git
-  GIT_TAG main
-  EXCLUDE_FROM_ALL
-)
-FetchContent_MakeAvailable(reproc)
-
 #iconfontcppheaders
 FetchContent_Declare(
   iconfontcppheaders

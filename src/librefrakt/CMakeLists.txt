@@ -13,6 +13,8 @@ set(HEADER_LIST
 	"include/librefrakt/util/http.h"
 	"include/librefrakt/util.h"
 	"include/librefrakt/interface/jpeg_encoder.h"
+	"include/librefrakt/interface/mp4_muxer.h"
+	"include/librefrakt/interface/denoiser.h"
 	"include/librefrakt/flame_types.h"
 	"include/librefrakt/flame_info.h"
 	"include/librefrakt/flame_compiler.h"
@@ -34,6 +36,8 @@ add_library(librefrakt OBJECT
 	"src/util/color.cpp"
 	"src/util/stb.cpp"
 	"src/impl/jpeg_encoder/nvjpeg.cpp"
+	"src/impl/mp4_muxer/ffmpeg_muxer.cpp"
+	"src/impl/denoiser/optix_denoiser.cpp"
 	"src/util/http.cpp"
 	"src/flame_types.cpp"
 	"src/flame_info.cpp"
@@ -159,6 +163,27 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(dylib)
 
+set(REPROC++ ON)
+# reproc
+FetchContent_Declare(
+  reproc
+  GIT_REPOSITORY https://github.com/DaanDeMeyer/reproc.git
+  GIT_TAG main
+  EXCLUDE_FROM_ALL
+)
+FetchContent_MakeAvailable(reproc)
+
+# intel open image denoise
+FetchContent_Declare(
+  oidn
+  URL https://github.com/OpenImageDenoise/oidn/releases/download/v2.2.2/oidn-2.2.2.x64.windows.zip
+  URL_HASH SHA256=5cc8bcc2a3321ef32547c3be70d43878a41324718cabdfb151b332a2a4928297
+)
+FetchContent_MakeAvailable(oidn)
+include("${oidn_SOURCE_DIR}/lib/cmake/OpenImageDenoise-2.2.2/OpenImageDenoiseConfig.cmake")
+
+
+
 if(WIN32)
 	set(CURL_USE_SCHANNEL ON CACHE BOOL "" FORCE)
 endif()
@@ -201,6 +226,7 @@ target_link_libraries(librefrakt PRIVATE
 	stb
 	zip
 	CURL::libcurl_static
+	OpenImageDenoise
 )
 
 target_link_libraries(librefrakt PUBLIC
@@ -209,6 +235,7 @@ target_link_libraries(librefrakt PUBLIC
 	ezrtc
 	eznve
 	spdlog 
+	reproc++
 	#CUDA::nvml
 	#CUDA::cuda_driver
 	concurrencpp

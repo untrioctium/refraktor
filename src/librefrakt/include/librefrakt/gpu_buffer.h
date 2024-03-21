@@ -8,6 +8,38 @@
 
 namespace rfkt {
 
+
+	struct [[nodiscard]] l2_persister {
+		l2_persister(RUdeviceptr ptr, std::size_t size, float ratio, RUstream stream) :
+			ptr_(ptr),
+			stream_(stream){
+		
+			RUlaunchAttributeValue attr;
+			attr.accessPolicyWindow.basePtr = ptr_;
+			attr.accessPolicyWindow.numBytes = size;
+			attr.accessPolicyWindow.hitRatio = ratio;
+			attr.accessPolicyWindow.hitProp = RU_ACCESS_PROPERTY_PERSISTING;
+			attr.accessPolicyWindow.missProp = RU_ACCESS_PROPERTY_STREAMING;
+
+			CUDA_SAFE_CALL(ruStreamSetAttribute(stream_, RU_LAUNCH_ATTRIBUTE_ACCESS_POLICY_WINDOW, &attr));
+		}
+
+		~l2_persister() {
+			RUlaunchAttributeValue attr;
+			attr.accessPolicyWindow.basePtr = ptr_;
+			attr.accessPolicyWindow.numBytes = 0;
+			attr.accessPolicyWindow.hitRatio = 0.0f;
+			attr.accessPolicyWindow.hitProp = RU_ACCESS_PROPERTY_NORMAL;
+			attr.accessPolicyWindow.missProp = RU_ACCESS_PROPERTY_NORMAL;
+
+			CUDA_SAFE_CALL(ruStreamSetAttribute(stream_, RU_LAUNCH_ATTRIBUTE_ACCESS_POLICY_WINDOW, &attr));
+		}
+
+	private:
+		RUdeviceptr ptr_ = 0;
+		RUstream stream_ = 0;
+	};
+
 	template<class Contained = char>
 	class gpu_buffer {
 	public:

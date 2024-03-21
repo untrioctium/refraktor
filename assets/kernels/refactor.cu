@@ -1,10 +1,3 @@
-#define USE_ASYNC_MEMCPY
-
-#ifdef USE_ASYNC_MEMCPY
-#include <cooperative_groups/memcpy_async.h>
-namespace cg = cooperative_groups;
-#endif
-
 #define DEBUG_GRID(...) if(threadIdx.x == 0 && blockIdx.x == 0) {printf(__VA_ARGS__);}
 #define DEBUG_BLOCK(format, ...) if(threadIdx.x == 0) {printf("block %d: " format "\n", blockIdx.x, __VA_ARGS__);}
 
@@ -103,18 +96,6 @@ __shared__ shared_state_t state;
 #define my_shuffle_vote() (state.ts.shuffle_vote[fl::block_rank()])
 #define my_xform_vote() (state.ts.xform_vote[fl::block_rank()])
 
-template<typename Real, uint64... ThreadsPerBlock>
-void print_sizes() {
-
-	//(printf("%llu: %llu\n", ThreadsPerBlock, sizeof(cub::BlockRadixSort<uint64, ThreadsPerBlock, 4>::TempStorage)), ...);
-
-}
-
-__global__
-void print_debug_info() {
-	print_sizes<float, 768, 512, 384, 256, 192, 128, 96>();
-}
-
 __device__ unsigned short shuf_bufs[THREADS_PER_BLOCK * NUM_SHUF_BUFS];
 
 __device__ 
@@ -122,14 +103,6 @@ void queue_shuffle_load(uint32 pass_idx) {
 	if(pass_idx % threads_per_block == 0) {
 		my_shuffle_vote() = my_rand().rand() % num_shuf_bufs;
 	}
-	
-	fl::sync_block();
-	#ifdef USE_ASYNC_MEMCPY
-	cg::memcpy_async(cg::this_thread_block(), 
-		state.ts.shuffle, 
-		shuf_bufs + threads_per_block * state.ts.shuffle_vote[pass_idx % threads_per_block], 
-		shuf_buf_size);
-	#endif
 }
 
 template<uint32 count>
@@ -226,18 +199,11 @@ vec4<Real> flame_pass(unsigned int pass_idx) {
 		opacity = 0.0;
 	}
 	
-	#ifdef USE_ASYNC_MEMCPY
-	cg::wait(cg::this_thread_block());
-	state.ts.iterators.x[my_shuffle()] = out_local.x;
-	state.ts.iterators.y[my_shuffle()] = out_local.y;
-	state.ts.iterators.color[my_shuffle()] = out_local.z;
-	#else
 	fl::sync_block();
 	const auto shuf = shuf_bufs[threads_per_block * state.ts.shuffle_vote[pass_idx % threads_per_block] + fl::block_rank()];
 	state.ts.iterators.x[shuf] = out_local.x;
 	state.ts.iterators.y[shuf] = out_local.y;
 	state.ts.iterators.color[shuf] = out_local.z;
-	#endif
 
 	queue_shuffle_load(pass_idx + 1);
 
@@ -339,13 +305,7 @@ void warmup(
 		//state.flame.print_debug();
 	}
 
-	// save shared state
-	#ifdef USE_ASYNC_MEMCPY
-	cg::memcpy_async(cg::this_thread_block(), out_state + blockIdx.x, &state, shared_size_bytes);
-	cg::wait(cg::this_thread_block());
-	#else
 	memcpy_sync<shared_size_bytes>((uint8*)&state, (uint8*)(out_state + blockIdx.x));
-	#endif
 }
 
 constexpr static uint64 per_block = THREADS_PER_BLOCK;
@@ -362,13 +322,8 @@ void bin(
 	volatile bool* __restrict__ stop_render)
 {
 	
-	// load shared state
-	#ifdef USE_ASYNC_MEMCPY
-	cg::memcpy_async(cg::this_thread_block(), &state, in_state + blockIdx.x, shared_size_bytes);
-	cg::wait(cg::this_thread_block());
-	#else
 	memcpy_sync<shared_size_bytes>((uint8*)(in_state + blockIdx.x), (uint8*)&state);
-	#endif
+	fl::sync_block();
 
 	if(fl::is_block_leader()) {
 		state.tss_quality = 0;
@@ -421,7 +376,12 @@ void bin(
 		
 		fl::sync_block();
 		if(fl::is_block_leader()) {
-			state.should_bail = *stop_render || state.tss_quality > (double(quality_target) / gridDim.x) || (fl::time() - state.tss_start) >= time_bailout || i >= iter_bailout;
+			state.should_bail = 
+			       *stop_render 
+				|| state.tss_quality > (float(quality_target) / gridDim.x) 
+				|| (fl::time() - state.tss_start) >= time_bailout 
+				|| i >= iter_bailout;
+
 			state.tss_passes += blockDim.x;
 		}
 		fl::sync_block();
@@ -433,11 +393,5 @@ void bin(
 		//DEBUG_BLOCK("quality: %u, passes: %u", state.tss_quality, state.tss_passes);
 	}
 	
-	// save shared state
-	#ifdef USE_ASYNC_MEMCPY
-	cg::memcpy_async(cg::this_thread_block(), in_state + blockIdx.x, &state, shared_size_bytes);
-	//cg::wait(cg::this_thread_block());
-	#else
 	memcpy_sync<shared_size_bytes>((uint8*)&state, (uint8*)(in_state + blockIdx.x));
-	#endif
 }

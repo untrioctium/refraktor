@@ -25,9 +25,9 @@ do {                                                               \
 	}                                                              \
 } while(0)
 
-#define EZRTC_CHECK_ROCCU(expression)                               \
+#define EZRTC_CHECK_ROCCU(expression)                              \
 do {                                                               \
-	if (const auto result = expression; result != RU_SUCCESS) {  \
+	if (const auto result = expression; result != RU_SUCCESS) {    \
 		const char* error_str = nullptr;                           \
 		ruGetErrorString(result, &error_str);                      \
 		throw std::runtime_error(                                  \

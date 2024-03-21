@@ -173,7 +173,7 @@ namespace ezrtc {
 		warn_double_usage
 	};
 
-	class spec {
+	class spec {      
 	public:
 
 		static spec source_string(std::string name, std::string source) {

@@ -349,7 +349,7 @@ void rfkt::gui::render_modal::launch_worker(const rfkt::flame& flame)
 
 		auto pp = rfkt::postprocessor{ km, dims, rfkt::denoiser_flag::none };
 		auto post_stream = rfkt::gpu_stream{};
-		auto encoder = eznve::encoder{ dims, {static_cast<unsigned int>(render_params.fps), 1}, eznve::codec::h264, ctx };
+		auto encoder = eznve::encoder{ dims, {static_cast<unsigned int>(render_params.fps), 1}, eznve::codec::hevc, ctx };
 
 		//auto chunkfile_name = std::format("{}.h265", render_params.output_file.string());
 		//auto chunkfile = std::ofstream{ chunkfile_name, std::ios::binary };
@@ -359,7 +359,7 @@ void rfkt::gui::render_modal::launch_worker(const rfkt::flame& flame)
 
 		ffmpeg_process.start(std::vector<std::string>{
 			std::format("{}\\bin\\ffmpeg.exe", rfkt::fs::working_directory().string()),
-				"-y", "-i", "-", "-c", "copy", "-r", std::to_string(render_params.fps), render_params.output_file.string()
+				"-hide_banner", "-loglevel", "error", "-y", "-i", "-", "-c", "copy", "-r", std::to_string(render_params.fps), render_params.output_file.string()
 		});
 
 

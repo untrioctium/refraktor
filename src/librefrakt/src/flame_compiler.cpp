@@ -633,7 +633,6 @@ auto rfkt::flame_compiler::get_flame_kernel(const flamedb& fdb, precision prec, 
     }
 
     auto func = compile_result.module->kernel("bin");
-    compile_result.module->kernel("print_debug_info").launch(1, 1)();
 
     auto max_blocks = func.max_blocks_per_mp(most_blocks.block) * cuda::context::current().device().mp_count();
     if (max_blocks < most_blocks.grid) {
@@ -813,7 +812,6 @@ auto rfkt::flame_compiler::make_opts(precision prec, const flame& f)->std::pair<
         .define("TOTAL_THREADS", most_blocks.grid * most_blocks.block)
         .kernel("warmup")
         .kernel("bin")
-        .kernel("print_debug_info")
         .variable("shuf_bufs")
         
         ;
@@ -865,18 +863,20 @@ auto rfkt::flame_kernel::bin(gpu_stream& stream, flame_kernel::saved_state & sta
     });
 
     state.stopper.clear(stream);
+    {
+        l2_persister persister{ state.bins.ptr(), state.bins.size_bytes(), 1.0f, stream};
 
-    CUDA_SAFE_CALL(klauncher(
-        state.shared.ptr(),
-        (std::size_t)(bo.quality * stream_state->total_bins * 255.0),
-        bo.iters,
-        static_cast<std::uint64_t>(bo.millis) * 1'000'000,
-        state.bins.ptr(), static_cast<unsigned int>(state.bins.width()), static_cast<unsigned int>(state.bins.height()),
-        stream_state->qpx_dev.ptr(),
-        stream_state->qpx_dev.ptr() + counter_size,
-        state.stopper.ptr()
-    ));
-
+        CUDA_SAFE_CALL(klauncher(
+            state.shared.ptr(),
+            (std::size_t)(bo.quality * stream_state->total_bins * 255.0),
+            bo.iters,
+            static_cast<std::uint64_t>(bo.millis) * 1'000'000,
+            state.bins.ptr(), static_cast<unsigned int>(state.bins.width()), static_cast<unsigned int>(state.bins.height()),
+            stream_state->qpx_dev.ptr(),
+            stream_state->qpx_dev.ptr() + counter_size,
+            state.stopper.ptr()
+        ));
+    }
     stream_state->qpx_dev.to_host(stream_state->qpx_host, stream);
 
     stream.host_func([ss = stream_state](){
@@ -957,6 +957,7 @@ void fix_rotation(std::span<double> samples, std::size_t sample_size, std::size_
         }
     }
 
+    // ensure that hue rotates around the circle correctly
     for (int i = flame_size; i < sample_size; i += 3) {
         for (int j = 1; j < 4; j++) {
             auto my_index = i + j * sample_size;

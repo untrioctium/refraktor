@@ -98,6 +98,7 @@ bool preview_panel::show(const rfkt::flamedb& fdb, rfkt::flame& flame, rfkt::fun
 
 					if (needs_kernel) {
 						auto result = compiler.get_flame_kernel(fdb, rfkt::precision::f32, *flame_copy);
+
 						*kernel = std::move(result.kernel.value());
 					}
 

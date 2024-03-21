@@ -126,7 +126,7 @@ eznve::encoder::encoder(uint2 dims, uint2 fps, codec c, RUcontext ctx) : dims(di
 	init_params.frameRateDen = fps.y;
 	init_params.enableEncodeAsync = 0;
 	init_params.enablePTD = 1;
-	init_params.tuningInfo = NV_ENC_TUNING_INFO_ULTRA_LOW_LATENCY;
+	init_params.tuningInfo = NV_ENC_TUNING_INFO_HIGH_QUALITY;
 
 	NV_ENC_PRESET_CONFIG preset_config = { NV_ENC_PRESET_CONFIG_VER, { NV_ENC_CONFIG_VER } };
 	CHECK_NVENC(funcs.nvEncGetEncodePresetConfigEx(session, init_params.encodeGUID, init_params.presetGUID, init_params.tuningInfo, &preset_config));

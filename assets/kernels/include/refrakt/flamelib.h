@@ -166,9 +166,9 @@ namespace flamelib {
 		iterators_t<FloatT, ThreadsPerBlock> iterators;
 		RandCtx rand_states[ThreadsPerBlock];
 		uint16 shuffle_vote[ThreadsPerBlock];
-		#ifdef USE_ASYNC_MEMCPY
-		uint16 shuffle[ThreadsPerBlock];
-		#endif
+		//#ifdef USE_ASYNC_MEMCPY
+		//uint16 shuffle[ThreadsPerBlock];
+		//#endif
 		uint8 xform_vote[ThreadsPerBlock];
 	};
 
