@@ -34,8 +34,8 @@ namespace rfkt {
 		struct saved_state: public traits::noncopyable {
 			gpu_image<float4> bins = {};
 			double quality = 0.0;
-			gpu_buffer<> shared = {};
-			gpu_span<bool> stopper;
+			roccu::gpu_buffer<> shared = {};
+			roccu::gpu_span<bool> stopper;
 
 			saved_state() = default;
 			saved_state(saved_state&& o) noexcept {
@@ -74,9 +74,9 @@ namespace rfkt {
 			double quality = 128.0;
 		};
 
-		auto bin(gpu_stream& stream, flame_kernel::saved_state& state, const bailout_args&) const-> std::future<bin_result>;
-		auto warmup(gpu_stream& stream, std::span<double> samples, uint2 dims, std::uint32_t seed, std::uint32_t count) const->flame_kernel::saved_state;
-		auto warmup(gpu_stream& stream, std::span<double> samples, gpu_image<float4>&& bins, std::uint32_t seed, std::uint32_t count) const->flame_kernel::saved_state;
+		auto bin(roccu::gpu_stream& stream, flame_kernel::saved_state& state, const bailout_args&) const-> std::future<bin_result>;
+		auto warmup(roccu::gpu_stream& stream, std::span<double> samples, uint2 dims, std::uint32_t seed, std::uint32_t count) const->flame_kernel::saved_state;
+		auto warmup(roccu::gpu_stream& stream, std::span<double> samples, gpu_image<float4>&& bins, std::uint32_t seed, std::uint32_t count) const->flame_kernel::saved_state;
 
 		flame_kernel(flame_kernel&& o) noexcept {
 			*this = std::move(o);
@@ -178,11 +178,11 @@ namespace rfkt {
 			return required_smem[std::make_pair(prec, threads_per_block)] + flame_real_bytes;
 		}
 
-		std::pair<cuda::execution_config, ezrtc::spec> make_opts(precision prec, const flame& f);
+		std::pair<roccu::execution_config, ezrtc::spec> make_opts(precision prec, const flame& f);
 
 		std::shared_ptr<ezrtc::compiler> km;
-		std::map<std::size_t, gpu_buffer<unsigned short>> shuf_bufs;
-		decltype(std::declval<cuda::device_t>().concurrent_block_configurations()) exec_configs;
+		std::map<std::size_t, roccu::gpu_buffer<unsigned short>> shuf_bufs;
+		decltype(std::declval<roccu::device_t>().concurrent_block_configurations()) exec_configs;
 
 		std::map<std::pair<precision, int>, int> required_smem;
 

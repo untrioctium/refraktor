@@ -34,10 +34,10 @@ namespace rfkt {
 			if (optix_context) return;
 
 			CHECK_OPTIX(optixInit());
-			CHECK_OPTIX(optixDeviceContextCreate(rfkt::cuda::context::current(), nullptr, &optix_context));
+			CHECK_OPTIX(optixDeviceContextCreate(roccu::context::current(), nullptr, &optix_context));
 		}
 
-		optix_denoiser(uint2 dims, denoiser_flag::flags options, gpu_stream& stream) :
+		optix_denoiser(uint2 dims, denoiser_flag::flags options, roccu::gpu_stream& stream) :
 			stream(stream),
 			upscale(options & denoiser_flag::upscale),
 			tiling(options & denoiser_flag::tiled) {
@@ -70,9 +70,9 @@ namespace rfkt {
 				dims.y += 2 * szs.overlapWindowSizeInPixels;
 			}
 
-			state_buffer = rfkt::gpu_buffer<>{szs.stateSizeInBytes};
+			state_buffer = roccu::gpu_buffer<>{szs.stateSizeInBytes};
 			auto scratch_size = tiling ? szs.withOverlapScratchSizeInBytes : szs.withoutOverlapScratchSizeInBytes;
-			scratch_buffer = rfkt::gpu_buffer<>{scratch_size};
+			scratch_buffer = roccu::gpu_buffer<>{scratch_size};
 
 			CHECK_OPTIX(optixDenoiserSetup(
 				handle, 0,
@@ -85,7 +85,7 @@ namespace rfkt {
 			dp.hdrIntensity = 0;
 		}
 
-		std::future<double> denoise(const image_type& in, image_type& out, gpu_event& event) override {
+		std::future<double> denoise(const image_type& in, image_type& out, roccu::gpu_event& event) override {
 			memset(&layer, 0, sizeof(layer));
 
 			layer.input.width = in.dims().x;
@@ -142,7 +142,7 @@ namespace rfkt {
 			return future;
 		}
 
-		gpu_stream& stream;
+		roccu::gpu_stream& stream;
 
 		bool upscale;
 		bool tiling;
@@ -156,8 +156,8 @@ namespace rfkt {
 		OptixDenoiserLayer layer;
 		OptixDenoiserGuideLayer guide_layer = {};
 
-		rfkt::gpu_buffer<> state_buffer;
-		rfkt::gpu_buffer<> scratch_buffer;
+		roccu::gpu_buffer<> state_buffer;
+		roccu::gpu_buffer<> scratch_buffer;
 	};
 
 }

@@ -10,9 +10,9 @@ namespace rfkt {
 			.supported_apis = { ROCCU_API_CUDA, ROCCU_API_ROCM}
 		};
 
-		cpu_jpeg_encoder(gpu_stream& stream) {}
+		cpu_jpeg_encoder(roccu::gpu_stream& stream) {}
 
-		auto encode_image(const gpu_image<uchar3>& image, int quality, gpu_stream& stream) -> std::future<encode_thunk> override {
+		auto encode_image(const gpu_image<uchar3>& image, int quality, roccu::gpu_stream& stream) -> std::future<encode_thunk> override {
 
 			auto local_data = std::make_unique<std::vector<uchar3>>();
 			local_data->resize(image.area());

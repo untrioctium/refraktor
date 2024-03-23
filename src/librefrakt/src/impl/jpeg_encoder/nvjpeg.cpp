@@ -88,7 +88,7 @@ namespace rfkt {
 			.supported_apis = { ROCCU_API_CUDA }
 		};
 
-		explicit nvjpeg_encoder(gpu_stream& stream) : api(dylib{ "nvjpeg64_12" }) {
+		explicit nvjpeg_encoder(roccu::gpu_stream& stream) : api(dylib{ "nvjpeg64_12" }) {
 
 			dev_allocator.dev_malloc = ruMemAlloc;
 			dev_allocator.dev_free = ruMemFree;
@@ -101,7 +101,7 @@ namespace rfkt {
 
 		~nvjpeg_encoder() {}
 
-		auto encode_image(const gpu_image<uchar3>& image, int quality, gpu_stream& stream) -> std::future<encode_thunk> override {
+		auto encode_image(const gpu_image<uchar3>& image, int quality, roccu::gpu_stream& stream) -> std::future<encode_thunk> override {
 			auto state = get_or_make_state(stream);
 
 			nvjpegImage_t nv_image;
@@ -165,13 +165,13 @@ namespace rfkt {
 			};
 		}
 
-		auto make_state(gpu_stream& stream) -> nvjpegEncoderState_t {
+		auto make_state(roccu::gpu_stream& stream) -> nvjpegEncoderState_t {
 			nvjpegEncoderState_t state;
 			NVJPEG_SAFE_CALL(api.nvjpegEncoderStateCreate(nv_handle, &state, stream));
 			return state;
 		}
 
-		auto make_params(unsigned char quality, gpu_stream& stream) -> nvjpegEncoderParams_t {
+		auto make_params(unsigned char quality, roccu::gpu_stream& stream) -> nvjpegEncoderParams_t {
 			if (quality > 100) quality = 100;
 
 			nvjpegEncoderParams_t ret;
@@ -182,7 +182,7 @@ namespace rfkt {
 			return ret;
 		}
 
-		auto get_or_make_state(gpu_stream& stream) -> decltype(wrap_state(std::declval<nvjpegEncoderState_t>())) {
+		auto get_or_make_state(roccu::gpu_stream& stream) -> decltype(wrap_state(std::declval<nvjpegEncoderState_t>())) {
 			std::lock_guard states_lock{ states_mutex };
 			if (available_states.size() == 0) return wrap_state(make_state(stream));
 			else {

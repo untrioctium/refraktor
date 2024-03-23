@@ -13,7 +13,7 @@ public:
 	using texture_format = rfkt::gl::texture<rfkt::gl::texture_format::rgba8>;
 	using pixel_type = texture_format::traits::pixel_type;
 
-	using renderer_t = std::function<rfkt::gpu_image<pixel_type>(rfkt::gpu_stream&, const rfkt::flame_kernel&, rfkt::flame_kernel::saved_state&, rfkt::flame_kernel::bailout_args, double3, bool, bool)>;
+	using renderer_t = std::function<rfkt::gpu_image<pixel_type>(roccu::gpu_stream&, const rfkt::flame_kernel&, rfkt::flame_kernel::saved_state&, rfkt::flame_kernel::bailout_args, double3, bool, bool)>;
 
 	preview_panel() = delete;
 	preview_panel(rfkt::flame_compiler& compiler, executor_t&& submitter, renderer_t&& renderer, command_executor& cmd_exec) :
@@ -45,7 +45,7 @@ private:
 
 	executor_t submitter;
 	renderer_t renderer;
-	rfkt::gpu_stream stream;
+	roccu::gpu_stream stream;
 	rfkt::flame_compiler& compiler;
 	command_executor& cmd_exec;
 

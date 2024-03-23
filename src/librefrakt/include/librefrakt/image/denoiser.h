@@ -6,6 +6,7 @@
 #include <future>
 
 #include <librefrakt/gpu_buffer.h>
+#include <librefrakt/util/cuda.h>
 
 namespace rfkt {
 
@@ -36,9 +37,9 @@ namespace rfkt {
 
         using pixel_type = half3;
         using image_type = gpu_image<pixel_type>;
-        std::future<double> denoise(const image_type& in, image_type& out, gpu_stream& stream);
+        std::future<double> denoise(const image_type& in, image_type& out, roccu::gpu_stream& stream);
 
-        static double benchmark(uint2 dims, denoiser_flag::flags options, std::uint32_t num_passes, gpu_stream& stream);
+        static double benchmark(uint2 dims, denoiser_flag::flags options, std::uint32_t num_passes, roccu::gpu_stream& stream);
 
     private:
         class denoiser_impl;

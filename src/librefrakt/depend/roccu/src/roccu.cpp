@@ -10,6 +10,7 @@
 
 #define ROCCU_IMPL
 #include "roccu.h"
+#include <roccu_cpp_types.h>
 
 struct roccu_impl {
 	roccu_api api;

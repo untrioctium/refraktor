@@ -82,9 +82,9 @@ public:
 			max_dims.y += 2 * d.szs.overlapWindowSizeInPixels;
 		}
 
-		d.state_buffer = rfkt::gpu_buffer(d.szs.stateSizeInBytes);
+		d.state_buffer = roccu::gpu_buffer<>(d.szs.stateSizeInBytes);
 		auto scratch_size = d.tiling ? d.szs.withOverlapScratchSizeInBytes : d.szs.withoutOverlapScratchSizeInBytes;
-		d.scratch_buffer = rfkt::gpu_buffer(scratch_size);
+		d.scratch_buffer = roccu::gpu_buffer<>(scratch_size);
 
 		SPDLOG_INFO("Denoiser state sizes: {}mb, {}mb", d.state_buffer.size_bytes() / (1024 * 1024), d.scratch_buffer.size_bytes() / (1024 * 1024));
 
@@ -101,7 +101,7 @@ public:
 		return std::unique_ptr<denoiser_impl>(new denoiser_impl{std::move(d)});
 	}
 
-	std::future<double> denoise(const image_type& in, image_type& out, gpu_stream& stream) {
+	std::future<double> denoise(const image_type& in, image_type& out, roccu::gpu_stream& stream) {
 
 		memset(&layer, 0, sizeof(layer));
 
@@ -189,8 +189,8 @@ private:
 	OptixDenoiserLayer layer;
 	OptixDenoiserGuideLayer guide_layer = {};
 
-	rfkt::gpu_buffer<> state_buffer;
-	rfkt::gpu_buffer<> scratch_buffer;
+	roccu::gpu_buffer<> state_buffer;
+	roccu::gpu_buffer<> scratch_buffer;
 
 	bool upscale_2x;
 	bool tiling;
@@ -210,7 +210,7 @@ rfkt::denoiser_old::denoiser_old(denoiser_old&& d) noexcept {
 }
 
 
-std::future<double> rfkt::denoiser_old::denoise(const gpu_image<half3>& in, gpu_image<half3>& out, gpu_stream& stream) {
+std::future<double> rfkt::denoiser_old::denoise(const gpu_image<half3>& in, gpu_image<half3>& out, roccu::gpu_stream& stream) {
 	return impl->denoise(in, out, stream);
 }
 
@@ -226,7 +226,7 @@ unsigned short rand_uniform_half() {
 	return rand() % range + min_val;
 }
 
-double rfkt::denoiser_old::benchmark(uint2 dims, denoiser_flag::flags options, std::uint32_t num_passes, gpu_stream& stream)
+double rfkt::denoiser_old::benchmark(uint2 dims, denoiser_flag::flags options, std::uint32_t num_passes, roccu::gpu_stream& stream)
 {
 	auto input_dims = dims;
 	auto input_size = dims.x * dims.y;

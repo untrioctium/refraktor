@@ -4,7 +4,7 @@
 #include <librefrakt/util/http.h>
 #include <librefrakt/util/zlib.h>
 
-std::optional<rfkt::fs::path> rfkt::cuda::check_and_download_cudart()
+/*std::optional<rfkt::fs::path> rfkt::cuda::check_and_download_cudart()
 {
     const auto& base_path = rfkt::fs::user_local_directory();
 
@@ -56,9 +56,9 @@ std::optional<rfkt::fs::path> rfkt::cuda::check_and_download_cudart()
 
 	return runtime_path;
 
-}
+}*/
 
-auto rfkt::cuda::init() -> context
+auto rfkt::cuda::init() -> roccu::context
 {
     RUdevice dev;
     RUcontext ctx;
@@ -69,7 +69,7 @@ auto rfkt::cuda::init() -> context
     ruDeviceGet(&dev, 0);
     ruCtxCreate(&ctx, 0x01 | 0x08, dev);
 
-    auto devobj = rfkt::cuda::device_t{ dev };
+    auto devobj = roccu::device_t{ dev };
 
     std::size_t max_persist_l2 = devobj.max_persist_l2_cache_size();
     CUDA_SAFE_CALL(ruCtxSetLimit(RU_LIMIT_PERSISTING_L2_CACHE_SIZE, max_persist_l2));

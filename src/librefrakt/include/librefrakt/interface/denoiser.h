@@ -5,6 +5,7 @@
 
 #include <librefrakt/factory.h>
 #include <librefrakt/gpu_buffer.h>
+#include <librefrakt/util/cuda.h>
 
 namespace rfkt {
 
@@ -17,7 +18,7 @@ namespace rfkt {
 
 	}
 
-	struct denoiser : factory<denoiser, uint2, denoiser_flag::flags, gpu_stream&> {
+	struct denoiser : factory<denoiser, uint2, denoiser_flag::flags, roccu::gpu_stream&> {
 		struct meta_type {
 			std::string_view pretty_name;
 			std::size_t priority;
@@ -31,7 +32,7 @@ namespace rfkt {
 		denoiser(key) {}
 		virtual ~denoiser() = default;
 
-		virtual std::future<double> denoise(const image_type& in, image_type& out, gpu_event& event) = 0;
+		virtual std::future<double> denoise(const image_type& in, image_type& out, roccu::gpu_event& event) = 0;
 	};
 
 }

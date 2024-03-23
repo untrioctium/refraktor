@@ -1,6 +1,6 @@
 #include <cstdint>
 #include <concepts>
-#include <roccu.h>
+#include <roccu_cpp_types.h>
 #include <atomic>
 
 namespace rfkt {
@@ -26,7 +26,7 @@ namespace rfkt {
 
         template<typename StoredT>
         static auto to_span(PtrType ptr, std::size_t sz) {
-            return rfkt::gpu_span<StoredT>{ ptr, sz };
+            return roccu::gpu_span<StoredT>{ ptr, sz };
         }
     };
 

@@ -1,3 +1,5 @@
+#include <spdlog/spdlog.h>
+
 #include <librefrakt/image/tonemapper.h>
 
 #define RFKT_ASSERT(x) 
@@ -26,7 +28,7 @@ namespace rfkt {
 		block_size = s_block;
 	}
 
-	void tonemapper::run(gpu_span<float4> bins, gpu_span<half3> out, const args_t& args, gpu_stream& stream) const {
+	void tonemapper::run(roccu::gpu_span<float4> bins, roccu::gpu_span<half3> out, const args_t& args, roccu::gpu_stream& stream) const {
 
 		unsigned int size = bins.size();
 		auto nblocks = size / block_size;

@@ -1,3 +1,5 @@
+#include <spdlog/spdlog.h>
+
 #include <OpenImageDenoise/oidn.hpp>
 
 #include <librefrakt/interface/denoiser.h>
@@ -12,7 +14,7 @@ namespace rfkt {
 			.upscale_supported = false
 		};
 
-		oidn_denoiser(uint2 dims, denoiser_flag::flags options, gpu_stream& stream): stream(stream) {
+		oidn_denoiser(uint2 dims, denoiser_flag::flags options, roccu::gpu_stream& stream): stream(stream) {
 			device = [&stream]() -> oidn::DeviceRef {
 				if (roccuGetApi() == ROCCU_API_CUDA) {
 					return oidn::newCUDADevice({ 0 }, { (cudaStream_t)stream.operator RUstream_st * () });
@@ -29,7 +31,7 @@ namespace rfkt {
 			check_error();
 		}
 
-		std::future<double> denoise(const image_type& in, image_type& out, gpu_event& event) override {
+		std::future<double> denoise(const image_type& in, image_type& out, roccu::gpu_event& event) override {
 
 			oidn::BufferRef in_buf = oidnNewSharedBuffer(device.getHandle(), std::bit_cast<void*>(in.ptr()), in.size_bytes());
 			oidn::BufferRef out_buf = oidnNewSharedBuffer(device.getHandle(), std::bit_cast<void*>(out.ptr()), out.size_bytes());
@@ -63,7 +65,7 @@ namespace rfkt {
 			}
 		}
 
-		gpu_stream& stream;
+		roccu::gpu_stream& stream;
 		oidn::DeviceRef device;
 		oidn::FilterRef filter;
 	};

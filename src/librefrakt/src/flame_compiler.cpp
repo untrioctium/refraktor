@@ -634,7 +634,7 @@ auto rfkt::flame_compiler::get_flame_kernel(const flamedb& fdb, precision prec, 
 
     auto func = compile_result.module->kernel("bin");
 
-    auto max_blocks = func.max_blocks_per_mp(most_blocks.block) * cuda::context::current().device().mp_count();
+    auto max_blocks = func.max_blocks_per_mp(most_blocks.block) * roccu::context::current().device().mp_count();
     if (max_blocks < most_blocks.grid) {
 
         auto expected_shared = smem_per_block(prec, f.size_reals() * 4, most_blocks.block);
@@ -656,7 +656,7 @@ auto rfkt::flame_compiler::get_flame_kernel(const flamedb& fdb, precision prec, 
     return r;
 }
 
-rfkt::gpu_buffer<unsigned short> make_shuffle_buffers(std::size_t ppts, std::size_t count) {
+roccu::gpu_buffer<unsigned short> make_shuffle_buffers(std::size_t ppts, std::size_t count) {
     using shuf_t = unsigned short;
     const auto shuf_size = ppts * count;
     SPDLOG_INFO("shuf_size: {} bytes", shuf_size * 2);
@@ -678,7 +678,7 @@ rfkt::gpu_buffer<unsigned short> make_shuffle_buffers(std::size_t ppts, std::siz
         std::shuffle(start, end, engine);
     }
 
-    auto buf = rfkt::gpu_buffer<unsigned short>(shuf_local.size());
+    auto buf = roccu::gpu_buffer<unsigned short>(shuf_local.size());
     buf.from_host(shuf_local);
     return buf;
 }
@@ -688,7 +688,7 @@ rfkt::flame_compiler::flame_compiler(std::shared_ptr<ezrtc::compiler> k_manager)
 
     num_shufs = 512;
 
-    exec_configs = cuda::context::current().device().concurrent_block_configurations();
+    exec_configs = roccu::context::current().device().concurrent_block_configurations();
 
     std::string check_kernel_name = "get_sizes<";
     for (const auto& conf : exec_configs) {
@@ -725,7 +725,7 @@ rfkt::flame_compiler::flame_compiler(std::shared_ptr<ezrtc::compiler> k_manager)
     shared_sizes.resize(exec_configs.size() * 2);
     ruMemcpyDtoH(shared_sizes.data(), var.ptr(), var.size());
 
-    auto base_shared = cuda::context::current().device().reserved_shared_per_block();
+    auto base_shared = roccu::context::current().device().reserved_shared_per_block();
 
     for (int i = 0; i < exec_configs.size(); i++) {
        required_smem[{precision::f32, exec_configs[i].block}] = shared_sizes[i] + 16;
@@ -768,7 +768,7 @@ rfkt::flame_compiler::flame_compiler(std::shared_ptr<ezrtc::compiler> k_manager)
     SPDLOG_INFO("Loaded catmull kernel: {} regs, {} shared, {} local, {}x{} suggested dims", func.register_count(), func.shared_bytes(), func.local_bytes(), s_grid, s_block);
 }
 
-auto rfkt::flame_compiler::make_opts(precision prec, const flame& f)->std::pair<cuda::execution_config, ezrtc::spec>
+auto rfkt::flame_compiler::make_opts(precision prec, const flame& f)->std::pair<roccu::execution_config, ezrtc::spec>
 {
     auto flame_real_count = f.size_reals();
     auto flame_size_bytes = ((prec == precision::f32) ? sizeof(float) : sizeof(double)) * flame_real_count;
@@ -790,8 +790,8 @@ auto rfkt::flame_compiler::make_opts(precision prec, const flame& f)->std::pair<
     // per temporal sample. this is not necessary for chaos because the
     // threads within a warp are already divergent.
     if (!f.chaos_table.has_value()) {
-        const auto warp_size = cuda::context::current().device().warp_size();
-        while (exec_configs[most_blocks_idx].block / warp_size < 4) most_blocks_idx--;
+        const auto warp_size = roccu::context::current().device().warp_size();
+        while (exec_configs[most_blocks_idx].block / warp_size < 3) most_blocks_idx--;
     }
     auto& most_blocks = exec_configs[most_blocks_idx];
 
@@ -806,7 +806,7 @@ auto rfkt::flame_compiler::make_opts(precision prec, const flame& f)->std::pair<
         .flag(ezrtc::compile_flag::generate_line_info)
         .define("NUM_SHUF_BUFS", num_shufs)
         .define("THREADS_PER_BLOCK", most_blocks.block)
-        .define("BLOCKS_PER_MP", most_blocks.grid / cuda::context::current().device().mp_count())
+        .define("BLOCKS_PER_MP", most_blocks.grid / roccu::context::current().device().mp_count())
         .define("FLAME_SIZE_REALS", flame_real_count)
         .define("FLAME_SIZE_BYTES", flame_size_bytes)
         .define("TOTAL_THREADS", most_blocks.grid * most_blocks.block)
@@ -825,7 +825,7 @@ auto rfkt::flame_compiler::make_opts(precision prec, const flame& f)->std::pair<
     return { most_blocks, opts };
 }
 
-auto rfkt::flame_kernel::bin(gpu_stream& stream, flame_kernel::saved_state & state, const bailout_args& bo) const -> std::future<bin_result>
+auto rfkt::flame_kernel::bin(roccu::gpu_stream& stream, flame_kernel::saved_state & state, const bailout_args& bo) const -> std::future<bin_result>
 {
     using counter_type = std::size_t;
     static constexpr auto counter_size = sizeof(counter_type);
@@ -836,7 +836,7 @@ auto rfkt::flame_kernel::bin(gpu_stream& stream, flame_kernel::saved_state & sta
         std::size_t total_bins;
         std::size_t num_threads;
 
-        rfkt::gpu_span<std::size_t> qpx_dev;
+        roccu::gpu_span<std::size_t> qpx_dev;
 
         std::promise<flame_kernel::bin_result> promise{};
         std::span<std::size_t> qpx_host;
@@ -864,7 +864,7 @@ auto rfkt::flame_kernel::bin(gpu_stream& stream, flame_kernel::saved_state & sta
 
     state.stopper.clear(stream);
     {
-        l2_persister persister{ state.bins.ptr(), state.bins.size_bytes(), 1.0f, stream};
+        roccu::l2_persister persister{ state.bins.ptr(), state.bins.size_bytes(), 1.0f, stream};
 
         CUDA_SAFE_CALL(klauncher(
             state.shared.ptr(),
@@ -975,7 +975,7 @@ void fix_rotation(std::span<double> samples, std::size_t sample_size, std::size_
     }
 }
 
-auto rfkt::flame_kernel::warmup(gpu_stream& stream, std::span<double> samples, gpu_image<float4>&& bins, std::uint32_t seed, std::uint32_t count) const -> flame_kernel::saved_state
+auto rfkt::flame_kernel::warmup(roccu::gpu_stream& stream, std::span<double> samples, gpu_image<float4>&& bins, std::uint32_t seed, std::uint32_t count) const -> flame_kernel::saved_state
 {
     const auto sample_size = flame_size_reals + 256 * 3;
     const auto sample_count = samples.size() / sample_size;
@@ -1024,7 +1024,7 @@ auto rfkt::flame_kernel::warmup(gpu_stream& stream, std::span<double> samples, g
     return state;
 }
 
-auto rfkt::flame_kernel::warmup(gpu_stream& stream, std::span<double> samples, uint2 dims, std::uint32_t seed, std::uint32_t count) const->flame_kernel::saved_state
+auto rfkt::flame_kernel::warmup(roccu::gpu_stream& stream, std::span<double> samples, uint2 dims, std::uint32_t seed, std::uint32_t count) const->flame_kernel::saved_state
 {
     auto bins = gpu_image<float4>{ dims.x, dims.y, stream };
     bins.clear(stream);

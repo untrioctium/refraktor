@@ -164,11 +164,11 @@ namespace rfkt {
 		postprocessor(postprocessor&&) = default;
 		postprocessor& operator=(postprocessor&&) = default;
 
-		auto make_output_buffer() const -> rfkt::gpu_buffer<uchar4> {
-			return rfkt::gpu_buffer<uchar4>{ dims_.x* dims_.y };
+		auto make_output_buffer() const -> roccu::gpu_buffer<uchar4> {
+			return roccu::gpu_buffer<uchar4>{ dims_.x* dims_.y };
 		}
 
-		auto make_output_buffer(RUstream stream) const -> rfkt::gpu_buffer<uchar4> {
+		auto make_output_buffer(RUstream stream) const -> roccu::gpu_buffer<uchar4> {
 			return { dims_.x * dims_.y, stream };
 		}
 
@@ -186,12 +186,12 @@ namespace rfkt {
 		}
 
 		std::future<double> post_process(
-			rfkt::gpu_span<float4> in,
-			rfkt::gpu_span<uchar4> out,
+			roccu::gpu_span<float4> in,
+			roccu::gpu_span<uchar4> out,
 			double quality,
 			double gamma, double brightness, double vibrancy,
 			bool planar_output,
-			gpu_stream& stream) {
+			roccu::gpu_stream& stream) {
 
 			auto promise = std::promise<double>{};
 			auto future = promise.get_future();
@@ -233,7 +233,7 @@ namespace rfkt {
 		using handle = std::shared_ptr<render_socket>;
 		using send_function = std::move_only_function<void(handle&&, std::vector<char>&&)>;
 
-		[[nodiscard]] static handle make(rfkt::flame_compiler& fc, ezrtc::compiler& km, rfkt::flamedb& fdb, rfkt::cuda::context ctx, concurrencpp::runtime& rt, send_function&& sf) {
+		[[nodiscard]] static handle make(rfkt::flame_compiler& fc, ezrtc::compiler& km, rfkt::flamedb& fdb, roccu::context ctx, concurrencpp::runtime& rt, send_function&& sf) {
 			auto ret = handle{ new render_socket{fc, km, fdb} };
 			ret->send = std::move(sf);
 			ret->render_queue = rt.make_worker_thread_executor();
@@ -307,7 +307,7 @@ namespace rfkt {
 			double gamma = 0.0;
 			double brightness = 0.0;
 			double vibrancy = 0.0;
-			rfkt::gpu_stream pp_stream{};
+			roccu::gpu_stream pp_stream{};
 
 			std::size_t total_passes = 0;
 			std::size_t total_draws = 0;
@@ -518,9 +518,9 @@ namespace rfkt {
 			return std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - start).count() / 1'000'000.0;
 		}
 
-		rfkt::cuda::context ctx;
+		roccu::context ctx;
 
-		rfkt::gpu_stream stream;
+		roccu::gpu_stream stream;
 
 		ezrtc::compiler& km;
 		rfkt::flame_compiler& fc;
@@ -690,11 +690,11 @@ int main(int argc, char** argv) {
 	auto zlib = std::make_shared<ezrtc::cache_adaptors::zlib>(kernel);
 	auto km = std::make_shared<ezrtc::compiler>(zlib);
 
-	rfkt::cuda::check_and_download_cudart();
-	km->find_system_cuda();
+	//rfkt::cuda::check_and_download_cudart();
+	//km->find_system_cuda();
 	auto fc = rfkt::flame_compiler{ km };
 
-	auto jpeg_stream = rfkt::gpu_stream{};
+	auto jpeg_stream = roccu::gpu_stream{};
 
 	auto conv = rfkt::converter{ *km };
 	//auto jpeg = rfkt::nvjpeg::encoder{ jpeg_stream };

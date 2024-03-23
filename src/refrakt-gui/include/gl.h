@@ -11,6 +11,7 @@
 
 #include <librefrakt/traits/noncopyable.h>
 #include <librefrakt/gpu_buffer.h>
+#include <librefrakt/util/cuda.h>
 
 namespace rfkt::gl {
 
@@ -102,7 +103,7 @@ namespace rfkt::gl {
 				return *this;
 			}
 
-			void copy_from(gpu_span<typename texture::traits::pixel_type> buffer) {
+			void copy_from(roccu::gpu_span<typename texture::traits::pixel_type> buffer) {
 				if(buffer.size_bytes() < copy_params.WidthInBytes * copy_params.Height)
 					throw std::runtime_error("cuda_map::copy_from: buffer too small");
 
@@ -110,7 +111,7 @@ namespace rfkt::gl {
 				CUDA_SAFE_CALL(ruMemcpy2D(&copy_params));
 			}
 
-			void copy_from(gpu_span<typename texture::traits::pixel_type> buffer, rfkt::gpu_stream& stream) {
+			void copy_from(roccu::gpu_span<typename texture::traits::pixel_type> buffer, roccu::gpu_stream& stream) {
 				if (buffer.size_bytes() < copy_params.WidthInBytes * copy_params.Height)
 					throw std::runtime_error("cuda_map::copy_from: buffer too small");
 

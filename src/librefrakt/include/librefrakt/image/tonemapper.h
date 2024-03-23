@@ -1,5 +1,6 @@
 #include <ezrtc.h>
 #include <librefrakt/gpu_buffer.h>
+#include <librefrakt/util/cuda.h>
 
 namespace rfkt {
 	class tonemapper {
@@ -13,7 +14,7 @@ namespace rfkt {
 			double vibrancy;
 		};
 
-		void run(gpu_span<float4> bins, gpu_span<half3> out, const args_t& args, gpu_stream& stream) const;
+		void run(roccu::gpu_span<float4> bins, roccu::gpu_span<half3> out, const args_t& args, roccu::gpu_stream& stream) const;
 
 	private:
 		ezrtc::cuda_module tm;

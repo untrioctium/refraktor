@@ -211,7 +211,7 @@ private:
 namespace rfkt {
 	class postprocessor {
 	public:
-		postprocessor(ezrtc::compiler& kc, uint2 dims, rfkt::gpu_stream& stream, rfkt::denoiser_flag::flags dn_opts = rfkt::denoiser_flag::none) :
+		postprocessor(ezrtc::compiler& kc, uint2 dims, roccu::gpu_stream& stream, rfkt::denoiser_flag::flags dn_opts = rfkt::denoiser_flag::none) :
 			tm(kc),
 			dn(rfkt::denoiser::make("rfkt::oidn_denoiser", uint2{dims.x, dims.y}, dn_opts, stream)),
 			conv(kc),
@@ -231,11 +231,11 @@ namespace rfkt {
 		postprocessor(postprocessor&&) = default;
 		postprocessor& operator=(postprocessor&&) = default;
 
-		auto make_output_buffer() const -> rfkt::gpu_buffer<uchar3> {
-			return rfkt::gpu_buffer<uchar3>{ dims_.x* dims_.y };
+		auto make_output_buffer() const -> roccu::gpu_buffer<uchar3> {
+			return roccu::gpu_buffer<uchar3>{ dims_.x* dims_.y };
 		}
 
-		auto make_output_buffer(RUstream stream) const -> rfkt::gpu_buffer<uchar3> {
+		auto make_output_buffer(RUstream stream) const -> roccu::gpu_buffer<uchar3> {
 			return { dims_.x * dims_.y, stream };
 		}
 
@@ -253,12 +253,12 @@ namespace rfkt {
 		}
 
 		std::future<double> post_process(
-			rfkt::gpu_span<float4> in,
-			rfkt::gpu_span<uchar3> out,
+			roccu::gpu_span<float4> in,
+			roccu::gpu_span<uchar3> out,
 			double quality,
 			double gamma, double brightness, double vibrancy,
 			bool planar_output,
-			gpu_stream& stream) {
+			roccu::gpu_stream& stream) {
 
 			auto promise = std::promise<double>{};
 			auto future = promise.get_future();
@@ -289,7 +289,7 @@ namespace rfkt {
 
 		rfkt::timer perf_timer;
 
-		gpu_event dn_done;
+		roccu::gpu_event dn_done;
 
 		uint2 dims_;
 		bool upscale;
@@ -305,7 +305,7 @@ int main() {
 	rfkt::flamedb fdb;
 	rfkt::initialize(fdb, "config");
 
-	auto stream = rfkt::gpu_stream{};
+	auto stream = roccu::gpu_stream{};
 	auto kernel = std::make_shared<ezrtc::sqlite_cache>((rfkt::fs::user_local_directory() / "kernel.sqlite3").string());
 	auto zlib = std::make_shared<ezrtc::cache_adaptors::zlib>(kernel);
 	auto km = std::make_shared<ezrtc::compiler>(zlib);

@@ -32,7 +32,7 @@ namespace rfkt {
 			block_size_planar = s_block_planar;
 		}
 
-		void to_32bit(gpu_span<half3> in, gpu_span<uchar4> out, bool planar, gpu_stream& stream) const {
+		void to_32bit(roccu::gpu_span<half3> in, roccu::gpu_span<uchar4> out, bool planar, roccu::gpu_stream& stream) const {
 			auto kernel = (planar) ? conv.kernel("convert_32<true>") : conv.kernel("convert_32<false>");
 
 			auto b_size = (planar) ? block_size_planar : block_size;
@@ -51,7 +51,7 @@ namespace rfkt {
 				));
 		}
 
-		void to_24bit(gpu_span<half3> in, gpu_span<uchar3> out, gpu_stream& stream) const {
+		void to_24bit(roccu::gpu_span<half3> in, roccu::gpu_span<uchar3> out, roccu::gpu_stream& stream) const {
 			unsigned int size = in.size();
 			auto nblocks = size / block_size;
 			if (size % block_size != 0) {
@@ -67,7 +67,7 @@ namespace rfkt {
 				));
 		}
 
-		void to_float3(gpu_span<half3> in, gpu_span<float4> out, gpu_stream& stream) const {
+		void to_float3(roccu::gpu_span<half3> in, roccu::gpu_span<float4> out, roccu::gpu_stream& stream) const {
 			unsigned int size = in.size();
 			auto nblocks = size / block_size;
 			if (size % block_size != 0) {

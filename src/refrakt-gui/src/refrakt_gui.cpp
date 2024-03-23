@@ -705,18 +705,18 @@ private:
 		show_splash("Initializing GPU statistics system", []() { rfkt::gpuinfo::init(); });
 		show_splash("Loading variations", [&]() {rfkt::initialize(fdb, "config"); });
 
-		auto runtime_path = show_splash("Setting up CUDA runtime", []() { return rfkt::cuda::check_and_download_cudart(); });
-		if (!runtime_path) {
-			SPDLOG_CRITICAL("Could not find CUDA runtime");
-			return false;
-		}
+		//auto runtime_path = show_splash("Setting up CUDA runtime", []() { return rfkt::cuda::check_and_download_cudart(); });
+		//if (!runtime_path) {
+		//	SPDLOG_CRITICAL("Could not find CUDA runtime");
+		//	return false;
+		//}
 
 
-		k_comp = show_splash("Setting up compiler", [&runtime_path]() {
+		k_comp = show_splash("Setting up compiler", []() {
 			auto kernel_cache = std::make_shared<ezrtc::sqlite_cache>((rfkt::fs::user_local_directory() / "kernel.sqlite3").string().c_str());
 			auto zlib = std::make_shared<ezrtc::cache_adaptors::zlib>(std::make_shared<ezrtc::cache_adaptors::guarded>(kernel_cache));
 			auto compiler = std::make_shared<ezrtc::compiler>( zlib );
-			compiler->find_system_cuda(*runtime_path);
+			//compiler->find_system_cuda(*runtime_path);
 			return compiler;
 		});
 
@@ -747,7 +747,7 @@ private:
 		convert = show_splash("Creating converter", [&] { return std::make_shared<rfkt::converter>(*k_comp); });
 
 		preview_panel::renderer_t renderer = [&](
-			rfkt::gpu_stream& stream, const rfkt::flame_kernel& kernel,
+			roccu::gpu_stream& stream, const rfkt::flame_kernel& kernel,
 			rfkt::flame_kernel::saved_state& state,
 			rfkt::flame_kernel::bailout_args bo, double3 gbv, bool upscale, bool denoise) {
 
@@ -891,7 +891,7 @@ private:
 
 	command_executor c_exec;
 	rfkt::flamedb fdb;
-	rfkt::cuda::context ctx;
+	roccu::context ctx;
 
 	std::shared_ptr<ezrtc::compiler> k_comp;
 	std::shared_ptr<rfkt::flame_compiler> f_comp;

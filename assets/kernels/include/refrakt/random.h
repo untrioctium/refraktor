@@ -16,10 +16,7 @@ struct rand_engine {
 	__device__ FloatT rand01() {
 		Generator* const gen = static_cast<Generator*>(this);
 		if constexpr (flamelib::is_same<FloatT, double>) {
-			unsigned long long bits = ((((unsigned long long) gen->rand()) << 32) | (((unsigned long long) gen->rand())));
-			bits &= 0x000FFFFFFFFFFFFFull;
-			bits |= 0x3FF0000000000000ull;
-			return *(double*)(&bits) - 1.0;
+			return static_cast<double>(gen->rand()) / 4'294'967'295.0;
 		} else {
 			return static_cast<float>(gen->rand()) / 4'294'967'295.0f;
 		}
