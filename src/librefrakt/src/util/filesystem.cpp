@@ -158,3 +158,34 @@ auto rfkt::fs::now() -> long long
 {
 	return std::chrono::duration_cast<std::chrono::milliseconds>(std::filesystem::file_time_type::clock::now().time_since_epoch()).count();
 }
+
+bool rfkt::fs::command_in_path(std::string_view command_name)
+{
+	// get PATH environment variable
+	std::string_view path = std::getenv("PATH");
+
+	// split path into individual directories
+	std::vector<std::string_view> dirs;
+	size_t start = 0;
+	size_t end = path.find_first_of(';');
+
+	while (end != std::string::npos) {
+		dirs.push_back(path.substr(start, end - start));
+		start = end + 1;
+		end = path.find_first_of(';', start);
+	}
+
+	dirs.push_back(path.substr(start));
+
+	// check if command is in any of the directories
+	for (const auto& dir : dirs) {
+		fs::path cmd_path = dir;
+		cmd_path /= command_name;
+
+		if (std::filesystem::exists(cmd_path)) {
+			return true;
+		}
+	}
+
+	return false;
+}

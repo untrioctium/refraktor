@@ -18,21 +18,21 @@ namespace rfkt {
 
     }
 
-    class denoiser {
+    class denoiser_old {
     public:
 
 
         static void init(RUcontext ctx);
 
-        denoiser(uint2 max_dims, denoiser_flag::flags options = denoiser_flag::none);
+        denoiser_old(uint2 max_dims, denoiser_flag::flags options = denoiser_flag::none);
 
-        denoiser(const denoiser&) = delete;
-        denoiser& operator=(const denoiser&) = delete;
+        denoiser_old(const denoiser_old&) = delete;
+        denoiser_old& operator=(const denoiser_old&) = delete;
 
-        denoiser(denoiser&& d) noexcept;
-        denoiser& operator=(denoiser&& d) noexcept;
+        denoiser_old(denoiser_old&& d) noexcept;
+        denoiser_old& operator=(denoiser_old&& d) noexcept;
 
-        ~denoiser();
+        ~denoiser_old();
 
         using pixel_type = half3;
         using image_type = gpu_image<pixel_type>;

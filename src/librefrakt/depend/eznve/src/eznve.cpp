@@ -132,6 +132,9 @@ eznve::encoder::encoder(uint2 dims, uint2 fps, codec c, RUcontext ctx) : dims(di
 	CHECK_NVENC(funcs.nvEncGetEncodePresetConfigEx(session, init_params.encodeGUID, init_params.presetGUID, init_params.tuningInfo, &preset_config));
 	memcpy(init_params.encodeConfig, &preset_config.presetCfg, sizeof(NV_ENC_CONFIG));
 
+	//encoder_config.encodeCodecConfig.hevcConfig.pixelBitDepthMinus8 = 2;
+	//encoder_config.profileGUID = NV_ENC_HEVC_PROFILE_MAIN10_GUID;
+
 	CHECK_NVENC(funcs.nvEncInitializeEncoder(session, &init_params));
 
 	for (int i = 0; i < encoder_config.frameIntervalP; i++) {

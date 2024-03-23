@@ -53,10 +53,19 @@ namespace rfkt {
 			auto it = factories().find(name);
 			if (it == factories().end()) return nullptr;
 
-			if constexpr (detail::has_meta_type<Base>)
-				return it->second.first(std::forward<T>(args)...);
-			else
-				return it->second(std::forward<T>(args)...);
+			auto ptr = [name, &it](auto&&... args_inner) {
+				if constexpr (detail::has_meta_type<Base>) {
+					auto ptr = it->second.first(std::forward<decltype(args_inner)>(args_inner)...);
+					ptr->meta_ptr = (const void*) it->second.second;
+					return ptr;
+				}
+				else
+					return it->second(std::forward<decltype(args_inner)>(args_inner)...);
+			}(std::forward<T>(args)...);
+
+			ptr->name_ = name;
+
+			return ptr;
 		}
 
 		template<typename T>
@@ -100,9 +109,23 @@ namespace rfkt {
 			return it->second.second;
 		}
 
+		std::string_view name() const {
+			return name_;
+		}
+
+		const auto& meta() const
+			requires detail::has_meta_type<Base>
+		{
+			return *static_cast<const typename Base::meta_type*>(meta_ptr);
+		}
+
 		friend Base;
 
 	private:
+
+		std::string_view name_;
+		const void* meta_ptr;
+
 		class key {
 			key() {};
 			template <class T> friend struct registrar;

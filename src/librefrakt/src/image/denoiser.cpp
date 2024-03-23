@@ -12,8 +12,6 @@ using CUstream = RUstream;
 #include <optix_stubs.h>
 #include <optix_function_table_definition.h>
 
-#include <OpenImageDenoise/oidn.hpp>
-
 #include <optix_denoiser_tiling.h>
 
 #define CHECK_OPTIX(expr) \
@@ -24,7 +22,7 @@ using CUstream = RUstream;
 	} while (0)
 
 
-class rfkt::denoiser::denoiser_impl {
+class rfkt::denoiser_old::denoiser_impl {
 public:
 
 	static void init(CUcontext ctx) {
@@ -200,24 +198,24 @@ private:
 	uint2 tile_size;
 };
 
-rfkt::denoiser::~denoiser() = default;
-rfkt::denoiser::denoiser(uint2 max_dims, denoiser_flag::flags options) : impl(denoiser_impl::create(max_dims, options)) {}
-rfkt::denoiser& rfkt::denoiser::operator=(denoiser&& d) noexcept {
+rfkt::denoiser_old::~denoiser_old() = default;
+rfkt::denoiser_old::denoiser_old(uint2 max_dims, denoiser_flag::flags options) : impl(denoiser_impl::create(max_dims, options)) {}
+rfkt::denoiser_old& rfkt::denoiser_old::operator=(denoiser_old&& d) noexcept {
 	std::swap(impl, d.impl);
 	return *this;
 }
 
-rfkt::denoiser::denoiser(denoiser&& d) noexcept {
+rfkt::denoiser_old::denoiser_old(denoiser_old&& d) noexcept {
 	(*this) = std::move(d);
 }
 
 
-std::future<double> rfkt::denoiser::denoise(const gpu_image<half3>& in, gpu_image<half3>& out, gpu_stream& stream) {
+std::future<double> rfkt::denoiser_old::denoise(const gpu_image<half3>& in, gpu_image<half3>& out, gpu_stream& stream) {
 	return impl->denoise(in, out, stream);
 }
 
-void rfkt::denoiser::init(CUcontext ctx) {
-	rfkt::denoiser::denoiser_impl::init(ctx);
+void rfkt::denoiser_old::init(CUcontext ctx) {
+	rfkt::denoiser_old::denoiser_impl::init(ctx);
 }
 
 unsigned short rand_uniform_half() {
@@ -228,7 +226,7 @@ unsigned short rand_uniform_half() {
 	return rand() % range + min_val;
 }
 
-double rfkt::denoiser::benchmark(uint2 dims, denoiser_flag::flags options, std::uint32_t num_passes, gpu_stream& stream)
+double rfkt::denoiser_old::benchmark(uint2 dims, denoiser_flag::flags options, std::uint32_t num_passes, gpu_stream& stream)
 {
 	auto input_dims = dims;
 	auto input_size = dims.x * dims.y;
@@ -239,7 +237,7 @@ double rfkt::denoiser::benchmark(uint2 dims, denoiser_flag::flags options, std::
 		input_dims.y /= 2;
 	}
 
-	auto dn = rfkt::denoiser{ dims, options };
+	auto dn = rfkt::denoiser_old{ dims, options };
 
 	auto input = gpu_image<half3>{ input_dims.x, input_dims.y };
 	auto output = gpu_image<half3>{ dims.x, dims.x };

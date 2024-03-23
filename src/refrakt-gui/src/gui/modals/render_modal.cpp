@@ -189,7 +189,7 @@ namespace rfkt {
 
 	private:
 		rfkt::tonemapper tm;
-		rfkt::denoiser dn;
+		rfkt::denoiser_old dn;
 		rfkt::converter conv;
 
 		rfkt::gpu_image<half3> tonemapped;
@@ -207,117 +207,6 @@ struct last_frame_t {
 	double quality;
 	std::array<double, 3> gbv;
 };
-
-/*
-namespace rfkt::pipeline {
-	struct render_params {
-		int2 dims = { 1280, 720 };
-		int fps = 30;
-		double seconds_per_loop = 5.0;
-		double num_loops = 4.0;
-		double target_quality = 512;
-		double max_seconds_per_frame = 2;
-		int total_frames;
-	};
-
-
-}
-
-namespace rfkt::pipeline::stage {
-
-	namespace detail{
-		struct stop{};
-	}
-
-	template<typename Stage>
-	class base {
-	public:
-		using input_queue_t = moodycamel::BlockingReaderWriterQueue<std::variant<std::pair<rfkt::pipeline::render_params, typename Stage::input>, detail::stop>>;
-		using output_queue_t = moodycamel::BlockingReaderWriterQueue<std::variant<std::pair<rfkt::pipeline::render_params, typename Stage::output>, detail::stop>>;
-
-		void run(input_queue_t& inq, output_queue_t& out) {
-			Stage& impl = *static_cast<Stage*>(this);
-			worker = std::jthread{ std::ref(inq), std::ref(out), std::ref(impl) };
-		}
-
-		void stop() {
-			worker.request_stop();
-			worker.join();
-		}
-
-	private:
-
-		static void worker(std::stop_token& stoke, input_queue_t& inq, output_queue_t& out, Stage& impl) {
-			impl.init();
-			while (!stoke.stop_requested()) {
-				auto input = typename Stage::input{};
-				if (!inq.wait_dequeue_timed(input, std::chrono::milliseconds(100))) continue;
-
-				if (std::holds_alternative<detail::stop>(input)) {
-					break;
-				}
-
-				auto output = impl.step(std::move(input));
-
-				while (out.size_approx() > 5) {
-					std::this_thread::sleep_for(std::chrono::milliseconds(1));
-				}
-
-				out.enqueue(std::move(output));
-			}
-
-			out.enqueue(detail::stop{});
-		}
-
-		std::jthread worker;
-	};
-
-	class sample : public base<sample> {
-	public:
-		struct input {
-			rfkt::flame f;
-			rfkt::function_table& ft;
-			rfkt::pipeline::render_params rp;
-			double t;
-		};
-
-		struct output {
-			std::vector<double> samples;
-			rfkt::pipeline::render_params rp;
-			double3 gbv;
-		};
-
-	private:
-		output step(input&& in) {
-			auto out = output{};
-			auto invoker = in.ft.make_invoker();
-
-			const auto loops_per_frame = 1.0 / (in.rp.fps * in.rp.seconds_per_loop);
-
-			auto packer = [&samples = out.samples](double v) { samples.push_back(v); };
-			in.f.pack_sample(packer, invoker, in.t - 1.2 * loops_per_frame, in.rp.dims.x, in.rp.dims.y);
-			in.f.pack_sample(packer, invoker, in.t, in.rp.dims.x, in.rp.dims.y);
-			in.f.pack_sample(packer, invoker, in.t + 1.2 * loops_per_frame, in.rp.dims.x, in.rp.dims.y);
-			in.f.pack_sample(packer, invoker, in.t + 2.4 * loops_per_frame, in.rp.dims.x, in.rp.dims.y);
-
-			out.rp = std::move(in.rp);
-			out.gbv.x = in.f.gamma.sample(in.t, invoker);
-			out.gbv.y = in.f.brightness.sample(in.t, invoker);
-			out.gbv.z = in.f.vibrancy.sample(in.t, invoker);
-
-			return out;
-		}
-
-		void init() { }
-	};
-
-	class bin : public base<bin> {
-	public:
-		using input = sample::output;
-
-	};
-
-}*/
 
 void rfkt::gui::render_modal::launch_worker(const rfkt::flame& flame)
 {
@@ -359,7 +248,7 @@ void rfkt::gui::render_modal::launch_worker(const rfkt::flame& flame)
 
 		ffmpeg_process.start(std::vector<std::string>{
 			std::format("{}\\bin\\ffmpeg.exe", rfkt::fs::working_directory().string()),
-				"-hide_banner", "-loglevel", "error", "-y", "-i", "-", "-c", "copy", "-r", std::to_string(render_params.fps), render_params.output_file.string()
+				/*"-hide_banner", "-loglevel", "error", */"-y", "-i", "-", "-c", "copy", "-r", std::to_string(render_params.fps), render_params.output_file.string()
 		});
 
 

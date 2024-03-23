@@ -22,6 +22,7 @@ ROCCU_DEFINE_OPAQUE(RUfunction);
 ROCCU_DEFINE_OPAQUE(RUgraphicsResource);
 ROCCU_DEFINE_OPAQUE(RUarray);
 ROCCU_DEFINE_OPAQUE(RUlinkState);
+ROCCU_DEFINE_OPAQUE(RUevent);
 ROCCU_DEFINE_OPAQUE(rurtcProgram);
 
 enum RUjitInputType {
@@ -70,6 +71,11 @@ enum RUaccessProperty {
     RU_ACCESS_PROPERTY_STREAMING = 1,
     RU_ACCESS_PROPERTY_PERSISTING = 2
 };
+
+constexpr static unsigned int RU_EVENT_DEFAULT = 0x0;
+constexpr static unsigned int RU_EVENT_BLOCKING_SYNC = 0x1;
+constexpr static unsigned int RU_EVENT_DISABLE_TIMING = 0x2;
+constexpr static unsigned int RU_EVENT_INTERPROCESS = 0x4;
 
 struct RUaccessPolicyWindow {
     RUdeviceptr basePtr;
@@ -313,6 +319,13 @@ enum RUdevice_attribute {
 ROCCU_DEFINE_DIRECT_FUNC(DeviceGetAttribute, RU_DRIVER, RUresult, (int* pi, RUdevice_attribute attr, RUdevice dev));
 ROCCU_DEFINE_DIRECT_FUNC(DeviceGetName, RU_DRIVER, RUresult, (char* name, int len, RUdevice dev));
 
+ROCCU_DEFINE_DIRECT_FUNC(EventCreate, RU_DRIVER, RUresult, (RUevent* phEvent, unsigned int Flags));
+ROCCU_DEFINE_FUNC(EventDestroy, RU_DRIVER, cuEventDestroy_v2, hipEventDestroy, RUresult, (RUevent phEvent));
+ROCCU_DEFINE_DIRECT_FUNC(EventElapsedTime, RU_DRIVER, RUresult, (float* pMilliseconds, RUevent hStart, RUevent hEnd));
+ROCCU_DEFINE_DIRECT_FUNC(EventQuery, RU_DRIVER, RUresult, (RUevent hEvent));
+ROCCU_DEFINE_DIRECT_FUNC(EventRecord, RU_DRIVER, RUresult, (RUevent hEvent, RUstream hStream));
+ROCCU_DEFINE_DIRECT_FUNC(EventSynchronize, RU_DRIVER, RUresult, (RUevent hEvent));
+
 ROCCU_DEFINE_DIRECT_FUNC(FuncGetAttribute, RU_DRIVER, RUresult,(int* pi, RUfunction_attribute attrib, RUfunction hfunc));
 
 ROCCU_DEFINE_DIRECT_FUNC(GetErrorString, RU_DRIVER, RUresult, (RUresult error, const char** pStr));
@@ -366,6 +379,7 @@ ROCCU_DEFINE_DIRECT_FUNC(StreamCreateWithPriority, RU_DRIVER, RUresult, (RUstrea
 ROCCU_DEFINE_FUNC(StreamDestroy, RU_DRIVER, cuStreamDestroy_v2, hipStreamDestroy, RUresult, (RUstream stream));
 ROCCU_DEFINE_FUNC(StreamSetAttribute, RU_DRIVER, cuStreamSetAttribute, hipStreamSetAttribute, RUresult, (RUstream stream, RUlaunchAttributeID attr, RUlaunchAttributeValue* value));
 ROCCU_DEFINE_DIRECT_FUNC(StreamSynchronize, RU_DRIVER, RUresult, (RUstream stream));
+ROCCU_DEFINE_DIRECT_FUNC(StreamWaitEvent, RU_DRIVER, RUresult, (RUstream stream, RUevent event, unsigned int flags));
 
 ROCCU_DEFINE_FUNC(rtcAddNameExpression, RU_RTC, nvrtcAddNameExpression, hiprtcAddNameExpression, rurtcResult, (rurtcProgram prog, const char* name_expression));
 ROCCU_DEFINE_FUNC(rtcCompileProgram, RU_RTC, nvrtcCompileProgram, hiprtcCompileProgram, rurtcResult, (rurtcProgram prog, int numOptions, const char** options));

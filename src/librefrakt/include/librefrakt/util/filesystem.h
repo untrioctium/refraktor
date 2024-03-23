@@ -41,4 +41,5 @@ namespace rfkt::fs {
 	long long last_modified(const path& path);
 	long long now();
 
+	bool command_in_path(std::string_view command_name);
 }

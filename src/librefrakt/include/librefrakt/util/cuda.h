@@ -145,6 +145,49 @@ namespace rfkt::cuda {
 }
 
 namespace rfkt {
+
+    class gpu_event {
+    public:
+        gpu_event() noexcept {
+			CUDA_SAFE_CALL(ruEventCreate(&event, 0));
+		};
+
+		~gpu_event() {
+			if (not event) return;
+			ruEventDestroy(event);
+		}
+
+		gpu_event(const gpu_event&) = delete;
+		gpu_event& operator=(const gpu_event&) = delete;
+
+		gpu_event(gpu_event&& o) noexcept {
+			std::swap(event, o.event);
+		}
+
+		gpu_event& operator=(gpu_event&& o) noexcept {
+			std::swap(event, o.event);
+			return *this;
+		}
+
+		explicit(false) [[nodiscard]] operator RUevent() const noexcept {
+			return event;
+		}
+
+		void sync() {
+			if (not event) return;
+			CUDA_SAFE_CALL(ruEventSynchronize(event));
+		}
+
+		float elapsed_time(const gpu_event& end) {
+			float ms;
+			CUDA_SAFE_CALL(ruEventElapsedTime(&ms, event, end));
+			return ms;
+		}
+
+    private:
+        RUevent event = nullptr;
+	};
+
     class gpu_stream {
     public:
 
@@ -200,6 +243,11 @@ namespace rfkt {
 
             CUDA_SAFE_CALL(res);
         }
+
+        void record(gpu_event& ev) {
+			if (not stream) return;
+			CUDA_SAFE_CALL(ruEventRecord(ev, stream));
+		}
 
     private:
         RUstream stream = nullptr;

@@ -213,7 +213,7 @@ namespace rfkt {
 
 	private:
 		rfkt::tonemapper tm;
-		rfkt::denoiser dn;
+		rfkt::denoiser_old dn;
 		rfkt::converter conv;
 
 		rfkt::gpu_image<half3> tonemapped;
@@ -337,7 +337,7 @@ namespace rfkt {
 			this->fps = data.value("fps", 30u);
 			this->loops_per_frame = 1.0 / (seconds_per_loop * fps);
 
-			auto pp_time = denoiser::benchmark({width, height}, upscale? rfkt::denoiser_flag::upscale: rfkt::denoiser_flag::none, 100, this->stream);
+			auto pp_time = denoiser_old::benchmark({width, height}, upscale? rfkt::denoiser_flag::upscale: rfkt::denoiser_flag::none, 100, this->stream);
 			this->stream.sync();
 
 			this->max_bin_time = 1000.0 / fps - pp_time + 3;
@@ -680,7 +680,7 @@ int main(int argc, char** argv) {
 	auto dev = ctx.device();
 
 	//rfkt::gpuinfo::init();
-	rfkt::denoiser::init(ctx);
+	rfkt::denoiser_old::init(ctx);
 
 	SPDLOG_INFO("Using device {}, CUDA {}.{}", dev.name(), dev.compute_major(), dev.compute_minor());
 	
@@ -700,7 +700,7 @@ int main(int argc, char** argv) {
 	//auto jpeg = rfkt::nvjpeg::encoder{ jpeg_stream };
 
 	auto do_bench = [&](uint2 dims, bool upscale) {
-		auto t = rfkt::denoiser::benchmark(dims, upscale, 10, jpeg_stream);
+		auto t = rfkt::denoiser_old::benchmark(dims, upscale, 10, jpeg_stream);
 		auto megapixels_per_sec = dims.x * dims.y / (t / 1000) / 1'000'000.0;
 
 		std::cout << std::format("{}\t{}\n", dims.x * dims.y, int(megapixels_per_sec));

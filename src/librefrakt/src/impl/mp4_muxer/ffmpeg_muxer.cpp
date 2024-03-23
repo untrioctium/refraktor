@@ -15,7 +15,7 @@ namespace rfkt {
 				"-y","-i", "-",
 				"-c", "copy",
 				"-r", std::to_string(fps),
-				std::move(path)
+				this->path
 			};
 
 			process.start(args);

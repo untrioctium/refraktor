@@ -9,6 +9,7 @@ set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
 add_library(roccu STATIC
   include/roccu.h
   include/roccu_vector_types.h
+  include/roccu_cpp_types.h
   src/roccu.cpp)
 
 target_include_directories(roccu PUBLIC include)

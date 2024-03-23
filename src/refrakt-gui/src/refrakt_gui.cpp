@@ -701,7 +701,7 @@ private:
 
 		//SPDLOG_INFO("Max persisting L2 size (megabytes): {}", v);
 
-		show_splash("Initializing denoising system", [&]() { rfkt::denoiser::init(ctx); });
+		show_splash("Initializing denoising system", [&]() { rfkt::denoiser_old::init(ctx); });
 		show_splash("Initializing GPU statistics system", []() { rfkt::gpuinfo::init(); });
 		show_splash("Loading variations", [&]() {rfkt::initialize(fdb, "config"); });
 
@@ -742,8 +742,8 @@ private:
 
 		f_comp = show_splash("Setting up flame compiler", [&]() { return std::make_shared<rfkt::flame_compiler>(k_comp); });
 		tonemap = show_splash("Creating tonemapper", [&] { return std::make_shared<rfkt::tonemapper>( *k_comp ); });
-		denoise_normal = show_splash("Creating denoiser", [] { return std::make_shared<rfkt::denoiser>(uint2{ 512, 512 }, rfkt::denoiser_flag::tiled); });
-		denoise_upscale = show_splash("Creating upscaling denoiser", [] { return std::make_shared<rfkt::denoiser>(uint2{ 512, 512 }, rfkt::denoiser_flag::upscale | rfkt::denoiser_flag::tiled); });
+		denoise_normal = show_splash("Creating denoiser", [] { return std::make_shared<rfkt::denoiser_old>(uint2{ 512, 512 }, rfkt::denoiser_flag::tiled); });
+		denoise_upscale = show_splash("Creating upscaling denoiser", [] { return std::make_shared<rfkt::denoiser_old>(uint2{ 512, 512 }, rfkt::denoiser_flag::upscale | rfkt::denoiser_flag::tiled); });
 		convert = show_splash("Creating converter", [&] { return std::make_shared<rfkt::converter>(*k_comp); });
 
 		preview_panel::renderer_t renderer = [&](
@@ -898,8 +898,8 @@ private:
 	rfkt::function_table functions;
 
 	std::shared_ptr<rfkt::tonemapper> tonemap;
-	std::shared_ptr<rfkt::denoiser> denoise_normal;
-	std::shared_ptr<rfkt::denoiser> denoise_upscale;
+	std::shared_ptr<rfkt::denoiser_old> denoise_normal;
+	std::shared_ptr<rfkt::denoiser_old> denoise_upscale;
 	std::shared_ptr<rfkt::converter> convert;
 
 	concurrencpp::runtime runtime;

@@ -105,6 +105,7 @@ namespace rfkt {
 			auto state = get_or_make_state(stream);
 
 			nvjpegImage_t nv_image;
+			memset(&nv_image, 0, sizeof(nv_image));
 			nv_image.channel[0] = (unsigned char*)image.ptr();
 			nv_image.pitch[0] = image.width() * 3;
 

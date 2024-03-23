@@ -26,6 +26,10 @@ unsigned char half2uchar(__half v) {
     return static_cast<unsigned char>(min(__half2float(v) * 255.0, 255.0f));
 }
 
+unsigned short half2ushort10(__half v) {
+    return static_cast<unsigned short>(min(__half2float(v) * 1023.0, 1023.0f));
+}
+
 template<typename T, unsigned int N>
 struct array {
     T data[N];
@@ -34,6 +38,17 @@ struct array {
         return data[idx];
     }
 };
+
+using uint32 = unsigned int;
+
+uint32 rgba10_pack(half3 val) {
+    unsigned short r = half2ushort10(val.x);
+    unsigned short g = half2ushort10(val.y);
+    unsigned short b = half2ushort10(val.z);
+    unsigned short a = 3;
+
+    return (a << 30) | (r << 20) | (g << 10) | b;
+}
 
 //template<typename SourceType, unsigned int SourceComponents, typename DestType, unsigned int DestComponents, bool PlanarDest>
 //void convert(const array<SourceType, SourceComponents>* const restrict __in)

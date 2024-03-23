@@ -15,7 +15,7 @@
 #include <librefrakt/interface/jpeg_encoder.h>
 
 #include <librefrakt/util/gpuinfo.h>
-#include <librefrakt/image/denoiser.h>
+#include <librefrakt/interface/denoiser.h>
 #include <librefrakt/image/tonemapper.h>
 #include <librefrakt/image/converter.h>
 #include <librefrakt/util/zlib.h>
@@ -211,9 +211,9 @@ private:
 namespace rfkt {
 	class postprocessor {
 	public:
-		postprocessor(ezrtc::compiler& kc, uint2 dims, rfkt::denoiser_flag::flags dn_opts = rfkt::denoiser_flag::none) :
+		postprocessor(ezrtc::compiler& kc, uint2 dims, rfkt::gpu_stream& stream, rfkt::denoiser_flag::flags dn_opts = rfkt::denoiser_flag::none) :
 			tm(kc),
-			dn({dims.x, dims.y}, dn_opts),
+			dn(rfkt::denoiser::make("rfkt::oidn_denoiser", uint2{dims.x, dims.y}, dn_opts, stream)),
 			conv(kc),
 			tonemapped(dn_opts& rfkt::denoiser_flag::upscale ? dims.x / 2 : dims.x, dn_opts& rfkt::denoiser_flag::upscale ? dims.y / 2 : dims.y),
 			denoised(dims.x, dims.y),
@@ -231,11 +231,11 @@ namespace rfkt {
 		postprocessor(postprocessor&&) = default;
 		postprocessor& operator=(postprocessor&&) = default;
 
-		auto make_output_buffer() const -> rfkt::gpu_buffer<uchar4> {
-			return rfkt::gpu_buffer<uchar4>{ dims_.x* dims_.y };
+		auto make_output_buffer() const -> rfkt::gpu_buffer<uchar3> {
+			return rfkt::gpu_buffer<uchar3>{ dims_.x* dims_.y };
 		}
 
-		auto make_output_buffer(RUstream stream) const -> rfkt::gpu_buffer<uchar4> {
+		auto make_output_buffer(RUstream stream) const -> rfkt::gpu_buffer<uchar3> {
 			return { dims_.x * dims_.y, stream };
 		}
 
@@ -269,7 +269,7 @@ namespace rfkt {
 				});
 
 			tm.run(in, tonemapped, { quality, gamma, brightness, vibrancy }, stream);
-			auto dnt = dn.denoise(tonemapped, denoised, stream).get();
+			auto dnt = dn->denoise(tonemapped, denoised, dn_done).get();
 			SPDLOG_INFO("denoise time: {}", dnt);
 			conv.to_24bit(denoised, out, stream);
 			stream.host_func([&t = perf_timer, p = std::move(promise)]() mutable {
@@ -281,13 +281,15 @@ namespace rfkt {
 
 	private:
 		rfkt::tonemapper tm;
-		rfkt::denoiser dn;
+		std::unique_ptr<rfkt::denoiser> dn;
 		rfkt::converter conv;
 
 		rfkt::gpu_image<half3> tonemapped;
 		rfkt::gpu_image<half3> denoised;
 
 		rfkt::timer perf_timer;
+
+		gpu_event dn_done;
 
 		uint2 dims_;
 		bool upscale;
@@ -298,7 +300,7 @@ int main() {
 
 	auto ctx = rfkt::cuda::init();
 
-	rfkt::denoiser::init(ctx);
+	//rfkt::denoiser::init(ctx);
 
 	rfkt::flamedb fdb;
 	rfkt::initialize(fdb, "config");
@@ -307,20 +309,32 @@ int main() {
 	auto kernel = std::make_shared<ezrtc::sqlite_cache>((rfkt::fs::user_local_directory() / "kernel.sqlite3").string());
 	auto zlib = std::make_shared<ezrtc::cache_adaptors::zlib>(kernel);
 	auto km = std::make_shared<ezrtc::compiler>(zlib);
-	rfkt::cuda::check_and_download_cudart();
-	km->find_system_cuda();
+	//rfkt::cuda::check_and_download_cudart();
+	//km->find_system_cuda();
 	auto fc = rfkt::flame_compiler{ km };
 
-	uint2 dims = { 1920, 1080 };
+	uint2 dims = { 3840, 2160 };
 
-	auto pp = rfkt::postprocessor{ *km, dims };
+	SPDLOG_INFO("notepad found: {}", rfkt::fs::command_in_path("notepad.exe") ? "yes" : "no");
 
-	for (auto encoder : rfkt::jpeg_encoder::names()) {
-				SPDLOG_INFO("encoder: {}", encoder);
-	
+	auto pp = rfkt::postprocessor{ *km, dims, stream };
+
+	auto api = roccuGetApi();
+	std::pair<std::size_t, std::string_view> best_encoder;
+	best_encoder.first = std::numeric_limits<std::size_t>::max();
+
+	for (auto name : rfkt::jpeg_encoder::names()) {
+		auto meta = rfkt::jpeg_encoder::meta_for(name);
+		if (meta->supported_apis.contains(api) && meta->priority < best_encoder.first) {
+			best_encoder = { meta->priority, name };
+		}
 	}
 
-	auto je = rfkt::jpeg_encoder::make("rfkt::nvjpeg_encoder", stream);
+	SPDLOG_INFO("Select jpeg encoder: {}", best_encoder.second);
+
+	auto je = rfkt::jpeg_encoder::make(best_encoder.second, stream);
+
+	SPDLOG_INFO("encoder: {}, prio: {}", je->name(), je->meta().priority);
 
 	roccuPrintAllocations();
 
@@ -368,8 +382,11 @@ int main() {
 		return f.value();
 	};
 
-	auto left = must_load_flame("assets/flames_test/electricsheep.247.16021.flam3");
-	auto right = must_load_flame("assets/flames_test/electricsheep.247.31464.flam3");
+	//auto left = must_load_flame("assets/flames_test/electricsheep.247.19450.flam3");
+	//auto right = must_load_flame("assets/flames_test/electricsheep.247.31464.flam3");
+
+	auto left = must_load_flame("assets/flames_test/electricsheep.247.32660.flam3");
+	auto right = must_load_flame("assets/flames_test/electricsheep.247.34338.flam3");
 
 
 	auto interp = interpolator{ left, right, fdb, false };
@@ -444,7 +461,7 @@ int main() {
 		interp.pack_samples(packer, invoker, t - fudge * loops_per_frame, fudge* loops_per_frame, 4, pp.input_dims().x, pp.input_dims().y, mix);
 		 
 		auto state = k.kernel->warmup(stream, samples, std::move(bins), 0xDEADBEEF, 100);
-		auto q = k.kernel->bin(stream, state, { .millis = 18, .quality = 256 }).get();
+		auto q = k.kernel->bin(stream, state, { .millis = 1000, .quality = 32 }).get();
 
 		double gamma = interp.interp_anima(&rfkt::flame::gamma, invoker, t, mix);
 		double brightness = interp.interp_anima(&rfkt::flame::brightness, invoker, t, mix);
@@ -454,8 +471,14 @@ int main() {
 
 		auto vec = je->encode_image(out, 100, stream).get()();
 
+		//std::vector<uchar3> vec(out.area());
+		//out.to_host(vec);
+
+
 		auto basename = std::format("frame_{:04d}.jpg", i);
 		rfkt::fs::write("testrender/" + basename, (const char*)vec.data(), vec.size(), false);
+
+		//rfkt::stbi::write_file(vec.data(), pp.output_dims().x, pp.output_dims().y, "testrender/" + basename);
 
 		bins = std::move(state.bins);
 		bins.clear(stream);
