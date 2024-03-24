@@ -125,7 +125,7 @@ struct flame_t {
     <# if use_chaos #>
 
     __device__ unsigned short select_xform(unsigned short last, FloatT ratio) const {
-        if(last == 2048) return select_xform(ratio);
+        if(last == 2047) return select_xform(ratio);
 
         const auto& weights = chaos[last].weights;
         FloatT rsum = FloatT(0.0);

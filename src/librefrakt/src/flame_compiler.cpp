@@ -638,7 +638,7 @@ auto rfkt::flame_compiler::get_flame_kernel(const flamedb& fdb, precision prec, 
     if (max_blocks < most_blocks.grid) {
 
         auto expected_shared = smem_per_block(prec, f.size_reals() * 4, most_blocks.block);
-        SPDLOG_ERROR("Kernel for {} needs {} blocks but only got {}; {} shared, {} expected", f.hash().str64(), most_blocks.grid, max_blocks, func.shared_bytes(), expected_shared);
+        SPDLOG_ERROR("Kernel for {} needs {} blocks but only got {}; {} shared, {} expected, {} regs, {} local", f.hash().str64(), most_blocks.grid, max_blocks, func.shared_bytes(), expected_shared, func.register_count(), func.local_bytes());
         return r;
     }
     SPDLOG_INFO("Loaded flame kernel {}: {} temp. samples, {} flame params, {} regs, {} shared, {} local, {:.4} ms", f.hash().str64(), max_blocks, f.size_reals(), func.register_count(), func.shared_bytes(), func.local_bytes(), duration_ms);
@@ -690,24 +690,32 @@ rfkt::flame_compiler::flame_compiler(std::shared_ptr<ezrtc::compiler> k_manager)
 
     exec_configs = roccu::context::current().device().concurrent_block_configurations();
 
-    std::string check_kernel_name = "get_sizes<";
-    for (const auto& conf : exec_configs) {
-        check_kernel_name += std::format("{},", conf.block);
+    std::string check_kernel_name = "get_sizes";
+    auto base_src = rfkt::fs::read_string("assets/kernels/size_info.cu");
+    std::size_t idx = 0;
+    for(auto& c: exec_configs) {
+		check_kernel_name += fmt::format("_{}", c.block);
+        base_src += std::format("\tsizes[{}] = calc_size<{}, float>();\n", idx, c.block);
+        idx++;
+	}
+   
+    for (auto& c : exec_configs) {
+        base_src += std::format("\tsizes[{}] = calc_size<{}, double>();\n", idx, c.block);
+        idx++;
     }
 
-    check_kernel_name[check_kernel_name.size() - 1] = '>';
-  
-    SPDLOG_INFO("Checking kernel sizes for {}", check_kernel_name);
+    base_src += "}";
 
-    auto check_kernel_result_name = std::format("required_shared<{}>", exec_configs.size() * 2);
+    SPDLOG_INFO("\n{}", base_src);
+
+    SPDLOG_INFO("Checking kernel sizes for {}", check_kernel_name);
 
     auto rand_src = rfkt::fs::read_string("assets/kernels/include/refrakt/random.h");
     auto flamelib_src = rfkt::fs::read_string("assets/kernels/include/refrakt/flamelib.h");
 
     auto check_result = km->compile(
-        ezrtc::spec::source_file("sizing", "assets/kernels/size_info.cu")
-        .variable(check_kernel_result_name)
-        .kernel(check_kernel_name)
+        ezrtc::spec::source_string(check_kernel_name, base_src)
+        .kernel("get_sizes")
         .flag(ezrtc::compile_flag::default_device)
         .header("refrakt/random.h", rand_src)
         .header("refrakt/flamelib.h", flamelib_src)
@@ -718,12 +726,13 @@ rfkt::flame_compiler::flame_compiler(std::shared_ptr<ezrtc::compiler> k_manager)
         exit(1);
     }
 
-    check_result.module->kernel(check_kernel_name).launch(1, 1)();
+    auto size_buf = roccu::gpu_buffer<unsigned long long>(exec_configs.size() * 2);
+
+    check_result.module->kernel("get_sizes").launch(1, 1)(size_buf.ptr());
     ruStreamSynchronize(0);
-    auto var = check_result.module.value()[check_kernel_result_name];
     std::vector<unsigned long long> shared_sizes{};
     shared_sizes.resize(exec_configs.size() * 2);
-    ruMemcpyDtoH(shared_sizes.data(), var.ptr(), var.size());
+    ruMemcpyDtoH(shared_sizes.data(), size_buf.ptr(), size_buf.size_bytes());
 
     auto base_shared = roccu::context::current().device().reserved_shared_per_block();
 

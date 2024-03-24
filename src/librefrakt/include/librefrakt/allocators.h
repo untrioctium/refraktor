@@ -35,7 +35,7 @@ namespace rfkt {
 
         static PtrType alloc(std::size_t sz) {
             std::byte* memory = nullptr;
-            ruMemAllocHost((void**)&memory, sz);
+            auto ret = ruMemAllocHost((void**)&memory, sz);
             return memory;
         }
 

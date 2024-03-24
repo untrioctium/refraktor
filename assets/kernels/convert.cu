@@ -1,6 +1,13 @@
 //#include <cuda_fp16.h>
+#ifdef ROCCU_CUDA
 using __half = unsigned short;
 
+float __half2float(__half v) {
+    float val;
+    asm("{cvt.f32.f16 %0, %1;}\n" : "=f"(val) : "h"(v));
+    return val;
+}
+#endif
 
 // the long awaited sequel to half1 and half2
 struct half3 {
@@ -8,7 +15,7 @@ struct half3 {
 };
 
 template<bool Planar>
-consteval auto image_type() {
+__device__ consteval auto image_type() {
     if constexpr (Planar) {
         return (unsigned char*)(nullptr);
     } else {
@@ -16,17 +23,11 @@ consteval auto image_type() {
     }
 }
 
-float __half2float(__half v) {
-    float val;
-    asm("{cvt.f32.f16 %0, %1;}\n" : "=f"(val) : "h"(v));
-    return val;
-}
-
-unsigned char half2uchar(__half v) {
+__device__ unsigned char half2uchar(__half v) {
     return static_cast<unsigned char>(min(__half2float(v) * 255.0, 255.0f));
 }
 
-unsigned short half2ushort10(__half v) {
+__device__ unsigned short half2ushort10(__half v) {
     return static_cast<unsigned short>(min(__half2float(v) * 1023.0, 1023.0f));
 }
 
@@ -41,7 +42,7 @@ struct array {
 
 using uint32 = unsigned int;
 
-uint32 rgba10_pack(half3 val) {
+__device__ uint32 rgba10_pack(half3 val) {
     unsigned short r = half2ushort10(val.x);
     unsigned short g = half2ushort10(val.y);
     unsigned short b = half2ushort10(val.z);

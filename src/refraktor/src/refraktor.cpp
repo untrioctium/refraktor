@@ -300,6 +300,8 @@ int main() {
 
 	auto ctx = rfkt::cuda::init();
 
+	SPDLOG_INFO("Loaded on device: {}", ctx.device().name());
+
 	//rfkt::denoiser::init(ctx);
 
 	rfkt::flamedb fdb;
@@ -309,15 +311,15 @@ int main() {
 	auto kernel = std::make_shared<ezrtc::sqlite_cache>((rfkt::fs::user_local_directory() / "kernel.sqlite3").string());
 	auto zlib = std::make_shared<ezrtc::cache_adaptors::zlib>(kernel);
 	auto km = std::make_shared<ezrtc::compiler>(zlib);
+
+	uint2 dims = { 3840, 2160 };
+
+	auto pp = rfkt::postprocessor{ *km, dims, stream };
 	//rfkt::cuda::check_and_download_cudart();
 	//km->find_system_cuda();
 	auto fc = rfkt::flame_compiler{ km };
 
-	uint2 dims = { 3840, 2160 };
-
 	SPDLOG_INFO("notepad found: {}", rfkt::fs::command_in_path("notepad.exe") ? "yes" : "no");
-
-	auto pp = rfkt::postprocessor{ *km, dims, stream };
 
 	auto api = roccuGetApi();
 	std::pair<std::size_t, std::string_view> best_encoder;
@@ -336,7 +338,7 @@ int main() {
 
 	SPDLOG_INFO("encoder: {}, prio: {}", je->name(), je->meta().priority);
 
-	roccuPrintAllocations();
+	//roccuPrintAllocations();
 
 	auto bins = rfkt::gpu_image<float4>{ pp.input_dims().x, pp.input_dims().y };
 	auto out = rfkt::gpu_image<uchar3>{ dims.x, dims.y };
@@ -412,14 +414,14 @@ int main() {
 		return result;
 	};
 
-	//if (!k.kernel) {
+	if (!k.kernel) {
 		SPDLOG_INFO("\n{}\n{}", k.source, k.log);
-	//	return -1;
-//	}
+		return -1;
+	}
 
-		if (!k.kernel) { return -1; }
+		//if (!k.kernel) { return -1; }
 
-		SPDLOG_INFO("left: {}\n", left.serialize().dump(2));
+		//SPDLOG_INFO("left: {}\n", left.serialize().dump(2));
 
 	//CUDA_SAFE_CALL(ruStreamSetAttribute(stream, RU_LAUNCH_ATTRIBUTE_ACCESS_POLICY_WINDOW, &stream_value));
 

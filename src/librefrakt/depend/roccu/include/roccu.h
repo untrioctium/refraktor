@@ -124,6 +124,7 @@ enum roccu_api {
 #else
 
 #include <unordered_map>
+#include <string_view>
 
 enum source_t {
     RU_DRIVER,
@@ -133,16 +134,28 @@ enum source_t {
 struct ru_traits {
 
     void** func;
-    const char* name;
+    void** dll_sym;
+
+    std::string_view name;
     source_t source;
-    const char* cuda_name;
-    const char* rocm_name;
+    std::string_view cuda_name;
+    std::string_view rocm_name;
+
+    void* noop;
 };
 
-inline static std::unordered_map<const char*, ru_traits> ru_map = {};
+inline static std::unordered_map<std::string_view, ru_traits> ru_map = {};
 
+template<typename Ret, typename... Args>
+void* get_noop(Ret(*)(Args...)) {
+	return (void*)[](Args...) -> Ret { return Ret{}; };
+}
+
+template<typename FunctionPtrType>
 bool register_traits(const ru_traits& traits) {
+
     ru_map[traits.name] = traits;
+    ru_map[traits.name].noop = get_noop((FunctionPtrType)nullptr);
     return true;
 };
 
@@ -158,7 +171,8 @@ void roccuPrintAllocations();
 #else 
     #define ROCCU_DEFINE_FUNC(name, SRC, CUDA_NAME, ROCM_NAME, RET, ARGS) \
         RET(*ru ## name)ARGS = nullptr; \
-		static bool name##_init = register_traits({(void**)& ru ## name, #name, SRC, #CUDA_NAME, #ROCM_NAME});
+        RET(*ru ## name ## _dllsym)ARGS = nullptr; \
+		static bool name##_init = register_traits<RET(*)ARGS>({(void**)& ru ## name, (void**)& ru ## name ## _dllsym, #name, SRC, #CUDA_NAME, #ROCM_NAME});
 #endif
 
 #define ROCCU_DEFINE_DIRECT_FUNC(name, SRC, RET, ARGS) ROCCU_DEFINE_FUNC(name, SRC, cu##name, hip##name, RET, ARGS)
@@ -167,9 +181,9 @@ ROCCU_DEFINE_FUNC(CtxCreate, RU_DRIVER, cuCtxCreate_v2, hipCtxCreate, RUresult, 
 ROCCU_DEFINE_FUNC(CtxDestroy, RU_DRIVER, cuCtxDestroy_v2, hipCtxDestroy, RUresult, (RUcontext ctx));
 ROCCU_DEFINE_DIRECT_FUNC(CtxGetCurrent, RU_DRIVER, RUresult, (RUcontext* pctx));
 ROCCU_DEFINE_DIRECT_FUNC(CtxGetDevice, RU_DRIVER, RUresult, (RUdevice* pdev));
-ROCCU_DEFINE_DIRECT_FUNC(CtxGetStreamPriorityRange, RU_DRIVER, RUresult, (int* leastPriority, int* greatestPriority));
+ROCCU_DEFINE_FUNC(CtxGetStreamPriorityRange, RU_DRIVER, cuCtxGetStreamPriorityRange, hipDeviceGetStreamPriorityRange, RUresult, (int* leastPriority, int* greatestPriority));
 ROCCU_DEFINE_DIRECT_FUNC(CtxSetCurrent, RU_DRIVER, RUresult, (RUcontext ctx));
-ROCCU_DEFINE_DIRECT_FUNC(CtxSetLimit, RU_DRIVER, RUresult,(RUlimit limit, size_t value));
+ROCCU_DEFINE_FUNC(CtxSetLimit, RU_DRIVER, cuCtxSetLimit, NOOP, RUresult,(RUlimit limit, size_t value));
 
 ROCCU_DEFINE_DIRECT_FUNC(DeviceGet, RU_DRIVER, RUresult, (RUdevice* device, int ordinal));
 
@@ -339,17 +353,17 @@ ROCCU_DEFINE_DIRECT_FUNC(GraphicsUnregisterResource, RU_DRIVER, RUresult, (RUgra
 
 ROCCU_DEFINE_DIRECT_FUNC(Init, RU_DRIVER, RUresult, (unsigned int Flags));
 
-ROCCU_DEFINE_DIRECT_FUNC(LaunchCooperativeKernel, RU_DRIVER, RUresult, (RUfunction f, unsigned int gridDimX, unsigned int gridDimY, unsigned int gridDimZ, unsigned int blockDimX, unsigned int blockDimY, unsigned int blockDimZ, unsigned int sharedMemBytes, RUstream stream, void** kernelParams));
+ROCCU_DEFINE_FUNC(LaunchCooperativeKernel, RU_DRIVER, cuLaunchCooperativeKernel, hipModuleLaunchCooperativeKernel, RUresult, (RUfunction f, unsigned int gridDimX, unsigned int gridDimY, unsigned int gridDimZ, unsigned int blockDimX, unsigned int blockDimY, unsigned int blockDimZ, unsigned int sharedMemBytes, RUstream stream, void** kernelParams));
 ROCCU_DEFINE_DIRECT_FUNC(LaunchHostFunc, RU_DRIVER, RUresult, (RUstream stream, RUhostFn func, void* userData));
-ROCCU_DEFINE_DIRECT_FUNC(LaunchKernel, RU_DRIVER, RUresult, (RUfunction f, unsigned int gridDimX, unsigned int gridDimY, unsigned int gridDimZ, unsigned int blockDimX, unsigned int blockDimY, unsigned int blockDimZ, unsigned int sharedMemBytes, RUstream stream, void** kernelParams, void** extra));
+ROCCU_DEFINE_FUNC(LaunchKernel, RU_DRIVER, cuLaunchKernel, hipModuleLaunchKernel, RUresult, (RUfunction f, unsigned int gridDimX, unsigned int gridDimY, unsigned int gridDimZ, unsigned int blockDimX, unsigned int blockDimY, unsigned int blockDimZ, unsigned int sharedMemBytes, RUstream stream, void** kernelParams, void** extra));
 
-ROCCU_DEFINE_FUNC(LinkAddData, RU_DRIVER, cuLinkAddData_v2, hipLinkAddData, RUresult, (RUlinkState state, RUjitInputType type, void* data, size_t size, const char* name, unsigned int numOptions, const char** options, void** optionValues));
-ROCCU_DEFINE_DIRECT_FUNC(LinkComplete, RU_DRIVER, RUresult, (RUlinkState state, void** cubinOut, size_t* sizeOut));
-ROCCU_DEFINE_FUNC(LinkCreate, RU_DRIVER, cuLinkCreate_v2, hipLinkCreate, RUresult, (unsigned int numOptions, void** options, void** optionValues, RUlinkState* stateOut));
-ROCCU_DEFINE_DIRECT_FUNC(LinkDestroy, RU_DRIVER, RUresult, (RUlinkState state));
+ROCCU_DEFINE_FUNC(LinkAddData, RU_DRIVER, cuLinkAddData_v2, hiprtcLinkAddData, RUresult, (RUlinkState state, RUjitInputType type, void* data, size_t size, const char* name, unsigned int numOptions, const char** options, void** optionValues));
+ROCCU_DEFINE_FUNC(LinkComplete, RU_DRIVER, cuLinkComplete, hiprtcLinkCreate, RUresult, (RUlinkState state, void** cubinOut, size_t* sizeOut));
+ROCCU_DEFINE_FUNC(LinkCreate, RU_DRIVER, cuLinkCreate_v2, hiprtcLinkCreate, RUresult, (unsigned int numOptions, void** options, void** optionValues, RUlinkState* stateOut));
+ROCCU_DEFINE_FUNC(LinkDestroy, RU_DRIVER, cuLinkDestroy, hiprtcLinkDestroy, RUresult, (RUlinkState state));
 
-ROCCU_DEFINE_FUNC(MemAlloc, RU_DRIVER, cuMemAlloc_v2, hipMemAlloc, RUresult, (RUdeviceptr* dptr, size_t size));
-ROCCU_DEFINE_DIRECT_FUNC(MemAllocAsync, RU_DRIVER, RUresult, (RUdeviceptr* dptr, size_t size, RUstream stream));
+ROCCU_DEFINE_FUNC(MemAlloc, RU_DRIVER, cuMemAlloc_v2, hipMalloc, RUresult, (RUdeviceptr* dptr, size_t size));
+ROCCU_DEFINE_FUNC(MemAllocAsync, RU_DRIVER, cuMemAllocAsync, hipMallocAsync, RUresult, (RUdeviceptr* dptr, size_t size, RUstream stream));
 ROCCU_DEFINE_FUNC(MemAllocHost, RU_DRIVER, cuMemAllocHost_v2, hipHostMalloc, RUresult, (void** pp, size_t bytes));
 
 ROCCU_DEFINE_FUNC(Memcpy2D, RU_DRIVER, cuMemcpy2D_v2, hipMemcpy2D, RUresult, (const RU_MEMCPY2D* pCopy));
@@ -360,8 +374,8 @@ ROCCU_DEFINE_FUNC(MemcpyDtoHAsync, RU_DRIVER, cuMemcpyDtoHAsync_v2, hipMemcpyDto
 ROCCU_DEFINE_FUNC(MemcpyHtoD, RU_DRIVER, cuMemcpyHtoD_v2, hipMemcpyHtoD, RUresult, (RUdeviceptr dstDevice, const void* srcHost, size_t ByteCount));
 ROCCU_DEFINE_FUNC(MemcpyHtoDAsync, RU_DRIVER, cuMemcpyHtoDAsync_v2, hipMemcpyHtoDAsync, RUresult, (RUdeviceptr dstDevice, const void* srcHost, size_t ByteCount, RUstream hStream));
 
-ROCCU_DEFINE_FUNC(MemFree, RU_DRIVER, cuMemFree_v2, hipMemFree, RUresult, (RUdeviceptr dptr));
-ROCCU_DEFINE_DIRECT_FUNC(MemFreeAsync, RU_DRIVER, RUresult, (RUdeviceptr dptr, RUstream stream));
+ROCCU_DEFINE_FUNC(MemFree, RU_DRIVER, cuMemFree_v2, hipFree, RUresult, (RUdeviceptr dptr));
+ROCCU_DEFINE_FUNC(MemFreeAsync, RU_DRIVER, cuMemFreeAsync, hipFreeAsync, RUresult, (RUdeviceptr dptr, RUstream stream));
 ROCCU_DEFINE_FUNC(MemFreeHost, RU_DRIVER, cuMemFreeHost, hipHostFree, RUresult, (void* p));
 
 ROCCU_DEFINE_FUNC(MemsetD8, RU_DRIVER, cuMemsetD8_v2, hipMemsetD8, RUresult, (RUdeviceptr dstDevice, unsigned char uc, size_t N));
@@ -372,12 +386,12 @@ ROCCU_DEFINE_FUNC(ModuleGetGlobal, RU_DRIVER, cuModuleGetGlobal_v2, hipModuleGet
 ROCCU_DEFINE_FUNC(ModuleLoadDataEx, RU_DRIVER, cuModuleLoadDataEx, hipModuleLoadData, RUresult, (RUmodule* module, const void* image, unsigned int numOptions, const char** options, void** optionValues));
 ROCCU_DEFINE_DIRECT_FUNC(ModuleUnload, RU_DRIVER, RUresult, (RUmodule hmod));
 
-ROCCU_DEFINE_DIRECT_FUNC(OccupancyMaxActiveBlocksPerMultiprocessor, RU_DRIVER, RUresult, (int* numBlocks, RUfunction func, int blockSize, size_t dynamicSMemSize));
-ROCCU_DEFINE_DIRECT_FUNC(OccupancyMaxPotentialBlockSize, RU_DRIVER, RUresult, (int* minGridSize, int* blockSize, RUfunction func, void* blockSizeToDynamicSMemSize, size_t dynamicSMemSize, int blockSizeLimit));
+ROCCU_DEFINE_FUNC(OccupancyMaxActiveBlocksPerMultiprocessor, RU_DRIVER, cuOccupancyMaxActiveBlocksPerMultiprocessor, hipModuleOccupancyMaxActiveBlocksPerMultiprocessor, RUresult, (int* numBlocks, RUfunction func, int blockSize, size_t dynamicSMemSize));
+ROCCU_DEFINE_FUNC(OccupancyMaxPotentialBlockSize, RU_DRIVER, cuOccupancyMaxPotentialBlockSize, hipModuleOccupancyMaxPotentialBlockSize, RUresult, (int* minGridSize, int* blockSize, RUfunction func, void* blockSizeToDynamicSMemSize, size_t dynamicSMemSize, int blockSizeLimit));
 
 ROCCU_DEFINE_DIRECT_FUNC(StreamCreateWithPriority, RU_DRIVER, RUresult, (RUstream* pStream, unsigned int flags, int priority));
 ROCCU_DEFINE_FUNC(StreamDestroy, RU_DRIVER, cuStreamDestroy_v2, hipStreamDestroy, RUresult, (RUstream stream));
-ROCCU_DEFINE_FUNC(StreamSetAttribute, RU_DRIVER, cuStreamSetAttribute, hipStreamSetAttribute, RUresult, (RUstream stream, RUlaunchAttributeID attr, RUlaunchAttributeValue* value));
+ROCCU_DEFINE_FUNC(StreamSetAttribute, RU_DRIVER, cuStreamSetAttribute, NOOP, RUresult, (RUstream stream, RUlaunchAttributeID attr, RUlaunchAttributeValue* value));
 ROCCU_DEFINE_DIRECT_FUNC(StreamSynchronize, RU_DRIVER, RUresult, (RUstream stream));
 ROCCU_DEFINE_DIRECT_FUNC(StreamWaitEvent, RU_DRIVER, RUresult, (RUstream stream, RUevent event, unsigned int flags));
 
@@ -389,5 +403,5 @@ ROCCU_DEFINE_FUNC(rtcGetErrorString, RU_RTC, nvrtcGetErrorString, hiprtcGetError
 ROCCU_DEFINE_FUNC(rtcGetLoweredName, RU_RTC, nvrtcGetLoweredName, hiprtcGetLoweredName, rurtcResult, (rurtcProgram prog, const char* name_expression, const char** lowered_name));
 ROCCU_DEFINE_FUNC(rtcGetProgramLog, RU_RTC, nvrtcGetProgramLog, hiprtcGetProgramLog, rurtcResult, (rurtcProgram prog, char* log));
 ROCCU_DEFINE_FUNC(rtcGetProgramLogSize, RU_RTC, nvrtcGetProgramLogSize, hiprtcGetProgramLogSize, rurtcResult, (rurtcProgram prog, size_t* logSizeRet));
-ROCCU_DEFINE_FUNC(rtcGetAssembly, RU_RTC, nvrtcGetPTX, hiprtcGetPTX, rurtcResult, (rurtcProgram prog, char* ptx));
-ROCCU_DEFINE_FUNC(rtcGetAssemblySize, RU_RTC, nvrtcGetPTXSize, hiprtcGetPTXSize, rurtcResult, (rurtcProgram prog, size_t* ptxSizeRet));
+ROCCU_DEFINE_FUNC(rtcGetAssembly, RU_RTC, nvrtcGetPTX, hiprtcGetCode, rurtcResult, (rurtcProgram prog, char* ptx));
+ROCCU_DEFINE_FUNC(rtcGetAssemblySize, RU_RTC, nvrtcGetPTXSize, hiprtcGetCodeSize, rurtcResult, (rurtcProgram prog, size_t* ptxSizeRet));

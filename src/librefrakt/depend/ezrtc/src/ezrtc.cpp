@@ -12,10 +12,12 @@
 #define NVRTC_GET_TYPE_NAME 1
 #endif
 
+#include <cstdio>
 
 #define EZRTC_CHECK_RURTC(expression)                              \
 do {                                                               \
 	if (const auto result = expression; result != RURTC_SUCCESS) { \
+		printf("RTC error %d\n", result);						   \
 		throw std::runtime_error(                                  \
 			std::format(                                           \
 				"NVRTC error: {} caused by '{}'",                  \
@@ -333,7 +335,7 @@ namespace ezrtc::detail {
 #endif
 	}();
 
-	constexpr const char* flag_to_option(compile_flag flag) {
+	constexpr const char* flag_to_option_cuda(compile_flag flag) {
 		using enum compile_flag;
 		using namespace std::literals;
 
@@ -350,8 +352,22 @@ namespace ezrtc::detail {
 		case default_device: return "-default-device";
 		case device_int128: return "-device-int128";
 		case warn_double_usage: return "--ptxas-options=--warn-on-double-precision-use";
-		default: std::unreachable();
+		default: return "";
 		}
+	}
+
+	constexpr const char* flag_to_option_rocm(compile_flag flag) {
+		using enum compile_flag;
+		using namespace std::literals;
+
+		switch (flag) {
+		case use_fast_math: return "-ffast-math";
+		default: return "";
+		}
+	}
+
+	constexpr const char* flag_to_option(compile_flag flag, roccu_api api) {
+		return (api == ROCCU_API_CUDA) ? flag_to_option_cuda(flag) : flag_to_option_rocm(flag);
 	}
 
 	class metadata_iterator {
@@ -674,8 +690,9 @@ std::string_view ezrtc::spec::signature() const {
 		.process_bytes(name)
 		.process_bytes(source);
 
+	auto api = roccuGetApi();
 	for (auto flag : compile_flags) {
-		sha1.process_bytes(detail::flag_to_option(flag));
+		sha1.process_bytes(detail::flag_to_option(flag, api));
 	}
 
 	for (const auto& [_, v] : defines) {
@@ -921,14 +938,30 @@ ezrtc::compiler::result ezrtc::compiler::compile(const ezrtc::spec& s) {
 		header_contents.push_back(contents.data());
 	}
 
-	std::vector<const char*> compile_options{ "--std=c++20", "-split-compile=0", "--time=-", "--minimal"};
-	compile_options.push_back(arch_flag.c_str());
-	if (cuda_include_flags.has_value())
-		for (const auto& flag : cuda_include_flags.value())
-			compile_options.push_back(flag.c_str());
+	std::vector<const char*> compile_options{};
 
-	for (const auto flag : s.compile_flags) {
-		compile_options.push_back(detail::flag_to_option(flag));
+	const auto rapi = roccuGetApi();
+	compile_options.push_back("--std=c++20");
+
+	if (rapi == ROCCU_API_CUDA) {
+
+		compile_options.push_back("-DROCCU_CUDA");
+
+		compile_options.push_back(arch_flag.c_str());
+
+		if (cuda_include_flags.has_value())
+			for (const auto& flag : cuda_include_flags.value())
+				compile_options.push_back(flag.c_str());
+
+		for (const auto flag : s.compile_flags) {
+			compile_options.push_back(detail::flag_to_option(flag, rapi));
+		}
+	}
+	else if (rapi == ROCCU_API_ROCM) {
+		compile_options.push_back("-ffast-math");
+		compile_options.push_back("-O3");
+		compile_options.push_back("-mno-cumode");
+		compile_options.push_back("-DROCCU_ROCM");
 	}
 
 	for (const auto& [_, value] : s.defines) {
@@ -1013,6 +1046,7 @@ ezrtc::compiler::result ezrtc::compiler::compile(const ezrtc::spec& s) {
 	auto ptx = std::string(ptx_size, '\0');
 	EZRTC_CHECK_RURTC(rurtcGetAssembly(prog, ptx.data()));
 
+	/*
 	RUlinkState ls_handle;
 	EZRTC_CHECK_ROCCU(ruLinkCreate(0, 0, 0, &ls_handle));
 	using link_scope = detail::scoped<RUlinkState, [](RUlinkState p) { ruLinkDestroy(p); } >;
@@ -1024,9 +1058,9 @@ ezrtc::compiler::result ezrtc::compiler::compile(const ezrtc::spec& s) {
 
 	std::size_t cubin_size;
 	char* cubin;
-	EZRTC_CHECK_ROCCU(ruLinkComplete(ls, (void**)&cubin, &cubin_size));
+	EZRTC_CHECK_ROCCU(ruLinkComplete(ls, (void**)&cubin, &cubin_size));*/
 
-	auto handle = cuda_module::from_cubin({ cubin, cubin_size });
+	auto handle = cuda_module::from_cubin({ ptx.data(), ptx_size });
 	if (not handle) {
 		ret.log = "invalid cubin";
 		return ret;
@@ -1057,7 +1091,7 @@ ezrtc::compiler::result ezrtc::compiler::compile(const ezrtc::spec& s) {
 		auto meta_bytes = md.to_bytes();
 		row.signature = s.signature();
 		row.meta = { meta_bytes.data(), meta_bytes.size() };
-		row.data = { cubin, cubin_size };
+		row.data = { ptx.data(), ptx_size};
 		k_cache->put(s.name, std::move(row));
 	}
 

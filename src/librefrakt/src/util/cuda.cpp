@@ -65,9 +65,9 @@ auto rfkt::cuda::init() -> roccu::context
 
     roccuInit();
 
-    ruInit(0);
-    ruDeviceGet(&dev, 0);
-    ruCtxCreate(&ctx, 0x01 | 0x08, dev);
+    CUDA_SAFE_CALL(ruInit(0));
+    CUDA_SAFE_CALL(ruDeviceGet(&dev, 0));
+    CUDA_SAFE_CALL(ruCtxCreate(&ctx, 0x01 | 0x08, dev));
 
     auto devobj = roccu::device_t{ dev };
 

@@ -46,7 +46,8 @@ namespace ezrtc {
 		int max_blocks_per_mp(int block_size) const noexcept {
 			int num_blocks;
 			ruOccupancyMaxActiveBlocksPerMultiprocessor(&num_blocks, f, block_size, 0);
-			return num_blocks;
+
+			return (roccuGetApi() == ROCCU_API_CUDA)? num_blocks : num_blocks * 2;
 		}
 
 		int max_blocks_per_mp(const dim3& block_dim) const noexcept {

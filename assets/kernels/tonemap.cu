@@ -1,15 +1,18 @@
 #define DEBUG(...) if(threadIdx.x == 0 && blockIdx.x == 0) {printf(__VA_ARGS__);}
 
+#ifdef ROCCU_CUDA
 using __half = unsigned short;
+#endif
+
 struct half3 {
 	__half x, y, z;
 };
 
-__half __float2half(const float a) {
-	__half val;
-	asm("{  cvt.rn.f16.f32 %0, %1;}\n" : "=h"(val) : "f"(a));
-	return val;
-}
+//__device__ __half __float2half(const float a) {
+//	__half val;
+//	asm("{  cvt.rn.f16.f32 %0, %1;}\n" : "=h"(val) : "f"(a));
+//	return val;
+//}
 
 __device__ float lerp(float a, float b, float t) {
 	return a + t * (b - a);

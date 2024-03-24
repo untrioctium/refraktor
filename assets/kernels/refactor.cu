@@ -85,12 +85,12 @@ struct void_t {};
 struct segment {
 	double a, b, c, d;
 	
-	double sample(double t) const { return a * t * t * t + b * t * t + c * t + d; }
+	__device__ double sample(double t) const { return a * t * t * t + b * t * t + c * t + d; }
 };
 
 __shared__ shared_state_t state;
 
-#define my_iter(comp) (state.ts.iterators. ## comp ## [fl::block_rank()])
+#define my_iter(comp) (state.ts.iterators.comp[fl::block_rank()])
 #define my_rand() (state.ts.rand_states[fl::block_rank()])
 #define my_shuffle() (state.ts.shuffle[fl::block_rank()])
 #define my_shuffle_vote() (state.ts.shuffle_vote[fl::block_rank()])
@@ -98,15 +98,14 @@ __shared__ shared_state_t state;
 
 __device__ unsigned short shuf_bufs[THREADS_PER_BLOCK * NUM_SHUF_BUFS];
 
-__device__ 
-void queue_shuffle_load(uint32 pass_idx) {
+__device__ void queue_shuffle_load(uint32 pass_idx) {
 	if(pass_idx % threads_per_block == 0) {
 		my_shuffle_vote() = my_rand().rand() % num_shuf_bufs;
 	}
 }
 
 template<uint32 count>
-void interpolate_flame( Real t, const segment* const __restrict__ seg, Real* const __restrict__ out ) {
+__device__ void interpolate_flame( Real t, const segment* const __restrict__ seg, Real* const __restrict__ out ) {
 	constexpr static uint32 per_thread = count / threads_per_block + ((count % threads_per_block)? 1: 0);
 	//printf("(%d,%d,%d) ", count / threads_per_block, count % threads_per_block, per_thread);
 	for(uint32 i = 0; i < per_thread; i++) {
@@ -120,7 +119,7 @@ void interpolate_flame( Real t, const segment* const __restrict__ seg, Real* con
 }
 
 template<uint32 count>
-void interpolate_palette( Real t, const segment* const __restrict__ seg, uchar3* const __restrict__ palette )
+__device__ void interpolate_palette( Real t, const segment* const __restrict__ seg, uchar3* const __restrict__ palette )
 {
 	constexpr static uint32 per_thread = count / threads_per_block + ((count % threads_per_block)? 1: 0);
 
@@ -154,7 +153,7 @@ void interpolate_palette( Real t, const segment* const __restrict__ seg, uchar3*
 }
 
 template<uint32 count>
-void memcpy_sync(const uint8* const __restrict__ src, uint8* const __restrict__ dest) {
+__device__ void memcpy_sync(const uint8* const __restrict__ src, uint8* const __restrict__ dest) {
 	constexpr static auto vector_count = count / sizeof(int4);
 	constexpr static auto leftover = count % sizeof(int4);
 
@@ -238,8 +237,14 @@ vec4<Real> flame_pass(unsigned int pass_idx) {
 }
 #endif
 
+#ifdef ROCCU_CUDA
+#define LAUNCH_BOUNDS(TPB, BPMP) __launch_bounds__(TPB, BPMP)
+#else
+#define LAUNCH_BOUNDS(TPB, BPMP) __launch_bounds__(TPB, (BPMP * TPB) / warpSize)
+#endif
+
 __global__ 
-__launch_bounds__(THREADS_PER_BLOCK, BLOCKS_PER_MP)
+LAUNCH_BOUNDS(THREADS_PER_BLOCK, BLOCKS_PER_MP)
 void warmup(
 	const uint32 num_segments,
 	const segment* const __restrict__ segments, 
@@ -252,7 +257,7 @@ void warmup(
 	if constexpr(!use_chaos) {
 		queue_shuffle_load(0);
 	} else {
-		my_xform_vote() = 2048;
+		my_xform_vote() = 2047;
 	}
 	const auto seg_size = gridDim.x / num_segments;
 	const auto t = (blockIdx.x % seg_size)/Real(gridDim.x/ num_segments);
@@ -311,7 +316,7 @@ void warmup(
 constexpr static uint64 per_block = THREADS_PER_BLOCK;
 
 __global__
-__launch_bounds__(per_block, BLOCKS_PER_MP)
+LAUNCH_BOUNDS(per_block, BLOCKS_PER_MP)
 void bin(
 	shared_state_t* const __restrict__ in_state,
 	const uint64 quality_target,
