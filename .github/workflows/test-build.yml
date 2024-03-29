@@ -8,16 +8,6 @@ jobs:
       - uses: ilammy/msvc-dev-cmd@v1
         with:
           vsversion: "2022"
-          
-      - uses: Jimver/cuda-toolkit@v0.2.8
-        with:
-          sub-packages: '["cudart", "nvcc", "nvrtc", "nvrtc_dev", "nvjpeg", "nvjpeg_dev", "visual_studio_integration"]'
-          
-      - name: Check nvcc.exe installation
-        run: nvcc --version
-        
-      - name: Check cmake installation
-        run: cmake --version
         
       - name: Configure and Build
         run: |
