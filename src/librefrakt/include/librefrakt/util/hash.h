@@ -1,7 +1,6 @@
 #pragma once
-#include <string_view>
 #include <span>
-
+#include <string_view>
 #include <librefrakt/traits/noncopyable.h>
 
 namespace rfkt {
@@ -102,7 +101,7 @@ namespace rfkt::hash {
 		auto digest() const noexcept -> hash_t;
 
 		template<hashable_type Contained>
-		void update(std::span<Contained> sp) noexcept {
+		void update(std::span<const Contained> sp) noexcept {
 			update(sp.data(), sp.size_bytes());
 		}
 
@@ -130,7 +129,7 @@ namespace rfkt::hash {
 	template<typename... Args>
 	rfkt::hash_t calc(Args&&... args) noexcept {
 		auto state = rfkt::hash::state_t{};
-		state.update(std::forward<Args>(args)...);
+		(state.update(std::forward<Args>(args)), ...);
 		return state.digest();
 	}
 }

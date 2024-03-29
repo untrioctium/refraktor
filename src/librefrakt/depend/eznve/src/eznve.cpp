@@ -89,7 +89,7 @@ private:
 
 inline static const auto api = api_t{};
 
-eznve::encoder::encoder(uint2 dims, uint2 fps, codec c, CUcontext ctx) : dims(dims) {
+eznve::encoder::encoder(uint2 dims, uint2 fps, codec c, RUcontext ctx) : dims(dims) {
 	const auto& funcs = api.funcs();
 
 	auto session_params = pbuf_as<NV_ENC_OPEN_ENCODE_SESSION_EX_PARAMS>();
@@ -132,6 +132,9 @@ eznve::encoder::encoder(uint2 dims, uint2 fps, codec c, CUcontext ctx) : dims(di
 	CHECK_NVENC(funcs.nvEncGetEncodePresetConfigEx(session, init_params.encodeGUID, init_params.presetGUID, init_params.tuningInfo, &preset_config));
 	memcpy(init_params.encodeConfig, &preset_config.presetCfg, sizeof(NV_ENC_CONFIG));
 
+	//encoder_config.encodeCodecConfig.hevcConfig.pixelBitDepthMinus8 = 2;
+	//encoder_config.profileGUID = NV_ENC_HEVC_PROFILE_MAIN10_GUID;
+
 	CHECK_NVENC(funcs.nvEncInitializeEncoder(session, &init_params));
 
 	for (int i = 0; i < encoder_config.frameIntervalP; i++) {
@@ -150,7 +153,7 @@ eznve::encoder::~encoder() {
 	for (auto& buf : buffers) {
 		funcs.nvEncDestroyBitstreamBuffer(session, buf.out_stream);
 		funcs.nvEncUnregisterResource(session, buf.registration);
-		cuMemFree(buf.ptr);
+		ruMemFree(buf.ptr);
 	}
 
 	funcs.nvEncDestroyEncoder(session);
@@ -190,10 +193,10 @@ std::vector<eznve::chunk> eznve::encoder::submit_frame(frame_flag flag) {
 		return chunks;
 	}
 	CHECK_NVENC(frame_status);
-	std::cout << "pushing " << current_buffer + 1 << " frames" << std::endl;
+	//std::cout << "pushing " << current_buffer + 1 << " frames" << std::endl;
 	for (int i = 0; i <= current_buffer; i++) {
 		auto chunk = buffers[i].lock_stream(session);
-		std::cout << "pushing " << chunk.data.size() << " bytes" << std::endl;
+	//	std::cout << "pushing " << chunk.data.size() << " bytes" << std::endl;
 		bytes_encoded += chunk.data.size();
 		chunks.emplace_back(std::move(chunk));
 		buffers[i].unlock_stream(session);
@@ -220,7 +223,7 @@ std::vector<eznve::chunk> eznve::encoder::flush() {
 	CHECK_NVENC(frame_status);
 
 	for (int i = 0; i <= current_buffer; i++) {
-		auto chunk = buffers[i].lock_stream(session);\
+		auto chunk = buffers[i].lock_stream(session);
 		std::cout << "pushing " << chunk.data.size() << " bytes" << std::endl;
 		//bytes_encoded += chunk.data.size();
 		chunks.emplace_back(std::move(chunk));
@@ -236,7 +239,7 @@ void eznve::encoder::push_buffer()
 {
 	auto buf = buffer_t{};
 
-	cuMemAlloc(&buf.ptr, dims.x * dims.y * 4);
+	ruMemAlloc(&buf.ptr, dims.x * dims.y * 4);
 
 	auto out_buf = pbuf_as<NV_ENC_CREATE_BITSTREAM_BUFFER>();
 	out_buf->version = NV_ENC_CREATE_BITSTREAM_BUFFER_VER;

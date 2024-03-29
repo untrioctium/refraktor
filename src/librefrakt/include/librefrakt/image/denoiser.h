@@ -1,12 +1,12 @@
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
 
-#include <cuda.h>
-#include <vector_types.h>
+#include <roccu.h>
 #include <memory>
 #include <future>
 
-#include <librefrakt/cuda_buffer.h>
+#include <librefrakt/gpu_buffer.h>
+#include <librefrakt/util/cuda.h>
 
 namespace rfkt {
 
@@ -19,27 +19,27 @@ namespace rfkt {
 
     }
 
-    class denoiser {
+    class denoiser_old {
     public:
 
 
-        static void init(CUcontext ctx);
+        static void init(RUcontext ctx);
 
-        denoiser(uint2 max_dims, denoiser_flag::flags options = denoiser_flag::none);
+        denoiser_old(uint2 max_dims, denoiser_flag::flags options = denoiser_flag::none);
 
-        denoiser(const denoiser&) = delete;
-        denoiser& operator=(const denoiser&) = delete;
+        denoiser_old(const denoiser_old&) = delete;
+        denoiser_old& operator=(const denoiser_old&) = delete;
 
-        denoiser(denoiser&& d) noexcept;
-        denoiser& operator=(denoiser&& d) noexcept;
+        denoiser_old(denoiser_old&& d) noexcept;
+        denoiser_old& operator=(denoiser_old&& d) noexcept;
 
-        ~denoiser();
+        ~denoiser_old();
 
         using pixel_type = half3;
-        using image_type = cuda_image<pixel_type>;
-        std::future<double> denoise(const image_type& in, image_type& out, cuda_stream& stream);
+        using image_type = gpu_image<pixel_type>;
+        std::future<double> denoise(const image_type& in, image_type& out, roccu::gpu_stream& stream);
 
-        static double benchmark(uint2 dims, denoiser_flag::flags options, std::uint32_t num_passes, cuda_stream& stream);
+        static double benchmark(uint2 dims, denoiser_flag::flags options, std::uint32_t num_passes, roccu::gpu_stream& stream);
 
     private:
         class denoiser_impl;

@@ -60,3 +60,4 @@ refrakt-qt/
 webapp/
 *.mp4
 *.h264
+stats.csv

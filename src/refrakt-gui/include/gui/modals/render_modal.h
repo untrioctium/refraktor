@@ -65,7 +65,7 @@ namespace rfkt::gui {
 		};
 
 		using com_queue_t = moodycamel::BlockingReaderWriterQueue<bin_info>;
-		static void binning_thread(std::stop_token stoke, rfkt::cuda::context ctx, int total_frames, const rfkt::flame& f, const render_params_t& rp, rfkt::function_table& ft, const rfkt::flame_kernel& kernel, com_queue_t& queue);
+		static void binning_thread(std::stop_token stoke, roccu::context ctx, int total_frames, const rfkt::flame& f, const render_params_t& rp, rfkt::function_table& ft, const rfkt::flame_kernel& kernel, com_queue_t& queue);
 
 		bool should_open = false;
 

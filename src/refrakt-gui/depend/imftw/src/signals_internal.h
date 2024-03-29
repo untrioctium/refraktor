@@ -6,6 +6,18 @@
 #include "imftw_internal.h"
 #include <imftw/signals.h>
 
+namespace ImFtw::sigs::glfw2 {
+
+    template<typename T>
+    struct signal {
+        using result_t = decltype(T::handle(std::declval<ImFtw::context_t&>()));
+
+        std::promise<result_t> done;
+
+
+    };
+
+}
 
 namespace ImFtw::sigs::glfw {
 
@@ -132,6 +144,12 @@ namespace ImFtw::sigs::opengl {
 
 		void handle(ImFtw::context_t& ctx) const;
 	};
+
+    struct set_imgui_ini_path {
+        std::string path;
+
+        void handle(ImFtw::context_t& ctx) const;
+    };
 }
 
 namespace ImFtw::Sig {
@@ -159,7 +177,8 @@ namespace ImFtw::Sig {
     using opengl_signal = std::variant<
         ImFtw::sigs::opengl::set_vsync_enabled,
 		ImFtw::sigs::opengl::set_low_power_mode,
-		ImFtw::sigs::opengl::set_target_framerate>;
+		ImFtw::sigs::opengl::set_target_framerate,
+        ImFtw::sigs::opengl::set_imgui_ini_path>;
 
     void push_opengl_signal(opengl_signal&& signal);
 	std::optional<opengl_signal> poll_opengl_signal();

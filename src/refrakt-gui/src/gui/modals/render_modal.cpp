@@ -53,7 +53,7 @@ void rfkt::gui::render_modal::frame_logic(const rfkt::flame& flame) {
 
 		can_start &= !render_params.output_file.empty();
 		if (render_params.output_file.empty()) {
-			ImGui::TextColored(ImVec4(1, .2, .2, 1), "No output file selected");
+			ImGui::TextColored(ImVec4(1.0f, .2f, .2f, 1.0f), "No output file selected");
 		}
 		else
 			ImGui::Text("%s", render_params.output_file.string().c_str());
@@ -140,11 +140,11 @@ namespace rfkt {
 		postprocessor(postprocessor&&) = default;
 		postprocessor& operator=(postprocessor&&) = default;
 
-		auto make_output_buffer() const -> rfkt::cuda_buffer<uchar4> {
-			return rfkt::cuda_buffer<uchar4>{ dims_.x* dims_.y };
+		auto make_output_buffer() const -> roccu::gpu_buffer<uchar4> {
+			return roccu::gpu_buffer<uchar4>{ dims_.x* dims_.y };
 		}
 
-		auto make_output_buffer(CUstream stream) const -> rfkt::cuda_buffer<uchar4> {
+		auto make_output_buffer(RUstream stream) const -> roccu::gpu_buffer<uchar4> {
 			return { dims_.x * dims_.y, stream };
 		}
 
@@ -162,12 +162,12 @@ namespace rfkt {
 		}
 
 		std::future<double> post_process(
-			rfkt::cuda_span<float4> in,
-			rfkt::cuda_span<uchar4> out,
+			roccu::gpu_span<float4> in,
+			roccu::gpu_span<uchar4> out,
 			double quality,
 			double gamma, double brightness, double vibrancy,
 			bool planar_output,
-			cuda_stream& stream) {
+			roccu::gpu_stream& stream) {
 
 			auto promise = std::promise<double>{};
 			auto future = promise.get_future();
@@ -179,7 +179,7 @@ namespace rfkt {
 
 			tm.run(in, tonemapped, { quality, gamma, brightness, vibrancy }, stream);
 			dn.denoise(tonemapped, denoised, stream);
-			conv.to_24bit(denoised, out, planar_output, stream);
+			conv.to_32bit(denoised, out, planar_output, stream);
 			stream.host_func([&t = perf_timer, p = std::move(promise)]() mutable {
 				p.set_value(t.count());
 				});
@@ -189,11 +189,11 @@ namespace rfkt {
 
 	private:
 		rfkt::tonemapper tm;
-		rfkt::denoiser dn;
+		rfkt::denoiser_old dn;
 		rfkt::converter conv;
 
-		rfkt::cuda_image<half3> tonemapped;
-		rfkt::cuda_image<half3> denoised;
+		rfkt::gpu_image<half3> tonemapped;
+		rfkt::gpu_image<half3> denoised;
 
 		rfkt::timer perf_timer;
 
@@ -203,121 +203,10 @@ namespace rfkt {
 }
 
 struct last_frame_t {
-	rfkt::cuda_buffer<float4> bins = {};
+	roccu::gpu_buffer<float4> bins = {};
 	double quality;
 	std::array<double, 3> gbv;
 };
-
-/*
-namespace rfkt::pipeline {
-	struct render_params {
-		int2 dims = { 1280, 720 };
-		int fps = 30;
-		double seconds_per_loop = 5.0;
-		double num_loops = 4.0;
-		double target_quality = 512;
-		double max_seconds_per_frame = 2;
-		int total_frames;
-	};
-
-
-}
-
-namespace rfkt::pipeline::stage {
-
-	namespace detail{
-		struct stop{};
-	}
-
-	template<typename Stage>
-	class base {
-	public:
-		using input_queue_t = moodycamel::BlockingReaderWriterQueue<std::variant<typename Stage::input, detail::stop>>;
-		using output_queue_t = moodycamel::BlockingReaderWriterQueue<std::variant<typename Stage::output, detail::stop>>;
-
-		void run(input_queue_t& inq, output_queue_t& out) {
-			Stage& impl = *static_cast<Stage*>(this);
-			worker = std::jthread{ std::ref(inq), std::ref(out), std::ref(impl) };
-		}
-
-		void stop() {
-			worker.request_stop();
-			worker.join();
-		}
-
-	private:
-
-		static void worker(std::stop_token& stoke, input_queue_t& inq, output_queue_t& out, Stage& impl) {
-			impl.init();
-			while (!stoke.stop_requested()) {
-				auto input = typename Stage::input{};
-				if (!inq.wait_dequeue_timed(input, std::chrono::milliseconds(100))) continue;
-
-				if (std::holds_alternative<detail::stop>(input)) {
-					break;
-				}
-
-				auto output = impl.step(std::move(input));
-
-				while (out.size_approx() > 5) {
-					std::this_thread::sleep_for(std::chrono::milliseconds(1));
-				}
-
-				out.enqueue(std::move(output));
-			}
-
-			out.enqueue(detail::stop{});
-		}
-
-		std::jthread worker;
-	};
-
-	class sample : public base<sample> {
-	public:
-		struct input {
-			rfkt::flame f;
-			rfkt::function_table& ft;
-			rfkt::pipeline::render_params rp;
-			double t;
-		};
-
-		struct output {
-			std::vector<double> samples;
-			rfkt::pipeline::render_params rp;
-			double3 gbv;
-		};
-
-	private:
-		output step(input&& in) {
-			auto out = output{};
-			auto invoker = in.ft.make_invoker();
-
-			const auto loops_per_frame = 1.0 / (in.rp.fps * in.rp.seconds_per_loop);
-
-			auto packer = [&samples = out.samples](double v) { samples.push_back(v); };
-			in.f.pack_sample(packer, invoker, in.t - 1.2 * loops_per_frame, in.rp.dims.x, in.rp.dims.y);
-			in.f.pack_sample(packer, invoker, in.t, in.rp.dims.x, in.rp.dims.y);
-			in.f.pack_sample(packer, invoker, in.t + 1.2 * loops_per_frame, in.rp.dims.x, in.rp.dims.y);
-			in.f.pack_sample(packer, invoker, in.t + 2.4 * loops_per_frame, in.rp.dims.x, in.rp.dims.y);
-
-			out.rp = std::move(in.rp);
-			out.gbv.x = in.f.gamma.sample(in.t, invoker);
-			out.gbv.y = in.f.brightness.sample(in.t, invoker);
-			out.gbv.z = in.f.vibrancy.sample(in.t, invoker);
-
-			return out;
-		}
-
-		void init() { }
-	};
-
-	class bin : public base<bin> {
-	public:
-		using input = sample::output;
-
-	};
-
-}*/
 
 void rfkt::gui::render_modal::launch_worker(const rfkt::flame& flame)
 {
@@ -336,7 +225,7 @@ void rfkt::gui::render_modal::launch_worker(const rfkt::flame& flame)
 		&ft = this->ft,
 		flame = flame, // intentional copy
 		frame_counter,
-		ctx = rfkt::cuda::context::current()
+		ctx = roccu::context::current()
 	]
 	(std::stop_token stoke) mutable {
 
@@ -348,7 +237,7 @@ void rfkt::gui::render_modal::launch_worker(const rfkt::flame& flame)
 		};
 
 		auto pp = rfkt::postprocessor{ km, dims, rfkt::denoiser_flag::none };
-		auto post_stream = rfkt::cuda_stream{};
+		auto post_stream = roccu::gpu_stream{};
 		auto encoder = eznve::encoder{ dims, {static_cast<unsigned int>(render_params.fps), 1}, eznve::codec::hevc, ctx };
 
 		//auto chunkfile_name = std::format("{}.h265", render_params.output_file.string());
@@ -359,7 +248,7 @@ void rfkt::gui::render_modal::launch_worker(const rfkt::flame& flame)
 
 		ffmpeg_process.start(std::vector<std::string>{
 			std::format("{}\\bin\\ffmpeg.exe", rfkt::fs::working_directory().string()),
-				"-y", "-i", "-", "-c", "copy", "-r", std::to_string(render_params.fps), render_params.output_file.string()
+				/*"-hide_banner", "-loglevel", "error", */"-y", "-i", "-", "-c", "copy", "-r", std::to_string(render_params.fps), render_params.output_file.string()
 		});
 
 
@@ -397,7 +286,7 @@ void rfkt::gui::render_modal::launch_worker(const rfkt::flame& flame)
 				continue;
 			}
 
-			auto encoder_input = rfkt::cuda_span<uchar4>{ encoder.buffer(), encoder.buffer_size() / 4 };
+			auto encoder_input = roccu::gpu_span<uchar4>{ encoder.buffer(), encoder.buffer_size() };
 			pp.post_process(binfo.bins, encoder_input, binfo.quality, binfo.gbv.x, binfo.gbv.y, binfo.gbv.z, false, post_stream).get();
 			auto chunks = encoder.submit_frame((i % render_params.fps == 0 || i + 1 == total_frames) ? eznve::frame_flag::idr : eznve::frame_flag::none);
 
@@ -433,13 +322,13 @@ void rfkt::gui::render_modal::launch_worker(const rfkt::flame& flame)
 	};
 }
 
-void rfkt::gui::render_modal::binning_thread(std::stop_token stoke, rfkt::cuda::context ctx, int total_frames, const rfkt::flame& f, const render_params_t& rp, rfkt::function_table& ft, const rfkt::flame_kernel& kernel, com_queue_t& queue)
+void rfkt::gui::render_modal::binning_thread(std::stop_token stoke, roccu::context ctx, int total_frames, const rfkt::flame& f, const render_params_t& rp, rfkt::function_table& ft, const rfkt::flame_kernel& kernel, com_queue_t& queue)
 {
 	ctx.make_current();
 
 	const auto loops_per_frame = 1.0 / (rp.fps * rp.seconds_per_loop);
 	auto invoker = ft.make_invoker();
-	auto stream = rfkt::cuda_stream{};
+	auto stream = roccu::gpu_stream{};
 	auto bailout = rfkt::flame_kernel::bailout_args{ .millis = static_cast<std::uint32_t>(rp.max_seconds_per_frame * 1000), .quality = rp.target_quality };
 
 	const auto dims = uint2{

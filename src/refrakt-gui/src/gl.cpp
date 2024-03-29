@@ -5,29 +5,32 @@
 
 #include "gl.h"
 
-#include <cudaGL.h>
+//#include <cudaGL.h>
 
-rfkt::gl::texture::texture(std::size_t w, std::size_t h) : width_(w), height_(h)
+std::pair<GLuint, RUgraphicsResource> rfkt::gl::detail::allocate_texture(std::size_t w, std::size_t h, GLenum internal_format, sampling_mode s_mode)
 {
-	glGenTextures(1, &tex_id);
-	glBindTexture(GL_TEXTURE_2D, tex_id);
+	auto ret = std::make_pair<GLuint, RUgraphicsResource>(0, nullptr);
+
+	glGenTextures(1, &ret.first);
+	glBindTexture(GL_TEXTURE_2D, ret.first);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-	// Specify 2D texture
-	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width_, height_, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, (s_mode == sampling_mode::nearest)? GL_NEAREST : GL_LINEAR);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, (s_mode == sampling_mode::nearest)? GL_NEAREST : GL_LINEAR);
+	glTexImage2D(GL_TEXTURE_2D, 0, internal_format, w, h, 0, GL_RGBA, GL_FLOAT, nullptr);
 	glBindTexture(GL_TEXTURE_2D, 0);
 
-	CUDA_SAFE_CALL(cuGraphicsGLRegisterImage(&cuda_res, tex_id, GL_TEXTURE_2D, CU_GRAPHICS_REGISTER_FLAGS_WRITE_DISCARD));
+	CUDA_SAFE_CALL(ruGraphicsGLRegisterImage(&ret.second, ret.first, GL_TEXTURE_2D, /*CU_GRAPHICS_REGISTER_FLAGS_WRITE_DISCARD*/ 0x02));
+
+	return ret;
 }
 
-rfkt::gl::texture::~texture()
+void rfkt::gl::detail::deallocate_texture(GLuint tex_id, RUgraphicsResource cuda_res)
 {
 	if (tex_id == 0) return;
 
-	auto deleter = [cuda_res = this->cuda_res, tex_id = this->tex_id]() {
-		CUDA_SAFE_CALL(cuGraphicsUnregisterResource(cuda_res));
+	auto deleter = [cuda_res, tex_id]() {
+		CUDA_SAFE_CALL(ruGraphicsUnregisterResource(cuda_res));
 		glDeleteTextures(1, &tex_id);
 	};
 
@@ -35,34 +38,41 @@ rfkt::gl::texture::~texture()
 	else ImFtw::DeferNextFrame(std::move(deleter));
 }
 
-rfkt::gl::texture::cuda_map::cuda_map(texture& tex) : cuda_res(tex.cuda_res)
+std::pair<RU_MEMCPY2D, RUarray> rfkt::gl::detail::create_mapping(RUgraphicsResource cuda_res, std::size_t w, std::size_t h, std::size_t pixel_size)
 {
-	CUDA_SAFE_CALL(cuGraphicsMapResources(1, &cuda_res, 0));
-	CUDA_SAFE_CALL(cuGraphicsSubResourceGetMappedArray(&arr, cuda_res, 0, 0));
+	auto ret = std::make_pair<RU_MEMCPY2D, RUarray>(RU_MEMCPY2D(), nullptr);
 
-	std::memset(&copy_params, 0, sizeof(copy_params));
-	copy_params.srcXInBytes = 0;
-	copy_params.srcY = 0;
-	copy_params.srcMemoryType = CU_MEMORYTYPE_DEVICE;
-	copy_params.srcPitch = tex.width() * 4;
-	copy_params.srcDevice = 0;
+	if (auto res = ruGraphicsMapResources(1, &cuda_res, 0); res == RU_SUCCESS) {
+		CUDA_SAFE_CALL(ruGraphicsSubResourceGetMappedArray(&ret.second, cuda_res, 0, 0));
+	}
+	else {
+		CUDA_SAFE_CALL(res);
+	}
 
-	copy_params.dstXInBytes = 0;
-	copy_params.dstY = 0;
-	copy_params.dstMemoryType = CU_MEMORYTYPE_ARRAY;
-	copy_params.dstArray = arr;
+	std::memset(&ret.first, 0, sizeof(ret.first));
+	ret.first.srcXInBytes = 0;
+	ret.first.srcY = 0;
+	ret.first.srcMemoryType = RU_MEMORYTYPE_DEVICE;
+	ret.first.srcPitch = w * pixel_size;
+	ret.first.srcDevice = 0;
 
-	copy_params.WidthInBytes = tex.width() * 4;
-	copy_params.Height = tex.height();
+	ret.first.dstXInBytes = 0;
+	ret.first.dstY = 0;
+	ret.first.dstMemoryType = RU_MEMORYTYPE_ARRAY;
+	ret.first.dstArray = ret.second;
 
+	ret.first.WidthInBytes = w * pixel_size;
+	ret.first.Height = h;
+
+	return ret;
 }
 
-rfkt::gl::texture::cuda_map::~cuda_map()
+void rfkt::gl::detail::destroy_mapping(RUgraphicsResource cuda_res, std::any&& parent)
 {
 	if (cuda_res == nullptr) return;
 
-	auto deleter = [cuda_res = &this->cuda_res]() mutable {
-		CUDA_SAFE_CALL(cuGraphicsUnmapResources(1, cuda_res, 0));
+	auto deleter = [cuda_res, parent = std::move(parent)]() mutable {
+		if(auto res = ruGraphicsUnmapResources(1, &cuda_res, 0); res != RU_SUCCESS) CUDA_SAFE_CALL(res);
 	};
 
 	if (ImFtw::OnRenderingThread()) deleter();

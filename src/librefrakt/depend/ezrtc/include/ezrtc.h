@@ -17,11 +17,10 @@
 #include <functional>
 #include <span>
 #include <fstream>
-
+#include <mutex> 
 #include <filesystem>
 
-#include <cuda.h>
-#include <vector_types.h>
+#include <roccu.h>
 
 #include <limits>
 
@@ -31,23 +30,24 @@ namespace ezrtc {
 	class kernel {
 	public:
 
-		explicit kernel(CUfunction f) noexcept : f(f) {}
+		explicit kernel(RUfunction f) noexcept : f(f) {}
 
-		auto launch(dim3 grid, dim3 block, CUstream stream = nullptr, bool cooperative = false) const noexcept {
+		auto launch(dim3 grid, dim3 block, RUstream stream = nullptr, bool cooperative = false) const noexcept {
 			return[f = this->f, grid, block, stream, cooperative](auto... args) noexcept {
 				auto packed_args = std::array<void*, sizeof...(args)>{ &args... };
 				return launch_impl(f, grid, block, stream, cooperative, packed_args.data());
 			};
 		}
 
-		auto launch(std::uint32_t grid, std::uint32_t block, CUstream stream = nullptr, bool cooperative = false) const noexcept {
+		auto launch(std::uint32_t grid, std::uint32_t block, RUstream stream = nullptr, bool cooperative = false) const noexcept {
 			return this->launch({ grid, 1, 1 }, { block, 1, 1 }, stream, cooperative);
 		}
 
 		int max_blocks_per_mp(int block_size) const noexcept {
 			int num_blocks;
-			cuOccupancyMaxActiveBlocksPerMultiprocessor(&num_blocks, f, block_size, 0);
-			return num_blocks;
+			ruOccupancyMaxActiveBlocksPerMultiprocessor(&num_blocks, f, block_size, 0);
+
+			return (roccuGetApi() == ROCCU_API_CUDA)? num_blocks : num_blocks * 2;
 		}
 
 		int max_blocks_per_mp(const dim3& block_dim) const noexcept {
@@ -56,35 +56,35 @@ namespace ezrtc {
 
 		std::pair<int, int> suggested_dims() const noexcept {
 			std::pair<int, int> result;
-			cuOccupancyMaxPotentialBlockSize(&result.first, &result.second, f, nullptr, 0, 0);
+			ruOccupancyMaxPotentialBlockSize(&result.first, &result.second, f, nullptr, 0, 0);
 			return result;
 		}
 
-		auto shared_bytes() const noexcept { return attribute<CUfunction_attribute::CU_FUNC_ATTRIBUTE_SHARED_SIZE_BYTES>(); }
-		auto const_bytes() const noexcept { return attribute<CUfunction_attribute::CU_FUNC_ATTRIBUTE_CONST_SIZE_BYTES>(); }
-		auto local_bytes() const noexcept { return attribute<CUfunction_attribute::CU_FUNC_ATTRIBUTE_LOCAL_SIZE_BYTES>(); }
-		auto register_count() const noexcept { return attribute<CUfunction_attribute::CU_FUNC_ATTRIBUTE_NUM_REGS>(); }
+		auto shared_bytes() const noexcept { return attribute<RU_FUNC_ATTRIBUTE_SHARED_SIZE_BYTES>(); }
+		auto const_bytes() const noexcept { return attribute<RU_FUNC_ATTRIBUTE_CONST_SIZE_BYTES>(); }
+		auto local_bytes() const noexcept { return attribute<RU_FUNC_ATTRIBUTE_LOCAL_SIZE_BYTES>(); }
+		auto register_count() const noexcept { return attribute<RU_FUNC_ATTRIBUTE_NUM_REGS>(); }
 
 	private:
 
-		template<CUfunction_attribute a>
+		template<RUfunction_attribute a>
 		auto attribute() const noexcept {
 			int ret;
-			cuFuncGetAttribute(&ret, a, f);
+			ruFuncGetAttribute(&ret, a, f);
 			return static_cast<std::size_t>(ret);
 		}
 
 
-		static CUresult launch_impl(CUfunction f, dim3 grid, dim3 block, CUstream stream, bool cooperative, void** args) noexcept;
-		CUfunction f;
+		static RUresult launch_impl(RUfunction f, dim3 grid, dim3 block, RUstream stream, bool cooperative, void** args) noexcept;
+		RUfunction f;
 	};
 
 	class variable {
 	public:
 
-		variable(CUdeviceptr ptr, std::size_t size) noexcept : ptr_(ptr), size_(size) {}
+		variable(RUdeviceptr ptr, std::size_t size) noexcept : ptr_(ptr), size_(size) {}
 
-		explicit(false) operator CUdeviceptr() const noexcept {
+		explicit(false) operator RUdeviceptr() const noexcept {
 			return ptr_;
 		}
 
@@ -96,7 +96,7 @@ namespace ezrtc {
 
 	private:
 
-		CUdeviceptr ptr_;
+		RUdeviceptr ptr_;
 		std::size_t size_;
 	};
 
@@ -125,7 +125,7 @@ namespace ezrtc {
 		}
 
 		~cuda_module() {
-			if (handle) cuModuleUnload(handle);
+			if (handle) ruModuleUnload(handle);
 		}
 
 		explicit operator bool() const noexcept { return handle != nullptr; }
@@ -154,8 +154,8 @@ namespace ezrtc {
 
 		friend class compiler;
 
-		CUmodule handle = nullptr;
-		std::unordered_map<std::string, CUfunction> kernels = {};
+		RUmodule handle = nullptr;
+		std::unordered_map<std::string, RUfunction> kernels = {};
 		std::unordered_map<std::string, variable> variables = {};
 	};
 
@@ -174,7 +174,7 @@ namespace ezrtc {
 		warn_double_usage
 	};
 
-	class spec {
+	class spec {      
 	public:
 
 		static spec source_string(std::string name, std::string source) {

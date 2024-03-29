@@ -112,6 +112,11 @@ namespace ImFtw {
 
         bool mouse_down = ImGui::IsMouseDown(ImGuiMouseButton_Left);
 
+        if (dragging) {
+            ImGui::SetKeyOwner(ImGuiKey_MouseWheelX, dragging_id);
+            ImGui::SetKeyOwner(ImGuiKey_MouseWheelY, dragging_id);
+        }
+
         if(!mouse_down && dragging) {
             dragging = false;
             dragging_id = 0;
@@ -128,6 +133,10 @@ namespace ImFtw {
             drag_start_value = iv;
 
             ImFtw::Sig::SetCursorEnabled(false);
+        }
+        else if (auto scroll = ImGui::GetIO().MouseWheel; dragging && scroll != 0.0) {
+            v = std::min(max, std::max(min, static_cast<ValueType>(v + scroll * speed)));
+            if(v != iv) changed = true;
         }
 
         return {std::nullopt, changed};

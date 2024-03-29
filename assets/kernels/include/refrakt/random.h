@@ -1,4 +1,4 @@
-constexpr static unsigned int rotl(const unsigned int x, int k) {
+__device__ constexpr static unsigned int rotl(const unsigned int x, int k) {
 	return (x << k) | (x >> (32 - k));
 }
 
@@ -8,7 +8,7 @@ struct rand_engine {
 
 	__device__ vec2<FloatT> randgauss(FloatT std_dev = 1.0) {		
 		FloatT r, sinang, cosang;
-		sincospi( rand01() * 2, &sinang, &cosang);
+		sincospif( rand01() * 2, &sinang, &cosang);
 		r = std_dev * (rand01() + rand01() + rand01() + rand01() - 2.0);
 		return {r * cosang, r * sinang};
 	}
@@ -16,10 +16,7 @@ struct rand_engine {
 	__device__ FloatT rand01() {
 		Generator* const gen = static_cast<Generator*>(this);
 		if constexpr (flamelib::is_same<FloatT, double>) {
-			unsigned long long bits = ((((unsigned long long) gen->rand()) << 32) | (((unsigned long long) gen->rand())));
-			bits &= 0x000FFFFFFFFFFFFFull;
-			bits |= 0x3FF0000000000000ull;
-			return *(double*)(&bits) - 1.0;
+			return static_cast<double>(gen->rand()) / 4'294'967'295.0;
 		} else {
 			return static_cast<float>(gen->rand()) / 4'294'967'295.0f;
 		}

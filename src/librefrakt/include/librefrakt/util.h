@@ -5,10 +5,21 @@
 #include <format>
 #include <span>
 
+#include <stacktrace>
+
 template<class... Ts> struct overloaded : Ts... { using Ts::operator()...; };
 template<class... Ts> overloaded(Ts...)->overloaded<Ts...>;
 
 namespace rfkt {
+
+	inline std::string stacktrace(const decltype(std::stacktrace::current())& trace = std::stacktrace::current()) {
+		std::string ret;
+		for (const auto& st: trace) {
+			ret += std::format("{}({}): {}\n", st.source_file(), st.source_line(), st.description());
+		}
+		return ret;
+	}
+
 	class timer {
 	public:
 

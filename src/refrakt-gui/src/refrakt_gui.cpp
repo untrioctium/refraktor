@@ -1,4 +1,4 @@
-#include <cuda.h>
+#include <roccu.h>
 #include <concurrencpp/concurrencpp.h>
 #include <RtMidi.h>
 
@@ -12,7 +12,7 @@
 #include <librefrakt/image/denoiser.h>
 #include <librefrakt/image/converter.h>
 #include <librefrakt/util/cuda.h>
-#include <librefrakt/util/nvjpeg.h>
+//#include <librefrakt/util/nvjpeg.h>
 #include <librefrakt/util/filesystem.h>
 #include <librefrakt/util/gpuinfo.h>
 #include <librefrakt/util/http.h>
@@ -56,15 +56,27 @@ void draw_status_bar() {
 			static auto power_sample_pct = dev.wattage_percent();
 			static auto power_sample_watts = dev.wattage();
 			static auto power_sample_time = ImFtw::Time();
+			static auto memory_sample = dev.memory_info();
+			static auto app_mem_usage = roccuGetMemoryUsage();
+
 
 			auto time = ImFtw::Time();
-			if (time - power_sample_time > .5) {
+			if (time - power_sample_time > .05) {
 				power_sample_pct = dev.wattage_percent();
 				power_sample_watts = dev.wattage();
 				power_sample_time = time;
+				memory_sample = dev.memory_info();
+				app_mem_usage = roccuGetMemoryUsage();
 			}
 
 			ImGui::Text("%d%% Power (%d Watts)", power_sample_pct, power_sample_watts);
+			
+			double gigabytes_used = double(memory_sample.used) / (1024 * 1024 * 1024);
+			double gigabytes_total = double(memory_sample.total) / (1024 * 1024 * 1024);
+			double gigabytes_app = double(app_mem_usage) / (1024 * 1024 * 1024);
+
+			ImGui::Text("%d%% Memory Used (%.1f/%.1f GB) (%.1f GB app)", unsigned int(double(memory_sample.used) / memory_sample.total * 100.0), gigabytes_used, gigabytes_total, gigabytes_app);
+
 
 			ImGui::EndMenuBar();
 		}
@@ -322,6 +334,9 @@ private:
 
 template<typename Func>
 auto show_splash(std::string_view task_name, Func&& f) {
+
+	SPDLOG_INFO("Performing loading task: {}", task_name);
+
 	ImFtw::BeginFrame();
 	const ImGuiViewport* viewport = ImGui::GetMainViewport();
 	ImGui::SetNextWindowPos(viewport->Pos);
@@ -334,16 +349,9 @@ auto show_splash(std::string_view task_name, Func&& f) {
 		ImGui::TextUnformatted(task_name.data());
 	}
 
-	if constexpr (std::same_as<void, decltype(f())>) {
-		f();
-		ImFtw::EndFrame();
-		return;
-	}
-	else {
-		auto result = f();
-		ImFtw::EndFrame();
-		return result;
-	}
+	ImFtw::EndFrame();
+
+	return f();
 }
 
 void about_window() {
@@ -380,19 +388,19 @@ void about_window() {
 
 	const float max_library_name = ImGui::CalcTextSize(std::max_element(libraries.begin(), libraries.end(), [](const auto& a, const auto& b) {
 		return a.first.size() < b.first.size();
-		})->first.data()).x + 5.0;
+		})->first.data()).x + 5.0f;
 
 	const float max_author = ImGui::CalcTextSize(std::get<0>(std::max_element(libraries.begin(), libraries.end(), [](const auto& a, const auto& b) {
 		return std::get<0>(a.second).size() < std::get<0>(b.second).size();
-		})->second).data()).x + 5.0;
+		})->second).data()).x + 5.0f;
 
 	const float max_url = ImGui::CalcTextSize(std::get<1>(std::max_element(libraries.begin(), libraries.end(), [](const auto& a, const auto& b) {
 		return std::get<1>(a.second).size() < std::get<1>(b.second).size();
-		})->second).data()).x + 5.0;
+		})->second).data()).x + 5.0f;
 
 	const float max_license = ImGui::CalcTextSize(std::get<2>(std::max_element(libraries.begin(), libraries.end(), [](const auto& a, const auto& b) {
 		return std::get<2>(a.second).size() < std::get<2>(b.second).size();
-		})->second).data()).x + 5.0;
+		})->second).data()).x + 5.0f;
 
 	IMFTW_POPUP("About", true, ImGuiWindowFlags_AlwaysAutoResize) {
 		ImFtw::TextCentered("Refrakt v0.1.0 by Alex Riley");
@@ -417,11 +425,11 @@ void about_window() {
 		ImGui::TextUnformatted("");
 		ImFtw::TextCentered("Refrakt uses the following C/C++ libraries. Thank you to all of the authors and countless contributors!");
 		ImGui::BeginChild("##about_libs", { max_library_name + max_author + max_url + max_license + 20, 400 }, true);
-		ImGui::BeginTable("##libraries", 4);
-		ImGui::TableSetupColumn("Name", 0, max_library_name);
-		ImGui::TableSetupColumn("Author(s)", 0, max_author);
-		ImGui::TableSetupColumn("URL", 0, max_url);
-		ImGui::TableSetupColumn("License", 0, max_license);
+		ImGui::BeginTable("##libraries", 4, ImGuiTableFlags_SizingStretchProp);
+		ImGui::TableSetupColumn("Name", 0);
+		ImGui::TableSetupColumn("Author(s)");
+		ImGui::TableSetupColumn("URL", 0);
+		ImGui::TableSetupColumn("License", 0);
 
 		ImGui::TableHeadersRow();
 
@@ -635,7 +643,7 @@ public:
 		ImFtw::Sig::SetWindowDecorated(true).get();
 		ImFtw::Sig::SetWindowMaximized(true).get();
 		ImFtw::Sig::SetVSyncEnabled(false);
-		ImFtw::Sig::SetTargetFramerate(144);
+		ImFtw::Sig::SetTargetFramerate(60);
 
 		while (true) {
 			ImFtw::BeginFrame();
@@ -690,22 +698,25 @@ private:
 			SPDLOG_INFO("Max persisting L2 size (bytes): {}", dev.max_persist_l2_cache_size());
 			return ctx;
 		});
-		show_splash("Initializing denoising system", [&]() { rfkt::denoiser::init(ctx); });
+
+		//SPDLOG_INFO("Max persisting L2 size (megabytes): {}", v);
+
+		show_splash("Initializing denoising system", [&]() { rfkt::denoiser_old::init(ctx); });
 		show_splash("Initializing GPU statistics system", []() { rfkt::gpuinfo::init(); });
 		show_splash("Loading variations", [&]() {rfkt::initialize(fdb, "config"); });
 
-		auto runtime_path = show_splash("Setting up CUDA runtime", []() { return rfkt::cuda::check_and_download_cudart(); });
-		if (!runtime_path) {
-			SPDLOG_CRITICAL("Could not find CUDA runtime");
-			return false;
-		}
+		//auto runtime_path = show_splash("Setting up CUDA runtime", []() { return rfkt::cuda::check_and_download_cudart(); });
+		//if (!runtime_path) {
+		//	SPDLOG_CRITICAL("Could not find CUDA runtime");
+		//	return false;
+		//}
 
 
-		k_comp = show_splash("Setting up compiler", [&runtime_path]() {
+		k_comp = show_splash("Setting up compiler", []() {
 			auto kernel_cache = std::make_shared<ezrtc::sqlite_cache>((rfkt::fs::user_local_directory() / "kernel.sqlite3").string().c_str());
 			auto zlib = std::make_shared<ezrtc::cache_adaptors::zlib>(std::make_shared<ezrtc::cache_adaptors::guarded>(kernel_cache));
 			auto compiler = std::make_shared<ezrtc::compiler>( zlib );
-			compiler->find_system_cuda(*runtime_path);
+			//compiler->find_system_cuda(*runtime_path);
 			return compiler;
 		});
 
@@ -727,25 +738,27 @@ private:
 			"return iv + v * amplitude\n"
 		});
 
+
+
 		f_comp = show_splash("Setting up flame compiler", [&]() { return std::make_shared<rfkt::flame_compiler>(k_comp); });
 		tonemap = show_splash("Creating tonemapper", [&] { return std::make_shared<rfkt::tonemapper>( *k_comp ); });
-		denoise_normal = show_splash("Creating denoiser", [] { return std::make_shared<rfkt::denoiser>(uint2{ 512, 512 }, rfkt::denoiser_flag::tiled); });
-		denoise_upscale = show_splash("Creating upscaling denoiser", [] { return std::make_shared<rfkt::denoiser>(uint2{ 512, 512 }, rfkt::denoiser_flag::upscale & rfkt::denoiser_flag::tiled); });
+		denoise_normal = show_splash("Creating denoiser", [] { return std::make_shared<rfkt::denoiser_old>(uint2{ 512, 512 }, rfkt::denoiser_flag::tiled); });
+		denoise_upscale = show_splash("Creating upscaling denoiser", [] { return std::make_shared<rfkt::denoiser_old>(uint2{ 512, 512 }, rfkt::denoiser_flag::upscale | rfkt::denoiser_flag::tiled); });
 		convert = show_splash("Creating converter", [&] { return std::make_shared<rfkt::converter>(*k_comp); });
 
 		preview_panel::renderer_t renderer = [&](
-			rfkt::cuda_stream& stream, const rfkt::flame_kernel& kernel,
+			roccu::gpu_stream& stream, const rfkt::flame_kernel& kernel,
 			rfkt::flame_kernel::saved_state& state,
-			rfkt::flame_kernel::bailout_args bo, double3 gbv, bool upscale) {
+			rfkt::flame_kernel::bailout_args bo, double3 gbv, bool upscale, bool denoise) {
 
 				const auto total_bins = state.bins.area();
 
 				const auto output_dims = (upscale) ? uint2{ state.bins.width() * 2, state.bins.height() * 2 } : state.bins.dims();
 				const auto output_bins = output_dims.x * output_dims.y;
 
-				auto tonemapped = rfkt::cuda_image<half3>{ state.bins.width(), state.bins.height(), stream};
-				auto denoised = rfkt::cuda_image<half3>{ output_dims.x, output_dims.y, stream };
-				auto out_buf = rfkt::cuda_image<uchar4>{ output_dims.x, output_dims.y, stream };
+				auto tonemapped = rfkt::gpu_image<half3>{ state.bins.width(), state.bins.height(), stream};
+				auto denoised = rfkt::gpu_image<half3>{ output_dims.x, output_dims.y, stream };
+				auto out_buf = rfkt::gpu_image<preview_panel::pixel_type>{ output_dims.x, output_dims.y, stream };
 
 				auto bin_info = kernel.bin(stream, state, bo).get();
 				state.quality += bin_info.quality;
@@ -758,9 +771,15 @@ private:
 				tonemap->run(state.bins, tonemapped, { state.quality, gbv.x, gbv.y, gbv.z }, stream);
 				stream.sync();
 				auto& denoiser = upscale ? denoise_upscale : denoise_normal;
-				denoiser->denoise(tonemapped, denoised, stream);
+				if(denoise) denoiser->denoise(tonemapped, denoised, stream);
+				
+				if constexpr (std::same_as<preview_panel::pixel_type, float4>) {
+					convert->to_float3(denoised, out_buf, stream);
+				}
+				else {
+					convert->to_32bit((denoise)? denoised: tonemapped, out_buf, false, stream);
+				}
 				tonemapped.free_async(stream);
-				convert->to_24bit(denoised, out_buf, false, stream);
 				denoised.free_async(stream);
 				stream.sync();
 
@@ -776,7 +795,7 @@ private:
 		prev_panel = std::make_unique<preview_panel>(*f_comp, std::move(executor), std::move(renderer), c_exec);
 		render_modal = std::make_unique<rfkt::gui::render_modal>(*k_comp, *f_comp, fdb, functions );
 
-		cur_flame = proj.add_flame(std::move(rfkt::import_flam3(fdb, rfkt::fs::read_string("assets/flames_test/electricsheep.247.47670.flam3")).value()));
+		cur_flame = proj.add_flame(std::move(rfkt::import_flam3(fdb, rfkt::fs::read_string("assets/flames_test/electricsheep.247.50049.flam3")).value()));
 
 		auto& file_menu = mainm.add_menu("File");
 		file_menu.add_item("New project");
@@ -827,16 +846,6 @@ private:
 						return;
 					}
 
-					SPDLOG_INFO("flame data:\n{}", flame->serialize().dump(2));
-
-					rfkt::hash_t hash;
-					rfkt::timer t;
-					for(int i = 0; i < 10'000; ++i)
-						hash ^= flame->value_hash() << (i % 64);
-
-					auto time = t.count() / 10'000.0 * 1'000.0 * 1'000.0;
-					SPDLOG_INFO("hash: {} ({} us per hash)", hash.str64(), time);
-
 					ImFtw::DeferNextFrame([&, flame = std::move(flame.value())]() mutable {
 						c_exec.clear();
 						cur_flame = proj.add_flame(std::move(flame));
@@ -868,20 +877,29 @@ private:
 			.set_icon(ICON_MD_INFO)
 			.set_action([&]() { ImGui::OpenPopup("About"); });
 
+		auto& debug_menu = mainm.add_menu("Debug");
+		auto& window_menu = debug_menu.add_menu("Window size");
+
+		window_menu.add_item("1280x720").set_action([&]() { ImFtw::Sig::SetWindowSize(1280, 720); });
+		window_menu.add_item("1920x1080").set_action([&]() { ImFtw::Sig::SetWindowSize(1920, 1080); });
+		window_menu.add_item("2560x1440").set_action([&]() { ImFtw::Sig::SetWindowSize(2560, 1440); });
+
+		debug_menu.add_item("Print allocations").set_action([&]() { roccuPrintAllocations(); });
+
 		return true;
 	}
 
 	command_executor c_exec;
 	rfkt::flamedb fdb;
-	rfkt::cuda::context ctx;
+	roccu::context ctx;
 
 	std::shared_ptr<ezrtc::compiler> k_comp;
 	std::shared_ptr<rfkt::flame_compiler> f_comp;
 	rfkt::function_table functions;
 
 	std::shared_ptr<rfkt::tonemapper> tonemap;
-	std::shared_ptr<rfkt::denoiser> denoise_normal;
-	std::shared_ptr<rfkt::denoiser> denoise_upscale;
+	std::shared_ptr<rfkt::denoiser_old> denoise_normal;
+	std::shared_ptr<rfkt::denoiser_old> denoise_upscale;
 	std::shared_ptr<rfkt::converter> convert;
 
 	concurrencpp::runtime runtime;
@@ -897,8 +915,14 @@ private:
 
 int main(int argc, char**) {
 
-	auto app = refrakt_app{};
+	auto user_dir = rfkt::fs::user_local_directory() / "imgui.ini";
 
-	ImFtw::Run("Refrakt", [&]() { return app.run(); });
+	auto app = refrakt_app{};
+	try {
+		ImFtw::Run("Refrakt", user_dir.string(), [&]() { return app.run(); });
+	}
+	catch (const std::exception& e) {
+		SPDLOG_ERROR("exception: {}", e.what());
+	}
 	return 0;
 }

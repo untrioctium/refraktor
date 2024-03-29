@@ -43,37 +43,37 @@ template<typename FloatT>
 struct vec2 {
 	FloatT x, y;
 
-	vec2& operator+=(const vec2& other) {
+	__device__ vec2& operator+=(const vec2& other) {
 		x += other.x;
         y += other.y;
         return *this;
 	}
 
-	vec2& operator-=(const vec2& other) {
+	__device__ vec2& operator-=(const vec2& other) {
 		x += other.x;
         y += other.y;
         return *this;
 	}
 
-	vec2& operator*=(const FloatT s) {
+	__device__ vec2& operator*=(const FloatT s) {
 		x *= s;
         y *= s;
         return *this;
 	}
 
-	vec2& operator/=(const FloatT s) {
+	__device__ vec2& operator/=(const FloatT s) {
         x /= s;
         y /= s;
         return *this;
     }
 
-	vec2& operator*=(const int s) {
+	__device__ vec2& operator*=(const int s) {
 		x *= s;
         y *= s;
         return *this;
 	}
 
-	vec2& operator/=(const int s) {
+	__device__ vec2& operator/=(const int s) {
         x /= s;
         y /= s;
         return *this;
@@ -85,7 +85,7 @@ template<typename FloatT>
 struct vec3 : public vec2<FloatT> {
 	FloatT z;
 
-	vec2<FloatT>& as_vec2() { return *reinterpret_cast<vec2<FloatT>*>(this); }
+	__device__ vec2<FloatT>& as_vec2() { return *reinterpret_cast<vec2<FloatT>*>(this); }
 };
 static_assert(sizeof(vec3<float>) == sizeof(float) * 3);
 
@@ -93,7 +93,7 @@ template<typename FloatT>
 struct vec4 : public vec3<FloatT> {
 	FloatT w;
 
-	vec3<FloatT>& as_vec3() { return *reinterpret_cast<vec3<FloatT>*>(this); }
+	__device__ vec3<FloatT>& as_vec3() { return *reinterpret_cast<vec3<FloatT>*>(this); }
 };
 static_assert(sizeof(vec4<float>) == sizeof(float) * 4);
 
@@ -117,18 +117,29 @@ namespace flamelib {
 	template<typename T, typename U>
 	static constexpr bool is_same = detail::is_same_t<T, U>::value;
 
-	__device__ constexpr auto warp_size() { return 32; }
+	__device__ constexpr auto warp_size() { return warpSize; }
 
-	__device__ inline void sync_warp() { __syncwarp(); }
+	__device__ inline void sync_warp() { 
+
+		#ifdef ROCCU_CUDA
+			__syncwarp(); 
+		#else
+			__syncthreads();
+		#endif
+	}
 	__device__ inline void sync_block() { __syncthreads(); }
 	
+	#ifdef ROCCU_ROCM
+	#define __shfl_down_sync __shfl_down
+	#endif
+
 		template<typename T>
 	__device__ inline T warp_reduce( T thread_val ) {
-		
+
 		#if __CUDA_ARCH__ >= 800
 			return __reduce_add_sync(0xffffffff, thread_val);
 		#else
-			for (int i=16; i>=1; i/=2)
+			for (int i= warpSize / 2; i>=1; i/=2)
 				thread_val += __shfl_down_sync(0xffffffff, thread_val, i);
 			
 			return thread_val;
@@ -137,7 +148,7 @@ namespace flamelib {
 	
 	__device__ inline bool is_warp_leader() { return threadIdx.x % warp_size() == 0; }
 	__device__ inline bool is_block_leader() { return threadIdx.x == 0; }
-	__device__ inline bool is_grid_leader() { return threadIdx.x == 0 && blockIdx.x == 0; };
+	__device__ inline bool is_grid_leader() { return threadIdx.x == 0 && blockIdx.x == 0; }
 	
 	__device__ inline auto warp_rank() { return threadIdx.x % warp_size(); }
 	__device__ inline auto block_rank() { return threadIdx.x; }
@@ -149,9 +160,13 @@ namespace flamelib {
 	__device__ inline auto warp_start_in_block() { return block_rank() - warp_rank(); }
 
 	__device__ inline auto time() {
+		#ifdef ROCCU_CUDA
 		uint64 tmp;
 		asm volatile("mov.u64 %0, %globaltimer;":"=l"(tmp)::);
 		return tmp;
+		#else
+		return wall_clock64();
+		#endif
 	}
 
 	template<typename FloatT, uint64 ThreadsPerBlock>
@@ -166,9 +181,9 @@ namespace flamelib {
 		iterators_t<FloatT, ThreadsPerBlock> iterators;
 		RandCtx rand_states[ThreadsPerBlock];
 		uint16 shuffle_vote[ThreadsPerBlock];
-		#ifdef USE_ASYNC_MEMCPY
-		uint16 shuffle[ThreadsPerBlock];
-		#endif
+		//#ifdef USE_ASYNC_MEMCPY
+		//uint16 shuffle[ThreadsPerBlock];
+		//#endif
 		uint8 xform_vote[ThreadsPerBlock];
 	};
 
@@ -254,10 +269,10 @@ namespace flamelib {
 
 	namespace math {
 		template<typename FloatT>
-		FloatT pi = static_cast<FloatT>(3.1415926535897932384626433832795028841971693);
+		__device__ constexpr static FloatT pi = static_cast<FloatT>(3.1415926535897932384626433832795028841971693);
 
 		template<typename FloatT>
-		FloatT inv_pi = static_cast<FloatT>(0.318309886183790671537767526745028724);
+		__device__ constexpr static FloatT inv_pi = static_cast<FloatT>(0.318309886183790671537767526745028724);
 	}
 
 	// trigonometric and hyperbolic functions
@@ -279,28 +294,28 @@ namespace flamelib {
 	MAKE_SIMPLE_OVERLOAD(rsqrt, rsqrtf, rsqrt);
 
 	template<typename T>
-	T atan2(T a, T b) noexcept {
+	__device__ T atan2(T a, T b) noexcept {
 		if constexpr (is_same<T, float>)
 			return ::atan2f(a, b);
 		else return ::atan2(a, b);
     }
 
 	template<typename T>
-	T hypot(T a, T b) noexcept {
+	__device__ T hypot(T a, T b) noexcept {
 		if constexpr (is_same<T, float>)
 			return ::hypotf(a, b);
 		else return ::hypot(a, b);
     }
 
 	template<typename T>
-	T pow(T a, T b) noexcept {
+	__device__ T pow(T a, T b) noexcept {
 		if constexpr (is_same<T, float>)
 			return ::powf(a, b);
 		else return ::pow(a, b);
     }
 
 	template<typename T>
-	T modf(T a, T b) noexcept {
+	__device__ T modf(T a, T b) noexcept {
 		if constexpr (is_same<T, float>)
 			return ::fmodf(a, b);
 		else return ::fmod(a, b);

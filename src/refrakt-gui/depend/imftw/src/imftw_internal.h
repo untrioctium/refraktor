@@ -62,6 +62,8 @@ namespace ImFtw {
 
         moodycamel::ConcurrentQueue<std::move_only_function<void()>> deferred_functions;
 
+        std::string imgui_ini_path;
+
 #ifdef _WIN32
         HWND hwnd;
         ITaskbarList4* taskbar;

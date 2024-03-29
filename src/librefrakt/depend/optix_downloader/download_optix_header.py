@@ -23,7 +23,7 @@ def last_modified(url: str):
         return time.mktime(email.utils.parsedate(response.headers["Last-Modified"]))
 
 def make_source_url(filename: str):
-    return f'https://raytracing-docs.nvidia.com/optix7/api/{filename.replace("_", "__").replace(".", "_8")}_source.html'
+    return f'https://raytracing-docs.nvidia.com/optix8/api/{filename.replace("_", "__").replace(".", "_8")}_source.html'
 
 class tag_stripper(HTMLParser):
     def __init__(self):

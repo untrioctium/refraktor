@@ -21,6 +21,7 @@ add_library(imftw STATIC
     src/kvstore.cpp)
 
 target_include_directories(imftw PUBLIC include)
+set_target_properties(imftw PROPERTIES FIRST_PARTY true)
 
 # glfw
 set(GLFW_BUILD_DOCS OFF CACHE BOOL "" FORCE)

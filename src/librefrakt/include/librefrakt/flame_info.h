@@ -13,13 +13,21 @@
 namespace rfkt {
 
 	class vardata;
+	class vlink;
 
 	class flamedb {
 	public:
 
+		enum class pad_type {
+			rotated,
+			identity,
+			affine
+		};
+
 		struct parameter: public traits::hashable {
 			std::string name;
-			double default_value;
+			std::optional<double> default_value;
+			std::optional<double> identity_value;
 			std::set<std::string, std::less<>> tags;
 
 			void add_to_hash(rfkt::hash::state_t& hs) const {
@@ -37,9 +45,12 @@ namespace rfkt {
 			std::set<std::string, std::less<>> tags;
 			std::map<std::string, parameter, std::less<>> parameters;
 	
+			std::optional<pad_type> pad;
+
 			void add_to_hash(rfkt::hash::state_t& hs) const {
 				hs.update(name);
 				hs.update(source);
+
 				if (precalc_source) {
 					hs.update(precalc_source.value());
 				}
@@ -123,6 +134,8 @@ namespace rfkt {
 
 		auto make_vardata(std::string_view vname) const noexcept -> std::pair<std::string, vardata>;
 
+		auto make_padder(const vlink& xf) const -> vlink;
+
 	private:
 
 		void recalc_hash() noexcept;
@@ -135,6 +148,12 @@ namespace rfkt {
 		using cache_value_type = std::pair<flang::ast, std::optional<flang::ast>>;
 		std::map<std::string, cache_value_type, std::less<>> variation_cache_;
 		std::map<std::string, flang::ast, std::less<>> common_cache_;
+
+		std::map<pad_type, std::set<std::string, std::less<>>> pad_tags_ = {
+			{pad_type::affine, {}},
+			{pad_type::identity, {}},
+			{pad_type::rotated, {}}
+		};
 	};
 
 	void initialize(rfkt::flamedb& fdb, std::string_view config_path);

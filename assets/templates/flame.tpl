@@ -1,5 +1,7 @@
 constexpr static uint64 num_xforms = @num_standard_xforms@;
 constexpr static bool has_final_xform = @num_standard_xforms < length(xforms)@;
+constexpr static uint32 affine_indices[] = {@join(affine_indices, ", ")@};
+constexpr static uint32 num_affines = @length(affine_indices)@;
 
 template<typename FloatT>
 struct affine {
@@ -92,11 +94,20 @@ struct flame_t {
     
     FloatT weight_sum;
 
+    <# if use_chaos #>
+    struct {
+
+        FloatT weight_sum;
+        FloatT weights[@num_standard_xforms@];
+
+    } chaos[@num_standard_xforms@];
+    <# endif #>
+
     <# for xform in xforms #>
     xform_@xform.hash@_t<FloatT, RandCtx> xform_@xform.id@;
     <# endfor #>
 
-    __device__ unsigned int select_xform(FloatT ratio) const {
+    __device__ unsigned short select_xform(FloatT ratio) const {
         ratio *= weight_sum;
         FloatT rsum = FloatT(0.0);
         unsigned char last_nonzero = 0;
@@ -111,7 +122,28 @@ struct flame_t {
         <# endfor #>
     }
 
-    __device__ FloatT dispatch(int idx, vec3<Real>& inp, vec3<Real>& outp, RandCtx* rs) const {
+    <# if use_chaos #>
+
+    __device__ unsigned short select_xform(unsigned short last, FloatT ratio) const {
+        if(last == 2047) return select_xform(ratio);
+
+        const auto& weights = chaos[last].weights;
+        FloatT rsum = FloatT(0.0);
+        ratio *= chaos[last].weight_sum;
+        unsigned char last_nonzero = 0;
+        
+        <# for xid in range(num_standard_xforms) #>
+            <# if not loop.is_last #>
+        if( weights[@xid@] != FloatT(0.0) && (rsum + weights[@xid@]) >= ratio) return @loop.index@; else { rsum += weights[@xid@]; if(weights[@xid@] != FloatT(0.0)) last_nonzero=@loop.index@;}
+            <# else #>
+        return ( weights[@xid@] != FloatT(0.0))? @loop.index@ : last_nonzero;
+            <# endif #>
+        <# endfor #>
+    }
+
+    <# endif #>
+
+    __device__ FloatT dispatch(unsigned short idx, vec3<Real>& inp, vec3<Real>& outp, RandCtx* rs) const {
         switch(idx) {
             default: __builtin_unreachable();
 
@@ -124,6 +156,7 @@ struct flame_t {
             }
             <# endfor #>
         }
+        __builtin_unreachable();
     }
 
     __device__ FloatT* as_array() {
@@ -134,8 +167,17 @@ struct flame_t {
         // calculate weight sum
         weight_sum = <# for xid in range(num_standard_xforms) #>xform_@xid@.weight<# if not loop.is_last #> +<# endif #><# endfor #>;
 
-        // jitter screen_space a bit for anti-antialiasing
-        auto jitter = rs->randgauss(1/4.0);
+        <# if use_chaos #>
+        for(int i = 0; i < @num_standard_xforms@; i++) {
+            <# for xid2 in range(num_standard_xforms) #>
+            chaos[i].weights[@xid2@] *= xform_@xid2@.weight;
+            chaos[i].weight_sum += chaos[i].weights[@xid2@];
+            <# endfor #>
+        }
+        <# endif #>
+
+        // jitter screen_space a bit for antialiasing
+        auto jitter = rs->randgauss(1/3.0f);
         screen_space.c += jitter.x;
         screen_space.f += jitter.y;
 
@@ -143,12 +185,21 @@ struct flame_t {
         xform_@xform.id@.do_precalc(rs);
         <# endfor #>
     }
-    /*
-    void print_debug() {
+    
+    void print_debug() { 
         printf("flame_t\n");
         printf("  screen_space: { a: %f, d: %f, b: %f, e: %f, c: %f, f: %f }\n", screen_space.a, screen_space.d, screen_space.b, screen_space.e, screen_space.c, screen_space.f);
         printf("  plane_space: { a: %f, d: %f, b: %f, e: %f, c: %f, f: %f }\n", plane_space.a, plane_space.d, plane_space.b, plane_space.e, plane_space.c, plane_space.f);
         printf("  weight_sum: %f\n", weight_sum);
+        <# if use_chaos #>
+        <# for xid in range(num_standard_xforms) #>
+        printf("  chaos@xid@:\n");
+        printf("    weight_sum: %f\n", chaos[@xid@].weight_sum);
+        <# for xid2 in range(num_standard_xforms) #>
+        printf("    weights@xid2@: %f\n", chaos[@xid@].weights[@xid2@]);
+        <# endfor #>
+        <# endfor #>
+        <# endif #>
         <# for xform in xforms #>
         <# set hash=xform.hash #>
         printf("  xform@xform.id@:\n");
@@ -175,7 +226,8 @@ struct flame_t {
         <# endfor #> 
         <# endfor #>
         <# endfor #>
-    }*/
+    }
+    
 };
 
 //static_assert(sizeof(flame_t<Real>) == flame_size_bytes);

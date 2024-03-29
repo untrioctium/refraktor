@@ -10,12 +10,19 @@
 
 namespace ImFtw {
 
-    int Run(std::string_view window_title, std::move_only_function<int()>&& main_function);
+    int Run(std::string_view window_title, std::string_view ini_path, std::move_only_function<int()>&& main_function);
 
     void BeginFrame(ImVec4 clear_color = ImVec4(0.0f, 0.0f, 0.0f, 1.0f));
     void EndFrame(bool render = true);
 
     void DeferNextFrame(std::move_only_function<void()>&&);
+
+    template<typename T>
+    auto MakeDeferer(T&& func) {
+        return [f = std::forward<T>(func)]() mutable {
+			DeferNextFrame(std::move(f));
+		};
+	}
 
     bool OnRenderingThread();
 

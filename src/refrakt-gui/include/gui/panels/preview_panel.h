@@ -10,7 +10,10 @@ class preview_panel {
 public:
 
 	using executor_t = std::function<void(std::move_only_function<void(void)>&&)>;
-	using renderer_t = std::function<rfkt::cuda_image<uchar4>(rfkt::cuda_stream&, const rfkt::flame_kernel&, rfkt::flame_kernel::saved_state&, rfkt::flame_kernel::bailout_args, double3, bool)>;
+	using texture_format = rfkt::gl::texture<rfkt::gl::texture_format::rgba8>;
+	using pixel_type = texture_format::traits::pixel_type;
+
+	using renderer_t = std::function<rfkt::gpu_image<pixel_type>(roccu::gpu_stream&, const rfkt::flame_kernel&, rfkt::flame_kernel::saved_state&, rfkt::flame_kernel::bailout_args, double3, bool, bool)>;
 
 	preview_panel() = delete;
 	preview_panel(rfkt::flame_compiler& compiler, executor_t&& submitter, renderer_t&& renderer, command_executor& cmd_exec) :
@@ -25,6 +28,8 @@ public:
 
 private:
 
+	using texture_t = texture_format::handle;
+
 	bool render_is_ready() {
 		return rendering_texture.has_value() && rendering_texture->wait_for(std::chrono::seconds(0)) == std::future_status::ready;
 	}
@@ -34,13 +39,13 @@ private:
 	std::shared_ptr<rfkt::flame_kernel::saved_state> current_state = std::make_shared<rfkt::flame_kernel::saved_state>();
 	std::shared_ptr<rfkt::flame_kernel> kernel = std::make_shared<rfkt::flame_kernel>();
 
-	std::optional<rfkt::gl::texture> displayed_texture = std::nullopt;
-	std::optional<std::future<rfkt::gl::texture>> rendering_texture = std::nullopt;
+	std::optional<texture_t> displayed_texture = std::nullopt;
+	std::optional<std::future<texture_t>> rendering_texture = std::nullopt;
 	//std::optional<rfkt::gl::texture::cuda_map> cuda_map = std::nullopt;
 
 	executor_t submitter;
 	renderer_t renderer;
-	rfkt::cuda_stream stream;
+	roccu::gpu_stream stream;
 	rfkt::flame_compiler& compiler;
 	command_executor& cmd_exec;
 
@@ -53,7 +58,9 @@ private:
 
 	double aspect_ratio = 0.0;
 	bool render_options_changed = false;
-	bool upscale = false;
+	bool upscale = true;
+	bool denoise = true;
+	bool animate = true;
 	bool dragging = false;
 	bool playing = false;
 	double current_time = 0.0;

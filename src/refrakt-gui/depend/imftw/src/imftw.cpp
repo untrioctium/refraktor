@@ -11,6 +11,105 @@
 #include <shellapi.h>
 #endif
 
+void GLDebugMessageCallback(GLenum source, GLenum type, GLuint id,
+	GLenum severity, [[maybe_unused]] GLsizei length,
+	const GLchar* msg, [[maybe_unused]] const void* data)
+{
+	const char* _source;
+	const char* _type;
+	const char* _severity;
+
+	switch (source) {
+	case GL_DEBUG_SOURCE_API:
+		_source = "API";
+		break;
+
+	case GL_DEBUG_SOURCE_WINDOW_SYSTEM:
+		_source = "WINDOW SYSTEM";
+		break;
+
+	case GL_DEBUG_SOURCE_SHADER_COMPILER:
+		_source = "SHADER COMPILER";
+		break;
+
+	case GL_DEBUG_SOURCE_THIRD_PARTY:
+		_source = "THIRD PARTY";
+		break;
+
+	case GL_DEBUG_SOURCE_APPLICATION:
+		_source = "APPLICATION";
+		break;
+
+	case GL_DEBUG_SOURCE_OTHER:
+		_source = "UNKNOWN";
+		break;
+
+	default:
+		_source = "UNKNOWN";
+		break;
+	}
+
+	switch (type) {
+	case GL_DEBUG_TYPE_ERROR:
+		_type = "ERROR";
+		break;
+
+	case GL_DEBUG_TYPE_DEPRECATED_BEHAVIOR:
+		_type = "DEPRECATED BEHAVIOR";
+		break;
+
+	case GL_DEBUG_TYPE_UNDEFINED_BEHAVIOR:
+		_type = "UDEFINED BEHAVIOR";
+		break;
+
+	case GL_DEBUG_TYPE_PORTABILITY:
+		_type = "PORTABILITY";
+		break;
+
+	case GL_DEBUG_TYPE_PERFORMANCE:
+		_type = "PERFORMANCE";
+		break;
+
+	case GL_DEBUG_TYPE_OTHER:
+		_type = "OTHER";
+		break;
+
+	case GL_DEBUG_TYPE_MARKER:
+		_type = "MARKER";
+		break;
+
+	default:
+		_type = "UNKNOWN";
+		break;
+	}
+
+	switch (severity) {
+	case GL_DEBUG_SEVERITY_HIGH:
+		_severity = "HIGH";
+		break;
+
+	case GL_DEBUG_SEVERITY_MEDIUM:
+		_severity = "MEDIUM";
+		break;
+
+	case GL_DEBUG_SEVERITY_LOW:
+		_severity = "LOW";
+		break;
+
+	case GL_DEBUG_SEVERITY_NOTIFICATION:
+		_severity = "NOTIFICATION";
+		break;
+
+	default:
+		_severity = "UNKNOWN";
+		break;
+	}
+
+	printf("%d: %s of %s severity, raised from %s: %s\n",
+		id, _type, _severity, _source, msg);
+}
+
+
 namespace ImFtw {
 	context_t& context() {
 		static context_t ctx;
@@ -81,6 +180,7 @@ void setup_imgui(ImFtw::context_t& ctx) {
 	ImGui::CreateContext();
 
 	ImGuiIO& io = ImGui::GetIO();
+	io.IniFilename = ctx.imgui_ini_path.c_str();
 	io.ConfigFlags |= ImGuiConfigFlags_DockingEnable | ImGuiConfigFlags_NavEnableSetMousePos;
 	io.BackendFlags |= ImGuiBackendFlags_HasMouseCursors | ImGuiBackendFlags_HasSetMousePos;
 
@@ -121,9 +221,10 @@ void setup_imgui(ImFtw::context_t& ctx) {
 	ImGui_ImplOpenGL3_Init("#version 460");
 }
 
-int ImFtw::Run(std::string_view window_title, std::move_only_function<int()>&& main_function) {
+int ImFtw::Run(std::string_view window_title, std::string_view ini_path, std::move_only_function<int()>&& main_function) {
 
 	auto& ctx = context();
+	ctx.imgui_ini_path = ini_path;
 
 	if (!glfwInit()) {
 		return 1;
@@ -135,6 +236,10 @@ int ImFtw::Run(std::string_view window_title, std::move_only_function<int()>&& m
 	glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GLFW_TRUE);
 	glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
 	glfwWindowHint(GLFW_DOUBLEBUFFER, GLFW_TRUE);
+	glfwWindowHint(GLFW_RED_BITS, 10);
+	glfwWindowHint(GLFW_GREEN_BITS, 10);
+	glfwWindowHint(GLFW_BLUE_BITS, 10);
+	glfwWindowHint(GLFW_ALPHA_BITS, 2);
 
 	ctx.monitor = glfwGetPrimaryMonitor();
 	ctx.window = glfwCreateWindow(1920, 1080, window_title.data(), nullptr, nullptr);
@@ -155,6 +260,9 @@ int ImFtw::Run(std::string_view window_title, std::move_only_function<int()>&& m
 
 	glfwMakeContextCurrent(ctx.window);
 	gladLoadGL();
+
+	glEnable(GL_DEBUG_OUTPUT_SYNCHRONOUS);
+	glDebugMessageCallback(GLDebugMessageCallback, nullptr);
 
 	setup_imgui(ctx);
 	glfwMakeContextCurrent(nullptr);

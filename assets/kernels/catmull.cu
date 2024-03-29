@@ -8,7 +8,7 @@ struct segment {
 };
 
 //template<typename Real>
-auto generate_segment(Real p0, Real p1, Real p2, Real p3, Real tension, Real alpha) -> segment {
+__device__ auto generate_segment(Real p0, Real p1, Real p2, Real p3, Real tension, Real alpha) -> segment {
 
     Real t01 = pow(hypot(p1 - p0, 1), alpha);
     Real t12 = pow(hypot(p2 - p1, 1), alpha);

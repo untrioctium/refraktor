@@ -4,6 +4,10 @@
 
 #include <spdlog/spdlog.h>
 
+#define OPTIX_DONT_INCLUDE_CUDA
+using CUcontext = RUcontext;
+using CUstream = RUstream;
+
 #include <optix.h>
 #include <optix_stubs.h>
 #include <optix_function_table_definition.h>
@@ -18,7 +22,7 @@
 	} while (0)
 
 
-class rfkt::denoiser::denoiser_impl {
+class rfkt::denoiser_old::denoiser_impl {
 public:
 
 	static void init(CUcontext ctx) {
@@ -58,7 +62,7 @@ public:
 			d.tile_size = max_dims;
 		}
 
-		if (d.upscale_2x) {
+		else if (d.upscale_2x) {
 			max_dims.x /= 2;
 			max_dims.y /= 2;
 		}
@@ -66,6 +70,7 @@ public:
 		OptixDenoiserOptions denoiser_options = {};
 		denoiser_options.guideAlbedo = 0;
 		denoiser_options.guideNormal = 0;
+		denoiser_options.denoiseAlpha = OPTIX_DENOISER_ALPHA_MODE_COPY;
 
 		CHECK_OPTIX(optixDenoiserCreate(optix_context, (d.upscale_2x)? OPTIX_DENOISER_MODEL_KIND_UPSCALE2X : OPTIX_DENOISER_MODEL_KIND_LDR, &denoiser_options, &d.handle));
 
@@ -77,9 +82,9 @@ public:
 			max_dims.y += 2 * d.szs.overlapWindowSizeInPixels;
 		}
 
-		d.state_buffer = rfkt::cuda_buffer(d.szs.stateSizeInBytes);
+		d.state_buffer = roccu::gpu_buffer<>(d.szs.stateSizeInBytes);
 		auto scratch_size = d.tiling ? d.szs.withOverlapScratchSizeInBytes : d.szs.withoutOverlapScratchSizeInBytes;
-		d.scratch_buffer = rfkt::cuda_buffer(scratch_size);
+		d.scratch_buffer = roccu::gpu_buffer<>(scratch_size);
 
 		SPDLOG_INFO("Denoiser state sizes: {}mb, {}mb", d.state_buffer.size_bytes() / (1024 * 1024), d.scratch_buffer.size_bytes() / (1024 * 1024));
 
@@ -90,14 +95,13 @@ public:
 			d.scratch_buffer.ptr(), d.scratch_buffer.size_bytes()));
 
 		d.dp.blendFactor = 0;
-		d.dp.denoiseAlpha = OPTIX_DENOISER_ALPHA_MODE_COPY;
 		d.dp.hdrIntensity = 0;
 		//cuMemAlloc(&d.dp.hdrIntensity, sizeof(float));
 
 		return std::unique_ptr<denoiser_impl>(new denoiser_impl{std::move(d)});
 	}
 
-	std::future<double> denoise(const image_type& in, image_type& out, cuda_stream& stream) {
+	std::future<double> denoise(const image_type& in, image_type& out, roccu::gpu_stream& stream) {
 
 		memset(&layer, 0, sizeof(layer));
 
@@ -185,8 +189,8 @@ private:
 	OptixDenoiserLayer layer;
 	OptixDenoiserGuideLayer guide_layer = {};
 
-	rfkt::cuda_buffer<> state_buffer;
-	rfkt::cuda_buffer<> scratch_buffer;
+	roccu::gpu_buffer<> state_buffer;
+	roccu::gpu_buffer<> scratch_buffer;
 
 	bool upscale_2x;
 	bool tiling;
@@ -194,24 +198,24 @@ private:
 	uint2 tile_size;
 };
 
-rfkt::denoiser::~denoiser() = default;
-rfkt::denoiser::denoiser(uint2 max_dims, denoiser_flag::flags options) : impl(denoiser_impl::create(max_dims, options)) {}
-rfkt::denoiser& rfkt::denoiser::operator=(denoiser&& d) noexcept {
+rfkt::denoiser_old::~denoiser_old() = default;
+rfkt::denoiser_old::denoiser_old(uint2 max_dims, denoiser_flag::flags options) : impl(denoiser_impl::create(max_dims, options)) {}
+rfkt::denoiser_old& rfkt::denoiser_old::operator=(denoiser_old&& d) noexcept {
 	std::swap(impl, d.impl);
 	return *this;
 }
 
-rfkt::denoiser::denoiser(denoiser&& d) noexcept {
+rfkt::denoiser_old::denoiser_old(denoiser_old&& d) noexcept {
 	(*this) = std::move(d);
 }
 
 
-std::future<double> rfkt::denoiser::denoise(const cuda_image<half3>& in, cuda_image<half3>& out, cuda_stream& stream) {
+std::future<double> rfkt::denoiser_old::denoise(const gpu_image<half3>& in, gpu_image<half3>& out, roccu::gpu_stream& stream) {
 	return impl->denoise(in, out, stream);
 }
 
-void rfkt::denoiser::init(CUcontext ctx) {
-	rfkt::denoiser::denoiser_impl::init(ctx);
+void rfkt::denoiser_old::init(CUcontext ctx) {
+	rfkt::denoiser_old::denoiser_impl::init(ctx);
 }
 
 unsigned short rand_uniform_half() {
@@ -222,7 +226,7 @@ unsigned short rand_uniform_half() {
 	return rand() % range + min_val;
 }
 
-double rfkt::denoiser::benchmark(uint2 dims, denoiser_flag::flags options, std::uint32_t num_passes, cuda_stream& stream)
+double rfkt::denoiser_old::benchmark(uint2 dims, denoiser_flag::flags options, std::uint32_t num_passes, roccu::gpu_stream& stream)
 {
 	auto input_dims = dims;
 	auto input_size = dims.x * dims.y;
@@ -233,10 +237,10 @@ double rfkt::denoiser::benchmark(uint2 dims, denoiser_flag::flags options, std::
 		input_dims.y /= 2;
 	}
 
-	auto dn = rfkt::denoiser{ dims, options };
+	auto dn = rfkt::denoiser_old{ dims, options };
 
-	auto input = cuda_image<half3>{ input_dims.x, input_dims.y };
-	auto output = cuda_image<half3>{ dims.x, dims.x };
+	auto input = gpu_image<half3>{ input_dims.x, input_dims.y };
+	auto output = gpu_image<half3>{ dims.x, dims.x };
 
 	auto input_size_nshorts = input_size * 3;
 
@@ -245,7 +249,7 @@ double rfkt::denoiser::benchmark(uint2 dims, denoiser_flag::flags options, std::
 		b = rand_uniform_half();
 	}
 
-	cuMemcpyHtoD(input.ptr(), bytes.data(), sizeof(unsigned short) * bytes.size());
+	ruMemcpyHtoD(input.ptr(), bytes.data(), sizeof(unsigned short) * bytes.size());
 
 	double sum = 0.0;
 

@@ -10,6 +10,11 @@
 
 #include <librefrakt/traits/hashable.h>
 
+#include <roccu_vector_types.h>
+
+#include <glm/mat4x4.hpp>
+#include <glm/gtc/matrix_transform.hpp>
+
 using json = nlohmann::json;
 using ordered_json = nlohmann::ordered_json;
 
@@ -20,43 +25,49 @@ namespace rfkt {
 
 	enum class precision { f32, f64 };
 
-	template<typename T>
-	concept packer = requires(T pack, double v) {
-		{ pack(v) };
-	};
+	namespace detail {
 
-	template<typename T>
-	concept vec2_type = requires(T vec, double v) {
-		{vec.x} -> std::same_as<double>;
-		{vec.y} -> std::same_as<double>;
-		{T{v, v}} -> std::same_as<T>;
-	};
+		template<typename T>
+		concept packer = requires(T pack, double v) {
+			{ pack(v) };
+		};
 
-	template<typename T>
-	concept seekable = requires(T obj, std::string_view path) {
-		{obj.seek(path)} -> std::same_as<double*>;
-	};
+		template<typename T>
+		concept vec2_type = requires(T vec, double v) {
+			{vec.x} -> std::same_as<double>;
+			{vec.y} -> std::same_as<double>;
+			{T{ v, v }} -> std::same_as<T>;
+		};
 
-	template<typename T>
-	constexpr static const T* typed_nullptr = nullptr;
+		template<typename T>
+		constexpr static const T* typed_nullptr = nullptr;
+
+	}
 
 	struct anima {
 
-		using arg_t = std::variant<int, double, bool>;
+		using arg_t = std::variant<int, double, bool, std::string>;
 		using arg_map_t = std::map<std::string, arg_t, std::less<>>;
-		using call_info_t = std::optional<std::pair<std::string, arg_map_t>>;
+		
+		struct call_info_value_t {
+			std::string name;
+			arg_map_t args;
+		};
+
+		using call_info_t = std::optional<call_info_value_t>;
 
 		double t0 = 0.0;
 		call_info_t call_info = std::nullopt;
 
 		explicit(false) constexpr anima(double t0) noexcept : t0(t0) {}
 		anima(double t0, const call_info_t& args) noexcept : t0(t0), call_info(args) {}
+		anima(double t0, call_info_t&& args) noexcept : t0(t0), call_info(std::move(args)) {}
 
 		template<typename Func>
 		double sample(double t, Func& invoker) const {
 			if (!call_info) return t0;
 
-			return invoker(call_info->first, t, t0, call_info->second);
+			return invoker(call_info->name, t, t0, call_info->args);
 		}
 
 		anima() = default;
@@ -64,10 +75,42 @@ namespace rfkt {
 		ordered_json serialize() const noexcept;
 
 		static std::optional<anima> deserialize(const json& js, const function_table& ft) noexcept;
+
+		anima interpolate(anima o, double start_time, double length) const {
+			auto new_anima = anima{ t0 };
+			new_anima.call_info = call_info_value_t{};
+			auto& nargs = new_anima.call_info->args;
+
+			if (call_info) {
+				nargs["left.function"] = call_info->name;
+				for (const auto& [name, value] : call_info->args) {
+					nargs["left." + name] = value;
+				}
+			}
+
+			nargs["right.t0"] = o.t0;
+			if (o.call_info) {
+				nargs["right.function"] = o.call_info->name;
+				for (const auto& [name, value] : o.call_info->args) {
+					nargs["right." + name] = value;
+				}
+			}
+
+			nargs["start_time"] = start_time;
+			nargs["length"] = length;
+
+			return new_anima;
+		}
 	};
 
+	template<typename Owner>
+	using anima_ptr = anima Owner::*;
 
 	struct affine {
+
+		// [a b c]
+		// [d e f]
+
 		anima a = 0.0;
 		anima d = 0.0;
 		anima b = 0.0;
@@ -76,17 +119,19 @@ namespace rfkt {
 		anima f = 0.0;
 
 		affine rotated(double deg) const noexcept {
-			double rad = 0.0174532925199432957692369076848861271344287188854172545609719144 * deg;
-			double sino = sin(rad);
-			double coso = cos(rad);
+			double rad = -glm::radians(deg);
+
+			glm::dmat4 m = {
+				a.t0, b.t0, 0, 0,
+				d.t0, e.t0, 0, 0,
+				0, 0, 1, 0,
+				0, 0, 0, 1
+			};
+
+			auto newmat = glm::rotate(m, rad, glm::dvec3(0, 0, 1));
 
 			return {
-				a.t0 * coso + b.t0 * sino,
-				d.t0 * coso + e.t0 * sino,
-				b.t0 * coso - a.t0 * sino,
-				e.t0 * coso - d.t0 * sino,
-				c,
-				f
+				newmat[0][0], newmat[1][0], newmat[0][1], newmat[1][1], c.t0, f.t0
 			};
 		}
 
@@ -102,7 +147,7 @@ namespace rfkt {
 			};
 		}
 
-		affine translated(const vec2_type auto& v) const noexcept {
+		affine translated(const detail::vec2_type auto& v) const noexcept {
 			return translated(v.x, v.y);
 		}
 
@@ -149,7 +194,7 @@ namespace rfkt {
 			};
 		}
 
-		constexpr static std::string_view pointer_to_name(anima rfkt::affine::* ptr) {
+		constexpr static std::string_view pointer_to_name(anima_ptr<affine> ptr) {
 			if (ptr == &affine::a) return "a";
 			if (ptr == &affine::b) return "b";
 			if (ptr == &affine::c) return "c";
@@ -168,23 +213,26 @@ namespace rfkt {
 			if (name == "f") return &affine::f;
 			return nullptr;
 		}
+
 	};
 
 	class vardata {
 	public:
 		anima weight;
 
-		auto& operator[](this auto&& self, std::string_view name) {
-			return self.parameters_.find(name)->second;
+		auto& operator[](std::string_view name) {
+			return parameters_.find(name)->second;
 		}
 
-		auto begin(this auto&& self) {
-			return self.parameters_.begin();
+		const auto& operator[](std::string_view name) const {
+			return parameters_.find(name)->second;
 		}
 
-		auto end(this auto&& self) {
-			return self.parameters_.end();
-		}
+		auto begin() { return parameters_.begin(); }
+		auto end() { return parameters_.end(); }
+
+		auto begin() const { return parameters_.cbegin(); }
+		auto end() const { return parameters_.cend(); }
 
 		template<typename T>
 		auto pack(T&& p) const noexcept {
@@ -216,7 +264,7 @@ namespace rfkt {
 		}
 
 		bool has_parameter(std::string_view pname) const noexcept {
-			return parameters_.find(pname) != parameters_.end();
+			return parameters_.contains(pname);
 		}
 
 		vardata() = delete;
@@ -244,14 +292,18 @@ namespace rfkt {
 
 		static std::optional<vardata> deserialize(std::string_view name, const json& js, const function_table& ft, const flamedb& fdb);
 
-		constexpr static std::string_view pointer_to_name(anima rfkt::vardata::* ptr) {
+		constexpr static std::string_view pointer_to_name(anima_ptr<vardata> ptr) {
 			if (ptr == &vardata::weight) return "weight";
 			return "UNKNOWN";
 		}
 
-		constexpr static anima rfkt::vardata::* name_to_pointer(std::string_view name) {
+		constexpr static anima_ptr<vardata> name_to_pointer(std::string_view name) {
 			if (name == "weight") return &vardata::weight;
 			return nullptr;
+		}
+
+		static std::pair<std::string, vardata> identity() {
+			return { "linear", vardata{ 1.0, 0, {} } };
 		}
 
 	private:
@@ -370,7 +422,7 @@ namespace rfkt {
 
 		static std::optional<vlink> deserialize(const json& js, const function_table& ft, const flamedb& fdb);
 
-		constexpr static std::string_view pointer_to_name(anima rfkt::vlink::* ptr) {
+		constexpr static std::string_view pointer_to_name(anima_ptr<vlink> ptr) {
 			if (ptr == &vlink::mod_x) return "mod_x";
 			if (ptr == &vlink::mod_y) return "mod_y";
 			if (ptr == &vlink::mod_scale) return "mod_scale";
@@ -378,12 +430,19 @@ namespace rfkt {
 			return "UNKNOWN";
 		}
 
-		constexpr static anima rfkt::vlink::* name_to_pointer(std::string_view name) {
+		constexpr static anima_ptr<vlink> name_to_pointer(std::string_view name) {
 			if (name == "mod_x") return &vlink::mod_x;
 			if (name == "mod_y") return &vlink::mod_y;
 			if (name == "mod_scale") return &vlink::mod_scale;
 			if (name == "mod_rotate") return &vlink::mod_rotate;
 			return nullptr;
+		}
+
+		static vlink identity() {
+			auto vl = vlink{};
+			vl.transform = affine::identity();
+			vl.add_variation(vardata::identity());
+			return vl;
 		}
 
 	private:
@@ -394,7 +453,7 @@ namespace rfkt {
 		anima weight = 0.0;
 		anima color = 0.0;
 		anima color_speed = 0.0;
-		anima opacity = 0.0;
+		anima opacity = 1.0;
 
 		std::vector<vlink> vchain;
 
@@ -451,7 +510,7 @@ namespace rfkt {
 
 		static std::optional<xform> deserialize(const json& js, const function_table& ft, const flamedb& fdb);
 
-		constexpr static std::string_view pointer_to_name(anima rfkt::xform::* ptr) {
+		constexpr static std::string_view pointer_to_name(anima_ptr<xform> ptr) {
 			if (ptr == &xform::weight) return "weight";
 			if (ptr == &xform::color) return "color";
 			if (ptr == &xform::color_speed) return "color_speed";
@@ -459,7 +518,7 @@ namespace rfkt {
 			return "UNKNOWN";
 		}
 
-		constexpr static anima xform::* name_to_pointer(std::string_view name) {
+		constexpr static anima_ptr<xform> name_to_pointer(std::string_view name) {
 			if (name == "weight") return &xform::weight;
 			if (name == "color") return &xform::color;
 			if (name == "color_speed") return &xform::color_speed;
@@ -467,17 +526,28 @@ namespace rfkt {
 			return nullptr;
 		}
 
+		static xform identity() {
+			auto xf = xform{};
+			xf.weight = 0.0;
+			xf.color = 0.0;
+			xf.color_speed = 0.0;
+			xf.opacity = 1.0;
+			xf.vchain.emplace_back(vlink::identity());
+			return xf;
+		}
+
 	};
 
 	using palette_t = std::vector<std::array<double, 3>>;
+
 
 	class flame : public traits::hashable {
 	public:
 
 		std::string name;
 
-		std::vector<xform> xforms;
 		std::optional<xform> final_xform;
+		std::optional<std::vector<std::vector<anima>>> chaos_table;
 
 		anima center_x;
 		anima center_y;
@@ -489,11 +559,14 @@ namespace rfkt {
 		anima vibrancy;
 
 		palette_t palette;
+		anima mod_hue;
+		anima mod_sat;
+		anima mod_val;
 
 		flame() = default;
 
 		void add_to_hash(rfkt::hash::state_t& hs) const {
-			for (const auto& xf : xforms) {
+			for (const auto& xf : xforms_) {
 				hs.update(0xDULL);
 				xf.add_to_hash(hs);
 			}
@@ -502,22 +575,31 @@ namespace rfkt {
 				hs.update(0xFULL);
 				final_xform->add_to_hash(hs);
 			}
+
+			if (chaos_table.has_value()) {
+				hs.update(0xCULL);
+			}
 		}
 
-		template<typename T>
+		/*template<typename T>
 		auto pack(T&& p) const noexcept {
 			for (const auto& xf : xforms) {
 				xf.pack(std::forward<T>(p));
 			}
 			if (final_xform) final_xform->pack(std::forward<T>(p));
-		}
+		}*/
 
 		std::size_t size_reals() const noexcept {
-			auto size = (final_xform) ? final_xform->size_reals() : 0;
-			for (const auto& xf : xforms) {
+			auto size = final_xform ? final_xform->size_reals() : 0;
+
+			if (chaos_table.has_value()) {
+				size += xforms_.size() * (xforms_.size() + 1);
+			}
+
+			for (const auto& xf : xforms_) {
 				size += xf.size_reals();
 			}
-			return size;
+			return size + 13;
 		}
 
 		template<typename Func>
@@ -558,35 +640,122 @@ namespace rfkt {
 			p(plane_space.f.t0);
 			p(0.0); // space for weight sum
 
-			for (const auto& xf : xforms) {
+			if (chaos_table.has_value()) {
+				for (const auto& row : chaos_table.value()) {
+					p(0.0); // space for weight sum
+					for (const auto& column : row) {
+						p(column.sample(t, i));
+					}
+				}
+			}
+
+			for (const auto& xf : xforms_) {
 				xf.pack_sample(p, i, t);
 			}
 			if (final_xform) final_xform->pack_sample(p, i, t);
 
 			for(const auto& [hue, sat, val]: palette) {
-				p(hue); p(sat); p(val);
+				p(std::fmod(hue + mod_hue.sample(t, i), 360.0)); 
+				p(std::clamp(sat + mod_sat.sample(t, i), 0.0, 1.0)); 
+				p(std::clamp(val + mod_val.sample(t, i), 0.0, 1.0));
+			}
+		}
+
+		std::vector<std::size_t> affine_indices() const {
+
+			auto ret = std::vector<std::size_t>{};
+			ret.push_back(0);
+			ret.push_back(6);
+
+			constexpr static std::size_t flame_offset = 13;
+			constexpr static std::size_t xform_base_reals = 4;
+
+			std::size_t index = chaos_table.has_value() ? xforms_.size() * (xforms_.size() + 1): 0;
+			index += flame_offset;
+
+			for (auto& xf: xforms_) {
+				index += xform_base_reals;
+
+				for (auto& vl : xf.vchain) {
+					ret.push_back(index);
+					index += vl.size_reals();
+				}
+			}
+
+			if (final_xform) {
+				index += xform_base_reals;
+
+				for (auto& vl : final_xform->vchain) {
+					ret.push_back(index);
+					index += vl.size_reals();
+				}
+			}
+
+			return ret;
+		}
+
+		template<typename Packer, typename Invoker>
+		void pack_samples(Packer& p, Invoker& i, double start, double offset, int count, int w, int h) const {
+			for (int idx = 0; idx < count; idx++) {
+				pack_sample(p, i, start + offset * idx, w, h);
 			}
 		}
 
 		template<typename T>
 		void for_each_xform(this auto&& self, T&& t) noexcept {
-			for (int i = 0; i < self.xforms.size(); i++) {
-				t(i, self.xforms[i]);
+			for (int i = 0; i < self.xforms_.size(); i++) {
+				t(i, self.xforms_[i]);
 			}
 			if (self.final_xform) t(-1, *self.final_xform);
 		}
 
+		std::span<xform> xforms() noexcept { return xforms_; }
+		std::span<const xform> xforms() const noexcept { return xforms_; }
+
 		xform* get_xform(int index) noexcept {
 			if (index == -1) return final_xform ? &*final_xform : nullptr;
-			if (index < 0 || index >= xforms.size()) return nullptr;
-			return &xforms[index];
+			if (index < 0 || index >= xforms_.size()) return nullptr;
+			return &xforms_[index];
+		}
+
+		void clear_xforms() noexcept {
+			xforms_.clear();
+			chaos_table.reset();
+		}
+
+		auto& add_xform(xform&& xf) noexcept {
+
+			if (chaos_table.has_value()) {
+				for(auto& row: chaos_table.value()) {
+					row.emplace_back(1.0);
+				}
+
+				chaos_table->emplace_back();
+				for(int i = 0; i < xforms_.size(); i++) {
+					chaos_table->back().emplace_back(1.0);
+				}
+			}
+
+			return xforms_.emplace_back(std::move(xf));
+		}
+
+		void add_chaos() noexcept {
+			if (chaos_table.has_value()) return;
+
+			chaos_table.emplace();
+			for(int i = 0; i < xforms_.size(); i++) {
+				chaos_table->emplace_back();
+				for(int j = 0; j < xforms_.size(); j++) {
+					chaos_table->back().emplace_back(1.0);
+				}
+			}
 		}
 
 		ordered_json serialize() const noexcept;
 
 		static std::optional<flame> deserialize(const json& js, const function_table& ft, const flamedb& fdb);
 
-		constexpr static std::string_view pointer_to_name(anima flame::* ptr) {
+		constexpr static std::string_view pointer_to_name(anima_ptr<flame> ptr) {
 			if (ptr == &flame::center_x) return "center_x";
 			if (ptr == &flame::center_y) return "center_y";
 			if (ptr == &flame::scale) return "scale";
@@ -594,10 +763,13 @@ namespace rfkt {
 			if (ptr == &flame::gamma) return "gamma";
 			if (ptr == &flame::brightness) return "brightness";
 			if (ptr == &flame::vibrancy) return "vibrancy";
-			return "UNKNOWN";
+			if (ptr == &flame::mod_hue) return "mod_hue";
+			if (ptr == &flame::mod_sat) return "mod_sat";
+			if (ptr == &flame::mod_val) return "mod_val";
+			return {};
 		}
 
-		constexpr static anima flame::* name_to_pointer(std::string_view name) {
+		constexpr static anima_ptr<flame> name_to_pointer(std::string_view name) {
 			if(name == "center_x") return &flame::center_x;
 			if(name == "center_y") return &flame::center_y;
 			if(name == "scale") return &flame::scale;
@@ -605,24 +777,38 @@ namespace rfkt {
 			if(name == "gamma") return &flame::gamma;
 			if(name == "brightness") return &flame::brightness;
 			if(name == "vibrancy") return &flame::vibrancy;
+			if(name == "mod_hue") return &flame::mod_hue;
+			if(name == "mod_sat") return &flame::mod_sat;
+			if(name == "mod_val") return &flame::mod_val;
+
 			return nullptr;
 		}
 
 		rfkt::hash_t value_hash() const noexcept;
+
+	private:
+
+		std::vector<xform> xforms_;
+
 	};
 
-	namespace descriptors {
+	namespace accessors {
 		namespace detail {
-			template<typename T, typename Class>
-			constexpr auto cast_ptr(T Class::* ptr) noexcept {
+			template<typename T>
+			constexpr auto cast_ptr(anima_ptr<T> ptr) noexcept {
 				return std::bit_cast<std::array<char, sizeof(ptr)>>(ptr);
+			}
+
+			template<typename T>
+			constexpr auto ptr_name(anima_ptr<T> ptr) noexcept {
+				return T::pointer_to_name(ptr);
 			}
 		}
 
 		struct flame : public traits::hashable {
-			anima rfkt::flame::* p;
+			anima_ptr<rfkt::flame> p;
 
-			flame(anima rfkt::flame::* p) noexcept : p(p) { }
+			flame(anima_ptr<rfkt::flame> p) noexcept : p(p) { }
 
 			anima* access(rfkt::flame& flame) const noexcept {
 				return &(flame.*p);
@@ -633,7 +819,7 @@ namespace rfkt {
 			}
 
 			std::string to_string() const {
-				return std::format("flame.{}", rfkt::flame::pointer_to_name(p));
+				return std::format("flame.{}", detail::ptr_name(p));
 			}
 
 			constexpr std::strong_ordering operator<=>(const flame& o) const noexcept {
@@ -643,9 +829,9 @@ namespace rfkt {
 
 		struct xform : public traits::hashable {
 			int xid;
-			anima rfkt::xform::* p;
+			anima_ptr<rfkt::xform> p;
 
-			xform(int xid, anima rfkt::xform::* p) noexcept : xid(xid), p(p) { }
+			xform(int xid, anima_ptr<rfkt::xform> p) noexcept : xid(xid), p(p) { }
 
 			anima* access(rfkt::flame& flame) const noexcept {
 				auto ptr = flame.get_xform(xid);
@@ -659,7 +845,7 @@ namespace rfkt {
 			}
 
 			std::string to_string() const {
-				return std::format("flame.xf[{}].{}", xid, rfkt::xform::pointer_to_name(p));
+				return std::format("flame.xf[{}].{}", xid, detail::ptr_name(p));
 			}
 
 			constexpr std::strong_ordering operator<=>(const xform& o) const noexcept {
@@ -671,9 +857,9 @@ namespace rfkt {
 		struct vlink : public traits::hashable {
 			int xid;
 			int vid;
-			anima rfkt::vlink::* p;
+			anima_ptr<rfkt::vlink> p;
 
-			vlink(int xid, int vid, anima rfkt::vlink::* p) noexcept : xid(xid), vid(vid), p(p) { }
+			vlink(int xid, int vid, anima_ptr<rfkt::vlink> p) noexcept : xid(xid), vid(vid), p(p) { }
 
 			anima* access(rfkt::flame& flame) const noexcept {
 				auto ptr = flame.get_xform(xid);
@@ -689,7 +875,7 @@ namespace rfkt {
 			}
 
 			std::string to_string() const {
-				return std::format("flame.xf[{}].vl[{}].{}", xid, vid, rfkt::vlink::pointer_to_name(p));	
+				return std::format("flame.xf[{}].vl[{}].{}", xid, vid, detail::ptr_name(p));
 			}
 
 			constexpr std::strong_ordering operator<=>(const vlink& o) const noexcept {
@@ -702,9 +888,9 @@ namespace rfkt {
 		struct transform : public traits::hashable {
 			int xid;
 			int vid;
-			anima rfkt::affine::* p;
+			anima_ptr<rfkt::affine> p;
 
-			transform(int xid, int vid, anima rfkt::affine::* p) noexcept : xid(xid), vid(vid), p(p) { }
+			transform(int xid, int vid, anima_ptr<rfkt::affine> p) noexcept : xid(xid), vid(vid), p(p) { }
 			constexpr bool operator==(const transform&) const noexcept = default;
 
 			anima* access(rfkt::flame& flame) const noexcept {
@@ -721,7 +907,7 @@ namespace rfkt {
 			}
 
 			std::string to_string() const {
-				return std::format("flame.xf[{}].vl[{}].transform.{}", xid, vid, rfkt::affine::pointer_to_name(p));
+				return std::format("flame.xf[{}].vl[{}].transform.{}", xid, vid, detail::ptr_name(p));
 			}
 
 			constexpr std::strong_ordering operator<=>(const transform& o) const noexcept {
@@ -735,9 +921,9 @@ namespace rfkt {
 			int xid;
 			int vid;
 			std::string var_name;
-			anima rfkt::vardata::* p;
+			anima_ptr<rfkt::vardata> p;
 
-			vardata(int xid, int vid, std::string var_name, anima rfkt::vardata::* p) noexcept : xid(xid), vid(vid), var_name(std::move(var_name)), p(p) { }
+			vardata(int xid, int vid, std::string var_name, anima_ptr<rfkt::vardata> p) noexcept : xid(xid), vid(vid), var_name(std::move(var_name)), p(p) { }
 
 			anima* access(rfkt::flame& flame) const noexcept {
 				auto ptr = flame.get_xform(xid);
@@ -755,7 +941,7 @@ namespace rfkt {
 			}
 
 			std::string to_string() const {
-				return std::format("flame.xf[{}].vl[{}].var[{}].{}", xid, vid, var_name, rfkt::vardata::pointer_to_name(p));
+				return std::format("flame.xf[{}].vl[{}].var[{}].{}", xid, vid, var_name, detail::ptr_name(p));
 			}
 
 			constexpr std::strong_ordering operator<=>(const vardata& o) const noexcept {
@@ -804,61 +990,45 @@ namespace rfkt {
 
 	}
 
-	using descriptor_base = std::variant<
-		descriptors::flame,
-		descriptors::xform,
-		descriptors::vlink,
-		descriptors::transform,
-		descriptors::vardata,
-		descriptors::parameter
+	using accessor_base = std::variant<
+		accessors::flame,
+		accessors::xform,
+		accessors::vlink,
+		accessors::transform,
+		accessors::vardata,
+		accessors::parameter
 	>;
 
-	struct descriptor : public descriptor_base, public traits::hashable {
-		using descriptor_base::descriptor_base;
+	struct accessor : public accessor_base, public traits::hashable {
+		using accessor_base::accessor_base;
 
 		anima* access(rfkt::flame& flame) const noexcept {
 			return std::visit([&flame](const auto& arg) -> anima* {
 				return arg.access(flame);
-				}, cast_to_base());
+				}, *this);
 		}
 
 		void add_to_hash(rfkt::hash::state_t& hs) const {
 			std::visit([&hs](const auto& arg) {
 				arg.add_to_hash(hs);
-			}, cast_to_base());
+			}, *this);
 		}
 
-		std::string_view to_string() const {
+		std::string to_string() const {
 			return std::visit([](const auto& arg) -> std::string {
 				return arg.to_string();
-			}, cast_to_base());
+			}, *this);
 		}
 
-		constexpr std::strong_ordering operator<=>(const descriptor& o) const noexcept {
+		constexpr std::strong_ordering operator<=>(const accessor& o) const noexcept {
 
-			if(auto tag_cmp = cast_to_base().index() <=> o.cast_to_base().index(); tag_cmp != 0)
+			if(auto tag_cmp = index() <=> o.index(); tag_cmp != std::strong_ordering::equivalent)
 				return tag_cmp;
 
 			return std::visit(
-				[]<typename LeftT, typename RightT>(const LeftT& lhs, const RightT& rhs) -> std::strong_ordering {
-					if constexpr (std::same_as<LeftT, RightT>) {
-						return lhs <=> rhs;
-					}
-					else {
-						// assume the types are the same since the tag
-						// has already been compared
-						std::unreachable();
-					}
-				}, cast_to_base(), o.cast_to_base());
-		}
-
-	private:
-		descriptor_base& cast_to_base() {
-			return *static_cast<descriptor_base*>(this);
-		}
-
-		const descriptor_base& cast_to_base() const {
-			return *static_cast<const descriptor_base*>(this);
+				[this]<typename RightT>(const RightT& rhs) -> std::strong_ordering {
+					return std::get<RightT>(*this) <=> rhs;
+				}, o);
 		}
 	};
 

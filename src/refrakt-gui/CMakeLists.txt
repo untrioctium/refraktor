@@ -20,6 +20,7 @@ target_precompile_headers(refrakt-gui PRIVATE include/pch.h)
 target_include_directories(refrakt-gui PRIVATE include/)
 
 set_target_properties(refrakt-gui PROPERTIES VS_DEBUGGER_WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+set_target_properties(refrakt-gui PROPERTIES FIRST_PARTY true)
 
 # rtmidi
 FetchContent_Declare(
@@ -41,15 +42,6 @@ add_library(implot STATIC ${IMPLOT_SOURCES})
 target_include_directories(implot PUBLIC ${implot_SOURCE_DIR})
 target_link_libraries(implot PUBLIC imgui)
 target_link_libraries(refrakt-gui PRIVATE implot)
-
-set(REPROC++ ON)
-# reproc
-FetchContent_Declare(
-  reproc
-  GIT_REPOSITORY https://github.com/DaanDeMeyer/reproc.git
-  GIT_TAG main
-)
-FetchContent_MakeAvailable(reproc)
 
 #iconfontcppheaders
 FetchContent_Declare(

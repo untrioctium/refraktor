@@ -2,7 +2,7 @@
 
 #include <librefrakt/util/http.h>
 
-void check_curl_init() {
+static void check_curl_init() {
 	struct curl_init_wrapper {
 		curl_init_wrapper() {
 			curl_global_init(CURL_GLOBAL_ALL);
@@ -56,11 +56,12 @@ auto rfkt::http::download(std::string_view url) -> std::optional<std::vector<cha
 	return std::nullopt;
 }
 
-auto rfkt::http::head(std::string_view url) -> std::optional<std::map<std::string, std::string>>
+auto rfkt::http::head(std::string_view url) -> std::optional<std::map<std::string, std::string, std::less<>>>
 {
+	return {};
 	check_curl_init();
 
-	std::map<std::string, std::string> headers;
+	std::map<std::string, std::string, std::less<>> headers;
 
 	CURL* curl = curl_easy_init();
 	curl_easy_setopt(curl, CURLOPT_URL, url.data());
