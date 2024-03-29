@@ -1,0 +1,2 @@
+# flang - "Flame language" for Refraktor
+Flang is a small language for implementing variations for the flame fractal algorithm. It is designed to be simple and easy to understand, with a syntax that is similar to C. 

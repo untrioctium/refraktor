@@ -1,0 +1,105 @@
+diff --git a/include/GLFW/glfw3.h b/include/GLFW/glfw3.h
+index 31b201ae..dfaaa056 100644
+--- a/include/GLFW/glfw3.h
++++ b/include/GLFW/glfw3.h
+@@ -941,6 +941,12 @@ extern "C" {
+  */
+ #define GLFW_DOUBLEBUFFER           0x00021010
+ 
++/*! @brief Framebuffer pixel format float type hint.
+++  *
++*  Framebuffer pixel format float type [hint](@ref GLFW_FLOAT_PIXEL_TYPE).
++*/
++#define GLFW_FLOAT_PIXEL_TYPE       0x00021011
++
+ /*! @brief Context client API hint and attribute.
+  *
+  *  Context client API [hint](@ref GLFW_CLIENT_API_hint) and
+diff --git a/src/context.c b/src/context.c
+index d86e0fae..80648c4b 100644
+--- a/src/context.c
++++ b/src/context.c
+@@ -196,6 +196,12 @@ const _GLFWfbconfig* _glfwChooseFBConfig(const _GLFWfbconfig* desired,
+             continue;
+         }
+ 
++        if (desired->floatPixelType != current->floatPixelType)
++        {
++            // Float pixel type is a hard constraint
++            continue;
++        }
++
+         // Count number of missing buffers
+         {
+             missing = 0;
+diff --git a/src/internal.h b/src/internal.h
+index 7734caa3..143d1bb1 100644
+--- a/src/internal.h
++++ b/src/internal.h
+@@ -327,6 +327,7 @@ struct _GLFWfbconfig
+     GLFWbool    sRGB;
+     GLFWbool    doublebuffer;
+     GLFWbool    transparent;
++    GLFWbool    floatPixelType;
+     uintptr_t   handle;
+ };
+ 
+diff --git a/src/wgl_context.c b/src/wgl_context.c
+index 72ad11de..48203905 100644
+--- a/src/wgl_context.c
++++ b/src/wgl_context.c
+@@ -159,7 +159,8 @@ static int choosePixelFormat(_GLFWwindow* window,
+                 continue;
+             }
+ 
+-            if (findAttribValue(WGL_PIXEL_TYPE_ARB) != WGL_TYPE_RGBA_ARB)
++            if (findAttribValue(WGL_PIXEL_TYPE_ARB) != WGL_TYPE_RGBA_ARB &&
++                findAttribValue(WGL_PIXEL_TYPE_ARB) != WGL_TYPE_RGBA_FLOAT_ARB)
+                 continue;
+ 
+             if (findAttribValue(WGL_ACCELERATION_ARB) == WGL_NO_ACCELERATION_ARB)
+@@ -176,6 +177,8 @@ static int choosePixelFormat(_GLFWwindow* window,
+             u->depthBits = findAttribValue(WGL_DEPTH_BITS_ARB);
+             u->stencilBits = findAttribValue(WGL_STENCIL_BITS_ARB);
+ 
++
++
+             u->accumRedBits = findAttribValue(WGL_ACCUM_RED_BITS_ARB);
+             u->accumGreenBits = findAttribValue(WGL_ACCUM_GREEN_BITS_ARB);
+             u->accumBlueBits = findAttribValue(WGL_ACCUM_BLUE_BITS_ARB);
+@@ -183,6 +186,9 @@ static int choosePixelFormat(_GLFWwindow* window,
+ 
+             u->auxBuffers = findAttribValue(WGL_AUX_BUFFERS_ARB);
+ 
++            if (findAttribValue(WGL_PIXEL_TYPE_ARB) == WGL_TYPE_RGBA_FLOAT_ARB)
++                u->floatPixelType = GLFW_TRUE;
++
+             if (findAttribValue(WGL_STEREO_ARB))
+                 u->stereo = GLFW_TRUE;
+ 
+diff --git a/src/wgl_context.h b/src/wgl_context.h
+index 47f04592..6204e6aa 100644
+--- a/src/wgl_context.h
++++ b/src/wgl_context.h
+@@ -30,6 +30,7 @@
+ #define WGL_DRAW_TO_WINDOW_ARB 0x2001
+ #define WGL_PIXEL_TYPE_ARB 0x2013
+ #define WGL_TYPE_RGBA_ARB 0x202b
++#define WGL_TYPE_RGBA_FLOAT_ARB 0x21A0
+ #define WGL_ACCELERATION_ARB 0x2003
+ #define WGL_NO_ACCELERATION_ARB 0x2025
+ #define WGL_RED_BITS_ARB 0x2015
+diff --git a/src/window.c b/src/window.c
+index 5d80e436..573069c3 100644
+--- a/src/window.c
++++ b/src/window.c
+@@ -317,6 +317,9 @@ GLFWAPI void glfwWindowHint(int hint, int value)
+         case GLFW_SRGB_CAPABLE:
+             _glfw.hints.framebuffer.sRGB = value ? GLFW_TRUE : GLFW_FALSE;
+             return;
++        case GLFW_FLOAT_PIXEL_TYPE:
++            _glfw.hints.framebuffer.floatPixelType = value ? GLFW_TRUE : GLFW_FALSE;
++            return;
+         case GLFW_RESIZABLE:
+             _glfw.hints.window.resizable = value ? GLFW_TRUE : GLFW_FALSE;
+             return;

@@ -1,5 +1,8 @@
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include <stb_image_write.h>
+
+//#include <ImfRgbaFile.h>
+
 #include "librefrakt/util/stb.h"
 
 bool write_file_impl(const void* data, int w, int h, int comp, const std::string& path) {
@@ -23,6 +26,15 @@ bool rfkt::stbi::write_file(const uchar3* data, int width, int height, const std
 bool rfkt::stbi::write_file(const uchar4* data, int width, int height, const std::string& path)
 {
 	return write_file_impl(data, width, height, 4, path);
+}
+
+bool rfkt::stbi::write_exr(const half4* data, int width, int height, const std::string& path)
+{
+	//Imf::RgbaOutputFile out( path.c_str(), width, height, Imf::WRITE_RGB );
+	//out.setFrameBuffer( (Imf::Rgba*)data, 1, width );
+	//out.writePixels( height );
+	//return true;
+	return true;
 }
 
 auto rfkt::stbi::write_memory(const uchar3* data, int width, int height, format img_format) -> std::vector<unsigned char>

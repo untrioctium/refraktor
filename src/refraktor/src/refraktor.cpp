@@ -254,7 +254,7 @@ namespace rfkt {
 
 		std::future<double> post_process(
 			roccu::gpu_span<float4> in,
-			roccu::gpu_span<uchar3> out,
+			roccu::gpu_span<half4> out,
 			double quality,
 			double gamma, double brightness, double vibrancy,
 			bool planar_output,
@@ -270,8 +270,7 @@ namespace rfkt {
 
 			tm.run(in, tonemapped, { quality, gamma, brightness, vibrancy }, stream);
 			auto dnt = dn->denoise(tonemapped, denoised, dn_done).get();
-			SPDLOG_INFO("denoise time: {}", dnt);
-			conv.to_24bit(denoised, out, stream);
+			conv.to_half4(denoised, out, stream);
 			stream.host_func([&t = perf_timer, p = std::move(promise)]() mutable {
 				p.set_value(t.count());
 				});
@@ -300,9 +299,7 @@ int main() {
 
 	auto ctx = rfkt::cuda::init();
 
-	SPDLOG_INFO("Loaded on device: {}", ctx.device().name());
-
-	//rfkt::denoiser::init(ctx);
+	SPDLOG_INFO("Loaded on {} device: {}", roccuGetApiName(), ctx.device().name());
 
 	rfkt::flamedb fdb;
 	rfkt::initialize(fdb, "config");
@@ -315,8 +312,6 @@ int main() {
 	uint2 dims = { 3840, 2160 };
 
 	auto pp = rfkt::postprocessor{ *km, dims, stream };
-	//rfkt::cuda::check_and_download_cudart();
-	//km->find_system_cuda();
 	auto fc = rfkt::flame_compiler{ km };
 
 	SPDLOG_INFO("notepad found: {}", rfkt::fs::command_in_path("notepad.exe") ? "yes" : "no");
@@ -341,7 +336,10 @@ int main() {
 	//roccuPrintAllocations();
 
 	auto bins = rfkt::gpu_image<float4>{ pp.input_dims().x, pp.input_dims().y };
-	auto out = rfkt::gpu_image<uchar3>{ dims.x, dims.y };
+	auto out = rfkt::gpu_image<half4>{ dims.x, dims.y };
+	std::vector<decltype(out)::value_type> out_local_buffer{};
+	out_local_buffer.resize(out.area());
+	std::span<decltype(out)::value_type> out_local(out_local_buffer);
 
 	constexpr static auto fps = 60;
 	constexpr static auto seconds_per_loop = 5;
@@ -384,16 +382,16 @@ int main() {
 		return f.value();
 	};
 
-	//auto left = must_load_flame("assets/flames_test/electricsheep.247.19450.flam3");
-	//auto right = must_load_flame("assets/flames_test/electricsheep.247.31464.flam3");
+	auto left = must_load_flame("assets/flames_test/electricsheep.247.19450.flam3");
+	auto right = must_load_flame("assets/flames_test/electricsheep.247.31464.flam3");
 
-	auto left = must_load_flame("assets/flames_test/electricsheep.247.32660.flam3");
-	auto right = must_load_flame("assets/flames_test/electricsheep.247.34338.flam3");
+	//auto left = must_load_flame("assets/flames_test/electricsheep.247.32660.flam3");
+	//auto right = must_load_flame("assets/flames_test/electricsheep.247.34338.flam3");
 
 
-	auto interp = interpolator{ left, right, fdb, false };
+	//auto interp = interpolator{ left, right, fdb, false };
 
-	auto k = fc.get_flame_kernel(fdb, rfkt::precision::f32, interp.left_flame());
+	//auto k = fc.get_flame_kernel(fdb, rfkt::precision::f32, interp.left_flame());
 
 	constexpr auto smoothstep = [](double t, int steps) {
 
@@ -414,34 +412,134 @@ int main() {
 		return result;
 	};
 
-	if (!k.kernel) {
-		SPDLOG_INFO("\n{}\n{}", k.source, k.log);
-		return -1;
-	}
+	//if (!k.kernel) {
+	//	SPDLOG_INFO("\n{}\n{}", k.source, k.log);
+	//	return -1;
+	//}
 
-		//if (!k.kernel) { return -1; }
+	constexpr static auto render_sample_counts = std::array{ 2u, 8u, 32u, 128u/* 512u, 2048u, 8192u, 32768u, 131072u*/};
+	auto files = rfkt::fs::list("assets/flames_test/", rfkt::fs::filter::has_extension(".flam3"));
 
-		//SPDLOG_INFO("left: {}\n", left.serialize().dump(2));
+	std::atomic_size_t compile_completed = 0;
+	std::jthread background_compiler([&files, &fdb, &fc, &ctx, &compile_completed]() {
+		ctx.make_current();
 
-	//CUDA_SAFE_CALL(ruStreamSetAttribute(stream, RU_LAUNCH_ATTRIBUTE_ACCESS_POLICY_WINDOW, &stream_value));
+		for(auto& fname : files) {
+			compile_completed++;
 
-	/*for (const auto& fname : rfkt::fs::list("assets/flames/", rfkt::fs::filter::has_extension(".flam3"))) {
+			auto fxml = rfkt::fs::read_string(fname);
+			auto f = rfkt::import_flam3(fdb, fxml);
+
+			if (!f) {
+				continue;
+			}
+
+			fc.get_flame_kernel(fdb, rfkt::precision::f32, f.value());
+		}
+	});
+
+	std::size_t total_completed = 0;
+	double total_ms = 0;
+
+	for (int i = 0; i < files.size(); i++) {
+		const auto& fname = files[i];
+
+		auto out_dir = "testrender/" + fname.stem().string();
+		rfkt::fs::create_directory(out_dir);
+
 		auto fxml = rfkt::fs::read_string(fname);
 		auto f = rfkt::import_flam3(fdb, fxml);
 
-		if (!f) {
-			SPDLOG_ERROR("failed to import flame {}", fname.string());
+		SPDLOG_INFO("Creating samples for {} ({}/{})", fname.stem().string(), i + 1, files.size());
+
+		if (!f || f->chaos_table.has_value()) {
+			SPDLOG_ERROR("Skipping flame: import failed", fname.string());
 			continue;
 		}
 
-		SPDLOG_INFO("compiling flame: {}", fname.string());
 		auto k = fc.get_flame_kernel(fdb, rfkt::precision::f32, f.value());
-	}*/
+		
+		if(!k.kernel) {
+			SPDLOG_ERROR("Skipping flame: compile failed", fname.string());
+			continue;
+		}
 
-	for (int i = 0; i < num_frames; i++) {
+		auto samples = std::vector<double>{};
+		auto packer = [&samples](double v) { samples.push_back(v); };
+		double fudge = fps / 24.0;
+		f->pack_samples(packer, invoker, 0 - fudge * loops_per_frame, fudge * loops_per_frame, 4, pp.input_dims().x, pp.input_dims().y);
+
+		auto gamma = f->gamma.sample(0, invoker);
+		auto brightness = f->brightness.sample(0, invoker);
+		auto vibrancy = f->vibrancy.sample(0, invoker);
+
+		auto state = k.kernel->warmup(stream, samples, std::move(bins), 0xDEADBEEF, 1000);
+
+		double quality_accum = 0;
+		double time_accum = 0;
+		std::uint32_t max_time = 3u;
+		for (int j = 0; j < render_sample_counts.size(); j++) {
+			auto start_time = std::chrono::high_resolution_clock::now();
+			auto count = render_sample_counts[j];
+			auto out_path = std::format("{}/{}_newweights_{:06d}spp.ldr.exr", out_dir, fname.stem().string(), count);
+
+			if(rfkt::fs::exists(out_path)) {
+				SPDLOG_INFO("Skipping existing file: {}", out_path);
+				continue;
+			}
+
+			auto qfut = k.kernel->bin(stream, state, { .millis = max_time, .quality = static_cast<double>(count) - quality_accum});
+			stream.sync();
+			auto q = qfut.get();
+
+			quality_accum += q.quality;
+			max_time *= 4;
+
+			if (quality_accum < count * .9) {
+				SPDLOG_WARN("Skipping flame: nonconvergent");
+				rfkt::fs::remove_directory(out_dir);
+				break;
+			}
+
+			if (j == 0) {
+				continue;
+			}
+
+			pp.post_process(state.bins, out, quality_accum, gamma, brightness, vibrancy, true, stream).get();
+
+
+			out.to_host(out_local);
+			rfkt::stbi::write_exr(out_local.data(), dims.x, dims.y, out_path);
+
+			auto total_sample_ms = (double) std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - start_time).count();
+			time_accum += total_sample_ms;
+
+			SPDLOG_INFO("Render {}/{} done: {} quality in {} ms, {} kernel ({} total quality)", j + 1, render_sample_counts.size(), (int) q.quality, (int) total_sample_ms, (int)q.elapsed_ms, (int) quality_accum);
+
+			if(j == render_sample_counts.size() - 1) {
+				total_completed++;
+				total_ms += time_accum;
+
+				auto flames_left = files.size() - i - 1;
+				auto estimated_seconds_remaining = int(total_ms / total_completed * flames_left / 1000.0);
+				auto estimated_minutes_remaining = estimated_seconds_remaining / 60;
+				estimated_seconds_remaining %= 60;
+				auto estimated_hours_remaining = estimated_minutes_remaining / 60;
+				estimated_minutes_remaining %= 60;
+				
+				auto background_compile_percent = compile_completed / double(files.size()) * 100.0;
+				SPDLOG_INFO("Sample finished: {} ms, {} avg ms, {:>02}:{:>02}:{:>02} estimated remaining, {:.4}% compile complete", (int) time_accum, (int) total_ms / total_completed, estimated_hours_remaining, estimated_minutes_remaining, estimated_seconds_remaining, background_compile_percent);
+			}
+		}
+
+		bins = std::move(state.bins);
+		bins.clear(stream);
+	}
+
+	/*for (int i = 0; i < num_frames; i++) {
 		SPDLOG_INFO("frame {}", i);
 
-		/*auto loop_id = i / frames_per_loop;
+		auto loop_id = i / frames_per_loop;
 		double mix = 0;
 		if (loop_id % 2 == 0) {
 			mix = (loop_id / 2) % 2;
@@ -450,7 +548,7 @@ int main() {
 			mix = (i % frames_per_loop) / double(frames_per_loop);
 
 			if((loop_id - 1)/2 % 2 == 1) mix = 1 - mix;
-		}*/
+		}
 
 		double mix = i / double(num_frames);
 
@@ -463,7 +561,7 @@ int main() {
 		interp.pack_samples(packer, invoker, t - fudge * loops_per_frame, fudge* loops_per_frame, 4, pp.input_dims().x, pp.input_dims().y, mix);
 		 
 		auto state = k.kernel->warmup(stream, samples, std::move(bins), 0xDEADBEEF, 100);
-		auto q = k.kernel->bin(stream, state, { .millis = 1000, .quality = 32 }).get();
+		auto q = k.kernel->bin(stream, state, { .millis = 10000, .quality = 8192 }).get();
 
 		double gamma = interp.interp_anima(&rfkt::flame::gamma, invoker, t, mix);
 		double brightness = interp.interp_anima(&rfkt::flame::brightness, invoker, t, mix);
@@ -471,88 +569,19 @@ int main() {
 
 		auto res = pp.post_process(state.bins, out, q.quality, gamma, brightness, vibrancy, true, stream).get();
 
-		auto vec = je->encode_image(out, 100, stream).get()();
+		auto local = out.to_host();
 
-		//std::vector<uchar3> vec(out.area());
-		//out.to_host(vec);
+		rfkt::stbi::write_exr(local.data(), dims.x, dims.y, "testrender/frame_" + std::to_string(i) + ".exr");
+
+		//auto vec = je->encode_image(out, 100, stream).get()();
 
 
-		auto basename = std::format("frame_{:04d}.jpg", i);
-		rfkt::fs::write("testrender/" + basename, (const char*)vec.data(), vec.size(), false);
-
-		//rfkt::stbi::write_file(vec.data(), pp.output_dims().x, pp.output_dims().y, "testrender/" + basename);
+		//auto basename = std::format("frame_{:04d}.jpg", i);
+		//rfkt::fs::write("testrender/" + basename, (const char*)vec.data(), vec.size(), false);
 
 		bins = std::move(state.bins);
 		bins.clear(stream);
 
 		SPDLOG_INFO("{:.5f}, {:.5f} miters/ms {:.5f} mdraws/ms, {:.5f} quality/ms, {:.5f} ppt", q.quality, q.total_passes / (1'000'000 * q.elapsed_ms), q.total_draws / (1'000'000 * q.elapsed_ms), q.quality/q.elapsed_ms, q.passes_per_thread);
-	}
-
-	/*auto render_jpeg = [&](const rfkt::flame& f, std::string_view path, uint2 dims, double t, const rfkt::flame_kernel::bailout_args& bo) -> bool {
-
-		auto k = fc.get_flame_kernel(fdb, rfkt::precision::f32, f);
-
-		if (!k.kernel) {
-			SPDLOG_INFO("\n{}\n{}", k.source, k.log);
-			return false;
-		}
-
-		std::vector<double> samples = {};
-		auto packer = [&samples](double v) { samples.push_back(v); };
-		f.pack_samples(packer, invoker, t, 0, 4, pp.input_dims().x, pp.input_dims().y);
-
-		auto state = k.kernel->warmup(stream, samples, std::move(bins), 0xDEADBEEF, 100);
-		auto q = k.kernel->bin(stream, state, { .millis = 1000, .quality = 2000 }).get();
-		auto res = pp.post_process(state.bins, out, q.quality, f.gamma.sample(t, invoker), f.brightness.sample(t, invoker), f.vibrancy.sample(t, invoker), true, stream).get();
-
-	};*/
-
-	
-
+	}*/
 }
-
-/*
-	for (const auto& fname : rfkt::fs::list("assets/flames_test/", rfkt::fs::filter::has_extension(".flam3"))) {
-	//{
-	//	const std::filesystem::path fname = "assets/flames_test/electricsheep.247.34565.flam3";
-		auto fxml = rfkt::fs::read_string(fname);
-		auto f = rfkt::import_flam3(fdb, fxml);
-
-		if (!f) {
-			SPDLOG_ERROR("failed to import flame");
-			return -1;
-		}
-
-		auto k = fc.get_flame_kernel(fdb, rfkt::precision::f32, *f);
-
-		if (!k.kernel) {
-			SPDLOG_INFO("\n{}\n{}", k.source, k.log);
-			return -1;
-		}
-
-		std::vector<double> samples = {};
-		auto packer = [&samples](double v) { samples.push_back(v); };
-		f->pack_samples(packer, invoker, t, 0, 4, pp.input_dims().x, pp.input_dims().y);
-
-		auto state = k.kernel->warmup(stream, samples, std::move(bins), 0xDEADBEEF, 100);
-		auto q = k.kernel->bin(stream, state, { .millis = 1000, .quality = 2000 }).get();
-		auto res = pp.post_process(state.bins, out, q.quality, f->gamma.sample(t, invoker), f->brightness.sample(t, invoker), f->vibrancy.sample(t, invoker), true, stream).get();
-
-
-		SPDLOG_INFO("{}: {:.5f}, {:.5f} miters/ms {:.5f} mdraws/ms, {:.5f} ppt, {:.2f} kernel load", fname.filename().string(), q.quality, q.total_passes / (1'000'000 * q.elapsed_ms), q.total_draws / (1'000'000 * q.elapsed_ms), q.passes_per_thread, k.compile_ms);
-
-		auto vec = je.encode_image(out.ptr(), pp.output_dims().x, pp.output_dims().y, 100, stream).get()();
-
-		auto row = std::format("{},{},{},{}\n", fname.filename().string(), q.quality, q.total_passes / (1'000'000 * q.elapsed_ms), q.total_draws / (1'000'000 * q.elapsed_ms));
-		rfkt::fs::write("stats.csv", row, true);
-
-		auto basename = fname.filename();
-		rfkt::fs::write("testrender/" + basename.string() + ".jpg", (const char*)vec.data(), vec.size(), false);
-		
-		bins = std::move(state.bins);
-		bins.clear(stream);
-	}
-
-	return 0;
-}
-*/

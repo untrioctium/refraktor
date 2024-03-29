@@ -1,6 +1,3 @@
-#define DEBUG_GRID(...) if(threadIdx.x == 0 && blockIdx.x == 0) {printf(__VA_ARGS__);}
-#define DEBUG_BLOCK(format, ...) if(threadIdx.x == 0) {printf("block %d: " format "\n", blockIdx.x, __VA_ARGS__);}
-
 #include <refrakt/flamelib.h>
 #include <refrakt/random.h>
 
@@ -75,12 +72,13 @@ struct exec_config {
 
 using iterator = vec3<Real>;
 
-using shared_state_t = fl::shared_state_tmpl<flame_t<Real, xoroshiro64<Real>>, Real, xoroshiro64<Real>, threads_per_block>;
-constexpr auto shared_size_bytes = sizeof(shared_state_t);
-static_assert(sizeof(shared_state_t::flame) == flame_size_bytes);
+using sample_state_t = fl::sample_state_tmpl<flame_t<Real, xoroshiro64<Real>>, Real, xoroshiro64<Real>, threads_per_block>;
+constexpr auto sample_state_size_bytes = sizeof(sample_state_t);
+static_assert(sizeof(sample_state_t::flame) == flame_size_bytes);
 
-struct void_t {};
-//static_assert(sizeof(fl::shared_state_tmpl<void_t, Real, xoroshiro64<Real>, threads_per_block>) + flame_size_bytes == shared_size_bytes);
+__global__ void get_sample_state_size(uint64* out) {
+	*out = sample_state_size_bytes;
+}
 
 struct segment {
 	double a, b, c, d;
@@ -88,7 +86,8 @@ struct segment {
 	__device__ double sample(double t) const { return a * t * t * t + b * t * t + c * t + d; }
 };
 
-__shared__ shared_state_t state;
+__shared__ sample_state_t state;
+__shared__ fl::iteration_info_t iter_info;
 
 #define my_iter(comp) (state.ts.iterators.comp[fl::block_rank()])
 #define my_rand() (state.ts.rand_states[fl::block_rank()])
@@ -171,6 +170,8 @@ __device__ void memcpy_sync(const uint8* const __restrict__ src, uint8* const __
 			dest[i] = src[i];
 		}
 	}
+
+	fl::sync_block();
 }
 
 #ifndef USE_CHAOS
@@ -249,131 +250,181 @@ void warmup(
 	const uint32 num_segments,
 	const segment* const __restrict__ segments, 
 	const uint32 seed, const uint32 warmup_count, const uint32 bins_w, const uint32 bins_h,
-	shared_state_t* __restrict__ out_state ) 
+	sample_state_t* __restrict__ out_state,
+	const int32 temporal_multiplier, unsigned long long* warmup_hits)  
 {	
+	auto nsamples = temporal_multiplier * gridDim.x;
+	for(int sample = 0; sample < temporal_multiplier; sample++) {
+		my_rand().init(seed + fl::grid_rank());
+		
+		if constexpr(!use_chaos) {
+			queue_shuffle_load(0);
+		} else {
+			my_xform_vote() = 2047;
+		}
 
-	my_rand().init(seed + fl::grid_rank());
-	
-	if constexpr(!use_chaos) {
-		queue_shuffle_load(0);
-	} else {
-		my_xform_vote() = 2047;
+		const auto sample_idx = sample * gridDim.x + blockIdx.x;
+		const auto seg_size = nsamples / num_segments;
+		const auto t = (sample_idx % seg_size)/Real(nsamples/ num_segments);
+		//DEBUG_BLOCK("%d %f", sample_idx, t);
+		const auto seg = sample_idx / seg_size;
+		const auto seg_offset = flame_size_reals + palette_size;
+		
+		//DEBUG_BLOCK("%f, %d, %d, %d", t, blockIdx.x, gridDim.x, num_segments);
+
+		interpolate_flame<flame_size_reals>(t, segments + (seg_offset) * seg, state.flame.as_array());
+		interpolate_palette<256>(t, segments + flame_size_reals + (seg_offset) * seg, state.palette);
+
+		// convert affines from polar while we are still in double land
+		if(fl::block_rank() < num_affines) {
+
+			Real* flame_array = state.flame.as_array();
+
+			const auto aff = affine_indices[fl::block_rank()];
+
+			double angx = segments[aff].sample(t);
+			double angy = segments[aff + 1].sample(t);
+			double magx = exp(segments[aff + 2].sample(t));
+			double magy = exp(segments[aff + 3].sample(t));
+
+			flame_array[aff] = magx * cos(angx);
+			flame_array[aff + 1] = magx * sin(angx);
+			flame_array[aff + 2] = magy * cos(angy);
+			flame_array[aff + 3] = magy * sin(angy);
+		}
+
+		if(fl::is_block_leader()) {
+			state.warmup_hits = 0;
+			state.flame.do_precalc(&my_rand());
+		}
+
+		auto pos = hammersley::sample<Real, TOTAL_THREADS>(fl::grid_rank());
+		pos.x = (pos.x + 1)/2 * bins_w;
+		pos.y = (pos.y + 1)/2 * bins_h;
+		state.flame.plane_space.apply(pos.x, pos.y);
+		
+		my_iter(x) = pos.x;
+		my_iter(y) = pos.y;
+		my_iter(color) = my_rand().rand01();
+
+		fl::sync_block();
+		for(unsigned int pass = 0; pass < warmup_count; pass++) {
+			auto transformed = flame_pass(pass);
+
+			if constexpr(has_final_xform) {
+				vec3<Real> my_iter_copy = {transformed.x, transformed.y, transformed.z};
+				state.flame.dispatch(num_xforms, my_iter_copy, transformed, &my_rand());
+			}
+		
+			state.flame.screen_space.apply(transformed.x, transformed.y);
+
+			transformed.x = trunc(transformed.x);
+			transformed.y = trunc(transformed.y);
+
+			unsigned int hit = 0;
+			if(transformed.x >= 0 && transformed.y >= 0 
+				&& transformed.x < bins_w && transformed.y < bins_h 
+				&& transformed.w > 0.0) 
+			{
+				hit = (unsigned int)(255.0f * transformed.w);
+			}
+			hit = fl::warp_reduce(hit);
+			if(fl::is_warp_leader()) {
+				atomicAdd(&state.warmup_hits, hit);
+			}
+		}
+
+		if(fl::is_block_leader()) {
+			atomicAdd(warmup_hits, state.warmup_hits);
+		}
+
+		memcpy_sync<sample_state_size_bytes>((uint8*)&state, (uint8*)(out_state + sample_idx));
 	}
-	const auto seg_size = gridDim.x / num_segments;
-	const auto t = (blockIdx.x % seg_size)/Real(gridDim.x/ num_segments);
-	const auto seg = blockIdx.x / seg_size;
-	const auto seg_offset = flame_size_reals + palette_size;
-	
-	//DEBUG_BLOCK("%f, %d, %d, %d", t, blockIdx.x, gridDim.x, num_segments);
-
-	interpolate_flame<flame_size_reals>(t, segments + (seg_offset) * seg, state.flame.as_array());
-	interpolate_palette<256>(t, segments + flame_size_reals + (seg_offset) * seg, state.palette);
-
-	// convert affines from polar while we are still in double land
-	if(fl::block_rank() < num_affines) {
-
-		Real* flame_array = state.flame.as_array();
-
-		const auto aff = affine_indices[fl::block_rank()];
-
-		double angx = segments[aff].sample(t);
-		double angy = segments[aff + 1].sample(t);
-		double magx = exp(segments[aff + 2].sample(t));
-		double magy = exp(segments[aff + 3].sample(t));
-
-		flame_array[aff] = magx * cos(angx);
-		flame_array[aff + 1] = magx * sin(angx);
-		flame_array[aff + 2] = magy * cos(angy);
-		flame_array[aff + 3] = magy * sin(angy);
-	}
-
-	if(fl::is_block_leader()) {
-
-		state.flame.do_precalc(&my_rand());
-	}
-
-	auto pos = hammersley::sample<Real, TOTAL_THREADS>(fl::grid_rank());
-	pos.x = (pos.x + 1)/2 * bins_w;
-	pos.y = (pos.y + 1)/2 * bins_h;
-	state.flame.plane_space.apply(pos.x, pos.y);
-	
-	my_iter(x) = pos.x;
-	my_iter(y) = pos.y;
-	my_iter(color) = my_rand().rand01();
-
-	fl::sync_block();
-	for(unsigned int pass = 0; pass < warmup_count; pass++) {
-		flame_pass(pass);
-	}
-
-	if(fl::is_grid_leader()) {
-		//state.flame.print_debug();
-	}
-
-	memcpy_sync<shared_size_bytes>((uint8*)&state, (uint8*)(out_state + blockIdx.x));
 }
 
 constexpr static uint64 per_block = THREADS_PER_BLOCK;
 
+__device__ unsigned int pass_and_draw(unsigned int pass_idx, float4* const __restrict__ bins, const uint32 bins_w, const uint32 bins_h) {
+	
+	auto transformed = flame_pass(pass_idx);
+	
+	if constexpr(has_final_xform) {
+			vec3<Real> my_iter_copy = {transformed.x, transformed.y, transformed.z};
+			state.flame.dispatch(num_xforms, my_iter_copy, transformed, &my_rand());
+	}
+		
+	state.flame.screen_space.apply(transformed.x, transformed.y);
+
+	transformed.x = trunc(transformed.x);
+	transformed.y = trunc(transformed.y);
+
+	unsigned int hit = 0;
+	if(transformed.x >= 0 && transformed.y >= 0 
+	&& transformed.x < bins_w && transformed.y < bins_h 
+	&& transformed.w > 0.0) {
+
+		float4& bin = bins[int(transformed.y) * bins_w + int(transformed.x)];
+
+		const auto palette_idx = transformed.z * 255.0f;
+
+		const auto& upper = state.palette[static_cast<unsigned char>(ceil(palette_idx))];
+		const auto& lower = state.palette[static_cast<unsigned char>(floor(palette_idx))];
+		auto mix = palette_idx - truncf(palette_idx);
+
+		float4 new_bin = bin;
+
+		new_bin.x += ((1.0_r - mix) * lower.x + mix * upper.x) / 255.0f * transformed.w;
+		new_bin.y += ((1.0_r - mix) * lower.y + mix * upper.y) / 255.0f * transformed.w;
+		new_bin.z += ((1.0_r - mix) * lower.z + mix * upper.z) / 255.0f * transformed.w;
+		new_bin.w += transformed.w;
+		bin = new_bin;
+		hit = (unsigned int)(255.0f * transformed.w);
+	}
+
+	return hit;
+}
+
 __global__
 LAUNCH_BOUNDS(per_block, BLOCKS_PER_MP)
 void bin(
-	shared_state_t* const __restrict__ in_state,
+	sample_state_t* const __restrict__ in_state,
 	const uint64 quality_target,
 	const uint32 iter_bailout,
 	const uint64 time_bailout,
 	float4* const __restrict__ bins, const uint32 bins_w, const uint32 bins_h,
 	uint64* const __restrict__ quality_counter, uint64* const __restrict__ pass_counter,
-	volatile bool* __restrict__ stop_render)
+	volatile bool* __restrict__ stop_render,
+	const int32 temporal_multiplier,
+	const int32 temporal_slicing,
+	const unsigned long long* const __restrict__ warmup_hits)
 {
 	
-	memcpy_sync<shared_size_bytes>((uint8*)(in_state + blockIdx.x), (uint8*)&state);
-	fl::sync_block();
-
 	if(fl::is_block_leader()) {
-		state.tss_quality = 0;
-		state.tss_passes = 0;
-		state.tss_start = fl::time();
-		state.should_bail = false;
+		iter_info.init(temporal_multiplier, temporal_slicing);
+
+		for(int i = 0; i < temporal_multiplier; i++) {
+			auto& sample = in_state[blockIdx.x + gridDim.x * i];
+			sample.tss_quality = 0;
+			sample.tss_passes = 0;
+		}
 	}
-	
 	fl::sync_block();
-	for( unsigned int i =0; !state.should_bail; i++ ) {
-		
-		auto transformed = flame_pass(i);
-		
-		if constexpr(has_final_xform) {
-			vec3<Real> my_iter_copy = {transformed.x, transformed.y, transformed.z};
-			state.flame.dispatch(num_xforms, my_iter_copy, transformed, &my_rand());
-		}
-		
-		state.flame.screen_space.apply(transformed.x, transformed.y);
-
-		transformed.x = trunc(transformed.x);
-		transformed.y = trunc(transformed.y);
 	
-		unsigned int hit = 0;
-		if(transformed.x >= 0 && transformed.y >= 0 
-		&& transformed.x < bins_w && transformed.y < bins_h 
-		&& transformed.w > 0.0) {
+	while(!iter_info.bail) {
+		
+		if(iter_info.on_sample_boundary() && iter_info.current_sample != iter_info.loaded_sample) {
 
-			float4& bin = bins[int(transformed.y) * bins_w + int(transformed.x)];
+			if(iter_info.loaded_sample != 0xFFFFFFFF) {
+				memcpy_sync<sample_state_size_bytes>((uint8*)&state, (uint8*)(in_state + blockIdx.x + gridDim.x * iter_info.loaded_sample));
+				//DEBUG_GRID("saved sample %d\n", iter_info.loaded_sample);
+			}
 
-			const auto palette_idx = transformed.z * 255.0f;
-
-			const auto& upper = state.palette[static_cast<unsigned char>(ceil(palette_idx))];
-			const auto& lower = state.palette[static_cast<unsigned char>(floor(palette_idx))];
-			auto mix = palette_idx - truncf(palette_idx);
-
-			float4 new_bin = bin;
-
-			new_bin.x += ((1.0_r - mix) * lower.x + mix * upper.x) / 255.0f * transformed.w;
-			new_bin.y += ((1.0_r - mix) * lower.y + mix * upper.y) / 255.0f * transformed.w;
-			new_bin.z += ((1.0_r - mix) * lower.z + mix * upper.z) / 255.0f * transformed.w;
-			new_bin.w += transformed.w;
-			bin = new_bin;
-			hit = (unsigned int)(255.0f * transformed.w);
+			memcpy_sync<sample_state_size_bytes>((uint8*)(in_state + blockIdx.x + gridDim.x * iter_info.current_sample), (uint8*)&state);
+			//DEBUG_GRID("loaded sample %d\n", iter_info.current_sample);
+			iter_info.loaded_sample = iter_info.current_sample;
 		}
+
+		unsigned int hit = pass_and_draw(iter_info.iter, bins, bins_w, bins_h);
 		hit = fl::warp_reduce(hit);
 		if(fl::is_warp_leader()) {
 			atomicAdd(&state.tss_quality, hit);
@@ -381,22 +432,33 @@ void bin(
 		
 		fl::sync_block();
 		if(fl::is_block_leader()) {
-			state.should_bail = 
-			       *stop_render 
-				|| state.tss_quality > (float(quality_target) / gridDim.x) 
-				|| (fl::time() - state.tss_start) >= time_bailout 
-				|| i >= iter_bailout;
+
+			if(state.tss_quality >= quality_target * double(state.warmup_hits) / double(*warmup_hits)) {
+				iter_info.mark_sample_done();
+			}
 
 			state.tss_passes += blockDim.x;
+
+			iter_info.tick();
+
+			iter_info.bail |= iter_info.samples_active == 0;
+			iter_info.bail |= 
+				iter_info.iter >= temporal_slicing
+				&& ((iter_info.on_sample_boundary() && iter_info.lowest_active_sample() == iter_info.current_sample) || temporal_multiplier == 1)
+				&& ((fl::time() - iter_info.start_time) >= time_bailout || *stop_render);
 		}
 		fl::sync_block();
 	}
+
+	memcpy_sync<sample_state_size_bytes>((uint8*)&state, (uint8*)(in_state + blockIdx.x + gridDim.x * iter_info.loaded_sample));
+
 	
 	if(fl::is_block_leader()) {
-		atomicAdd(quality_counter, state.tss_quality);
-		atomicAdd(pass_counter, state.tss_passes);
-		//DEBUG_BLOCK("quality: %u, passes: %u", state.tss_quality, state.tss_passes);
+		for(int i = 0; i < temporal_multiplier; i++) {
+			auto& sample = in_state[blockIdx.x + gridDim.x * i];
+			atomicAdd(quality_counter, sample.tss_quality);
+			atomicAdd(pass_counter, sample.tss_passes);
+		}
 	}
 	
-	memcpy_sync<shared_size_bytes>((uint8*)&state, (uint8*)(in_state + blockIdx.x));
 }

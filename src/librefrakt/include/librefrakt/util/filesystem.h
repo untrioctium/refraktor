@@ -19,6 +19,8 @@ namespace rfkt::fs {
 	bool write( const path& file_path, const std::vector<unsigned char>& bytes, bool append = false );
 	bool write( const path& file_path, const std::string& str, bool append = false );
 	bool create_directory( const path& dir_path, bool recursive = true );
+	bool remove( const path& path );
+	bool remove_directory( const path& dir_path );
 
 	using list_filter = std::function<bool(const path&, bool)>;
 

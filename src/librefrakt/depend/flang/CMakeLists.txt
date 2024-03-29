@@ -23,6 +23,7 @@ FetchContent_Declare(
     pegtl
     GIT_REPOSITORY "https://github.com/taocpp/PEGTL"
     GIT_TAG        "3.2.7"
+    GIT_SHALLOW TRUE
 )
 FetchContent_MakeAvailable(pegtl)
 target_include_directories(flang PUBLIC include)

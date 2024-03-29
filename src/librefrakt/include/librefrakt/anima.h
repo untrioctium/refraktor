@@ -73,8 +73,8 @@ namespace rfkt {
 			sol::protected_function func;
 		};
 
-		std::map<std::string, stored_info, std::less<>> funcs;
 		sol::state vm;
+		std::map<std::string, stored_info, std::less<>> funcs;
 	};
 
 }

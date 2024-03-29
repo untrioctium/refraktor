@@ -1,6 +1,6 @@
 #pragma once
 
-#include <cstdint>
+#include <type_traits>
 #include <roccu_vector_types.h>
 
 using RUdevice = int;
@@ -10,6 +10,7 @@ using RUdeviceptr = unsigned long long;
 using RUhostFn = void (*)(void* userData);
 
 constexpr static RUresult RU_SUCCESS = 0;
+constexpr static RUresult RU_ERROR_NOT_INITIALIZED = 3;
 constexpr static rurtcResult RURTC_SUCCESS = 0;
 
 #define ROCCU_DEFINE_OPAQUE(name) \
@@ -119,12 +120,9 @@ enum roccu_api {
     ROCCU_API_NONE
 };
 
-#ifndef ROCCU_IMPL
-#define ROCCU_API
-#else
+#ifdef ROCCU_IMPL
 
 #include <unordered_map>
-#include <string_view>
 
 enum source_t {
     RU_DRIVER,
@@ -136,41 +134,56 @@ struct ru_traits {
     void** func;
     void** dll_sym;
 
-    std::string_view name;
+    const char* name;
     source_t source;
-    std::string_view cuda_name;
-    std::string_view rocm_name;
+    const char* cuda_name;
+    const char* rocm_name;
 
     void* noop;
 };
 
-inline static std::unordered_map<std::string_view, ru_traits> ru_map = {};
+inline static std::unordered_map<const char*, ru_traits> ru_map = {};
 
-template<typename Ret, typename... Args>
-void* get_noop(Ret(*)(Args...)) {
-	return (void*)[](Args...) -> Ret { return Ret{}; };
+template<typename T>
+consteval static auto noop_ret(bool positive) {
+    if constexpr (std::is_same_v<T, RUresult>) return positive ? RU_SUCCESS : RU_ERROR_NOT_INITIALIZED;
+	else if constexpr(std::is_same_v<T, rurtcResult>) return positive ? RURTC_SUCCESS : RU_ERROR_NOT_INITIALIZED;
+    else if constexpr (std::is_same_v<T, const char*>) return positive ? "" : "Roccu not initialized";
+}
+
+template<bool Positive, typename Ret, typename... Args>
+consteval auto get_noop(Ret(*)(Args...)) {
+	return [](Args...) -> Ret { return noop_ret<Ret>(Positive); };
 }
 
 template<typename FunctionPtrType>
 bool register_traits(const ru_traits& traits) {
 
     ru_map[traits.name] = traits;
-    ru_map[traits.name].noop = get_noop((FunctionPtrType)nullptr);
+    ru_map[traits.name].noop = get_noop<true>((FunctionPtrType)nullptr);
     return true;
 };
 
 #endif
 
-roccu_api roccuInit();
+enum roccu_init_flags {
+    ROCCU_INIT_NONE = 0,
+    ROCCU_INIT_PREFER_HIP = 0x1,
+    ROCCU_INIT_HOOK_ALLOCATION = 0x2,
+    ROCCU_INIT_NO_RTC = 0x04
+};
+
+roccu_api roccuInit(int flags = ROCCU_INIT_NONE);
 roccu_api roccuGetApi();
+const char* roccuGetApiName();
 size_t roccuGetMemoryUsage();
 void roccuPrintAllocations();
 
-#ifdef ROCCU_API
+#ifndef ROCCU_IMPL
     #define ROCCU_DEFINE_FUNC(name, SRC, CUDA_NAME, ROCM_NAME, RET, ARGS) extern RET(*ru ## name)ARGS
 #else 
     #define ROCCU_DEFINE_FUNC(name, SRC, CUDA_NAME, ROCM_NAME, RET, ARGS) \
-        RET(*ru ## name)ARGS = nullptr; \
+        RET(*ru ## name)ARGS = get_noop<false>((RET(*)ARGS)nullptr); \
         RET(*ru ## name ## _dllsym)ARGS = nullptr; \
 		static bool name##_init = register_traits<RET(*)ARGS>({(void**)& ru ## name, (void**)& ru ## name ## _dllsym, #name, SRC, #CUDA_NAME, #ROCM_NAME});
 #endif
@@ -369,6 +382,7 @@ ROCCU_DEFINE_FUNC(MemAllocHost, RU_DRIVER, cuMemAllocHost_v2, hipHostMalloc, RUr
 ROCCU_DEFINE_FUNC(Memcpy2D, RU_DRIVER, cuMemcpy2D_v2, hipMemcpy2D, RUresult, (const RU_MEMCPY2D* pCopy));
 ROCCU_DEFINE_FUNC(Memcpy2DAsync, RU_DRIVER, cuMemcpy2DAsync_v2, hipMemcpy2DAsync, RUresult, (const RU_MEMCPY2D* pCopy, RUstream hStream));
 ROCCU_DEFINE_FUNC(MemcpyDtoD, RU_DRIVER, cuMemcpyDtoD_v2, hipMemcpyDtoD, RUresult, (RUdeviceptr dstDevice, RUdeviceptr srcDevice, size_t ByteCount));
+ROCCU_DEFINE_FUNC(MemcpyDtoDAsync, RU_DRIVER, cuMemcpyDtoDAsync_v2, hipMemcpyDtoDAsync, RUresult, (RUdeviceptr dstDevice, RUdeviceptr srcDevice, size_t ByteCount, RUstream hStream));
 ROCCU_DEFINE_FUNC(MemcpyDtoH, RU_DRIVER, cuMemcpyDtoH_v2, hipMemcpyDtoH, RUresult, (void* dstHost, RUdeviceptr srcDevice, size_t ByteCount));
 ROCCU_DEFINE_FUNC(MemcpyDtoHAsync, RU_DRIVER, cuMemcpyDtoHAsync_v2, hipMemcpyDtoHAsync, RUresult, (void* dstHost, RUdeviceptr srcDevice, size_t ByteCount, RUstream hStream));
 ROCCU_DEFINE_FUNC(MemcpyHtoD, RU_DRIVER, cuMemcpyHtoD_v2, hipMemcpyHtoD, RUresult, (RUdeviceptr dstDevice, const void* srcHost, size_t ByteCount));
@@ -403,5 +417,9 @@ ROCCU_DEFINE_FUNC(rtcGetErrorString, RU_RTC, nvrtcGetErrorString, hiprtcGetError
 ROCCU_DEFINE_FUNC(rtcGetLoweredName, RU_RTC, nvrtcGetLoweredName, hiprtcGetLoweredName, rurtcResult, (rurtcProgram prog, const char* name_expression, const char** lowered_name));
 ROCCU_DEFINE_FUNC(rtcGetProgramLog, RU_RTC, nvrtcGetProgramLog, hiprtcGetProgramLog, rurtcResult, (rurtcProgram prog, char* log));
 ROCCU_DEFINE_FUNC(rtcGetProgramLogSize, RU_RTC, nvrtcGetProgramLogSize, hiprtcGetProgramLogSize, rurtcResult, (rurtcProgram prog, size_t* logSizeRet));
-ROCCU_DEFINE_FUNC(rtcGetAssembly, RU_RTC, nvrtcGetPTX, hiprtcGetCode, rurtcResult, (rurtcProgram prog, char* ptx));
-ROCCU_DEFINE_FUNC(rtcGetAssemblySize, RU_RTC, nvrtcGetPTXSize, hiprtcGetCodeSize, rurtcResult, (rurtcProgram prog, size_t* ptxSizeRet));
+ROCCU_DEFINE_FUNC(rtcGetAssembly, RU_RTC, nvrtcGetCUBIN, hiprtcGetCode, rurtcResult, (rurtcProgram prog, char* ptx));
+ROCCU_DEFINE_FUNC(rtcGetAssemblySize, RU_RTC, nvrtcGetCUBINSize, hiprtcGetCodeSize, rurtcResult, (rurtcProgram prog, size_t* ptxSizeRet));
+
+#undef ROCCU_DEFINE_FUNC
+#undef ROCCU_DEFINE_DIRECT_FUNC
+#undef ROCCU_DEFINE_OPAQUE

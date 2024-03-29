@@ -16,6 +16,8 @@ target_include_directories(eznve PUBLIC include)
 # ffmpeg's mirror of nvenc headers
 FetchContent_Declare(
   nv-codec-headers
+  GIT_TAG "n12.1.14.0"
+  GIT_SHALLOW TRUE
   GIT_REPOSITORY https://github.com/FFmpeg/nv-codec-headers.git
 )
 FetchContent_MakeAvailable(nv-codec-headers)

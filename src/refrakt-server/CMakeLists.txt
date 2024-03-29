@@ -10,10 +10,14 @@ target_link_libraries(refrakt-server
 	concurrencpp)
 	
 #libuv
+set(LIBUV_BUILD_SHARED OFF CACHE BOOL "")
+set(LIBUV_BUILD_TESTS OFF CACHE BOOL "")
+set(LIBUV_BUILD_BENCH OFF CACHE BOOL "")
 FetchContent_Declare(
   libuv
   GIT_REPOSITORY https://github.com/libuv/libuv.git
-  GIT_TAG v1.x
+  GIT_TAG v1.48.0
+  GIT_SHALLOW TRUE
 )
 FetchContent_MakeAvailable(libuv)
 
@@ -21,6 +25,7 @@ FetchContent_MakeAvailable(libuv)
 FetchContent_Declare(
   uws
   GIT_REPOSITORY https://github.com/uNetworking/uWebSockets.git
+  GIT_TAG v20.62.0
 )
 FetchContent_MakeAvailable(uws)
 
@@ -39,7 +44,8 @@ target_compile_definitions(refrakt-server PRIVATE UWS_NO_ZLIB)
 FetchContent_Declare(
  inja
  GIT_REPOSITORY https://github.com/pantor/inja.git
- GIT_TAG v3.1.0
+ GIT_TAG v3.4.0
+ GIT_SHALLOW TRUE
 )
 FetchContent_MakeAvailable(inja)
 target_link_libraries(refrakt-server PRIVATE inja)
@@ -47,7 +53,8 @@ target_link_libraries(refrakt-server PRIVATE inja)
 FetchContent_Declare(
   readerwriterqueue
   GIT_REPOSITORY    https://github.com/cameron314/readerwriterqueue
-  GIT_TAG           master
+  GIT_TAG 8e7627d18c2108aca178888d88514179899a044f
+  GIT_SHALLOW TRUE
 )
 FetchContent_MakeAvailable(readerwriterqueue)
 target_link_libraries(refrakt-server PRIVATE readerwriterqueue)

@@ -2,17 +2,17 @@
 
 #ifdef ROCCU_CUDA
 using __half = unsigned short;
+
+__device__ __half __float2half(const float a) {
+	__half val;
+	asm("{  cvt.rn.f16.f32 %0, %1;}\n" : "=h"(val) : "f"(a));
+	return val;
+}
 #endif
 
 struct half3 {
 	__half x, y, z;
 };
-
-//__device__ __half __float2half(const float a) {
-//	__half val;
-//	asm("{  cvt.rn.f16.f32 %0, %1;}\n" : "=h"(val) : "f"(a));
-//	return val;
-//}
 
 __device__ float lerp(float a, float b, float t) {
 	return a + t * (b - a);

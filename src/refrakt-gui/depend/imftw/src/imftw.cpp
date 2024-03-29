@@ -236,10 +236,12 @@ int ImFtw::Run(std::string_view window_title, std::string_view ini_path, std::mo
 	glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GLFW_TRUE);
 	glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
 	glfwWindowHint(GLFW_DOUBLEBUFFER, GLFW_TRUE);
-	glfwWindowHint(GLFW_RED_BITS, 10);
-	glfwWindowHint(GLFW_GREEN_BITS, 10);
-	glfwWindowHint(GLFW_BLUE_BITS, 10);
-	glfwWindowHint(GLFW_ALPHA_BITS, 2);
+	glfwWindowHint(GLFW_FLOAT_PIXEL_TYPE, GLFW_TRUE);
+	glfwWindowHint(GLFW_SRGB_CAPABLE, GLFW_TRUE);
+	glfwWindowHint(GLFW_RED_BITS, 16);
+	glfwWindowHint(GLFW_GREEN_BITS, 16);
+	glfwWindowHint(GLFW_BLUE_BITS, 16);
+	glfwWindowHint(GLFW_ALPHA_BITS, 16);
 
 	ctx.monitor = glfwGetPrimaryMonitor();
 	ctx.window = glfwCreateWindow(1920, 1080, window_title.data(), nullptr, nullptr);
@@ -253,6 +255,7 @@ int ImFtw::Run(std::string_view window_title, std::string_view ini_path, std::mo
 
 	CoInitialize(nullptr);
 	CoCreateInstance(CLSID_TaskbarList, nullptr, CLSCTX_INPROC_SERVER, IID_ITaskbarList4, (void**)&ctx.taskbar);
+
 #endif
 
 	setup_event_callbacks(ctx);
@@ -265,6 +268,7 @@ int ImFtw::Run(std::string_view window_title, std::string_view ini_path, std::mo
 	glDebugMessageCallback(GLDebugMessageCallback, nullptr);
 
 	setup_imgui(ctx);
+	//glEnable(GL_FRAMEBUFFER_SRGB);
 	glfwMakeContextCurrent(nullptr);
 
 	ctx.last_time = glfwGetTime();
@@ -367,6 +371,11 @@ void ImFtw::BeginFrame(ImVec4 clear_color) {
 
 	ImGui_ImplOpenGL3_NewFrame();
 	ImGui::NewFrame();
+
+	ImGui::GetBackgroundDrawList()->AddCallback([](const ImDrawList* parent_list, const ImDrawCmd* cmd) {
+		glUniform1f(1, 2.2f);
+		glUniform1f(2, 2.0f);
+	}, nullptr);
 
 	while (true) {
 		auto func = std::move_only_function<void()>{};

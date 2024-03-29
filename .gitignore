@@ -60,4 +60,8 @@ refrakt-qt/
 webapp/
 *.mp4
 *.h264
+*.exr
+train/
+old/
+oldtrain/
 stats.csv

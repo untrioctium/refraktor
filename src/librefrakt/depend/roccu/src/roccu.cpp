@@ -1,22 +1,106 @@
-#include <dylib.hpp>
 #include <optional>
 #include <string_view>
 #include <cstdio>
 #include <array>
 #include <atomic>
+#include <span>
 #include <mutex>
 #include <variant>
 
 #include <stacktrace>
+#include <filesystem>
+
+namespace fs = std::filesystem;
+
+#ifdef _WIN32
+#define WIN32_LEAN_AND_MEAN
+#include <Windows.h>
+#else
+#include <dlfcn.h>
+#endif
 
 #define ROCCU_IMPL
 #include "roccu.h"
-#include <roccu_cpp_types.h>
+
+struct roccu_load_info {
+    roccu_api api;
+    const char* driver;
+    const char* rtc;
+};
+
+
+#ifdef _WIN32
+inline const static auto roccu_load_info_list = std::array{
+    roccu_load_info{ROCCU_API_CUDA, "nvcuda.dll", "nvrtc64_120_0.dll"},
+    roccu_load_info{ROCCU_API_ROCM, "amdhip64.dll", "hiprtc0507.dll"}
+};
+#endif
+
+
+class dynamic_library {
+public:
+
+    static std::optional<dynamic_library> load(const char* name) {
+
+#ifdef _WIN32
+        auto handle = LoadLibraryA(name);
+        if (!handle) return std::nullopt;
+        return dynamic_library{handle};
+#else
+        auto handle = dlopen(name, RTLD_NOW | RTLD_LOCAL);
+		if (!handle) return std::nullopt;
+		return dynamic_library{handle};
+#endif
+
+    }
+
+    dynamic_library(const dynamic_library&) = delete;
+    dynamic_library& operator=(const dynamic_library&) = delete;
+
+    dynamic_library(dynamic_library&& o) noexcept {
+        std::swap(handle, o.handle);
+    }
+
+    dynamic_library& operator=(dynamic_library&& o) noexcept {
+		std::swap(handle, o.handle);
+		return *this;
+	}
+
+    ~dynamic_library() {
+#ifdef _WIN32
+        if(handle) FreeLibrary(handle);
+#else
+        if(handle) dlclose(handle);
+#endif
+    }
+    
+    void* function(const char* name) const {
+#ifdef _WIN32
+        return GetProcAddress(handle, name);
+#else
+        return dlsym(handle, name);
+#endif
+    }
+
+private:
+
+    using handle_t = decltype([]() {
+#ifdef _WIN32
+		return (HMODULE)nullptr;
+#else
+        return (void*)nullptr;
+#endif
+    }());
+
+    explicit dynamic_library(handle_t handle) : handle(handle) {}
+
+    handle_t handle = nullptr;
+};
 
 struct roccu_impl {
 	roccu_api api;
-	dylib driver_lib;
-	dylib rtc_lib;
+    dynamic_library driver_lib;
+    std::optional<dynamic_library> rtc_lib;
 };
 
 static inline std::optional<roccu_impl> api;
@@ -158,60 +242,50 @@ enum hipDeviceAttribute_t {
     // Extended attributes for vendors
 };
 
-using conv_func = std::add_pointer_t<int(RUdevice dev)>;
+using attr_conv_func = std::add_pointer_t<int(RUdevice dev)>;
+using attrib_conv = std::variant<hipDeviceAttribute_t, int, attr_conv_func>;
 
-using attrib_conv = std::variant<hipDeviceAttribute_t, int, conv_func>;
-
-static std::map<RUdevice_attribute, attrib_conv> ru_to_hip_device_attribute = {
+const static std::unordered_map<RUdevice_attribute, attrib_conv> ru_to_hip_device_attribute = {
     {RU_DEVICE_ATTRIBUTE_COMPUTE_CAPABILITY_MAJOR, hipDeviceAttributeComputeCapabilityMajor},
     {RU_DEVICE_ATTRIBUTE_COMPUTE_CAPABILITY_MINOR, hipDeviceAttributeComputeCapabilityMinor},
     {RU_DEVICE_ATTRIBUTE_MAX_PERSISTING_L2_CACHE_SIZE, 0},
     {RU_DEVICE_ATTRIBUTE_RESERVED_SHARED_MEMORY_PER_BLOCK, 0},
-    {RU_DEVICE_ATTRIBUTE_MAX_BLOCKS_PER_MULTIPROCESSOR, 
-        [](RUdevice dev)-> int {
-            int warp_size, max_threads_per_multiprocessor;
-            ruDeviceGetAttribute_dllsym(&warp_size, std::bit_cast<RUdevice_attribute>(hipDeviceAttributeWarpSize), dev);
-            ruDeviceGetAttribute_dllsym(&max_threads_per_multiprocessor, std::bit_cast<RUdevice_attribute>(hipDeviceAttributeMaxThreadsPerMultiProcessor), dev);
-            return max_threads_per_multiprocessor / warp_size;
-        }
-    },
+    {RU_DEVICE_ATTRIBUTE_MAX_BLOCKS_PER_MULTIPROCESSOR, 16},
     {RU_DEVICE_ATTRIBUTE_MAX_THREADS_PER_MULTIPROCESSOR, hipDeviceAttributeMaxThreadsPerMultiProcessor},
     {RU_DEVICE_ATTRIBUTE_WARP_SIZE, hipDeviceAttributeWarpSize},
     {RU_DEVICE_ATTRIBUTE_MAX_THREADS_PER_BLOCK, hipDeviceAttributeMaxThreadsPerBlock},
-    {RU_DEVICE_ATTRIBUTE_MULTIPROCESSOR_COUNT, 
-        [](RUdevice dev) -> int {
-            int mp_count;
-			ruDeviceGetAttribute_dllsym(&mp_count, std::bit_cast<RUdevice_attribute>(hipDeviceAttributeMultiprocessorCount), dev);
-			return mp_count;
-        }
-    },
+    {RU_DEVICE_ATTRIBUTE_MULTIPROCESSOR_COUNT, hipDeviceAttributeMultiprocessorCount},
     {RU_DEVICE_ATTRIBUTE_MAX_SHARED_MEMORY_PER_MULTIPROCESSOR, hipDeviceAttributeMaxSharedMemoryPerMultiprocessor},
 };
 
-bool load_symbols() {
+bool load_symbols(int flags) {
 	if (!api) return false;
 
 	bool all_found = true;
 
 	for(auto& [name, traits] : ru_map) {
-		bool force_rtc = api->api == ROCCU_API_ROCM && traits.name.starts_with("Link");
-		const auto& lib = traits.source == RU_DRIVER && !force_rtc? api->driver_lib : api->rtc_lib;
+        bool force_rtc = api->api == ROCCU_API_ROCM && std::string_view{ traits.name }.starts_with("Link");
+		const auto& lib = traits.source == RU_DRIVER && !force_rtc? api->driver_lib : api->rtc_lib.value();
 		auto symbol_name = api->api == ROCCU_API_CUDA ? traits.cuda_name : traits.rocm_name;
 
 		if (symbol_name == "NOOP") {
 			*traits.func = traits.noop;
-			printf("Warning: %s is not implemented for this API\n", traits.name.data());
+			printf("Warning: %s is not implemented for this API\n", traits.name);
 			continue;
 		}
 
-		try {
-			*traits.dll_sym = lib.get_function<void*>(symbol_name.data());
+        if(auto symbol = lib.function(symbol_name); symbol) {
+			*traits.dll_sym = symbol;
 			*traits.func = *traits.dll_sym;
-		} catch(const dylib::symbol_error& se) {
-			printf("Failed to load symbol %s -> %s: %s\n", traits.name.data(), symbol_name.data(), se.what());
+		}
+		else {
+            printf("Failed to load symbol %s -> %s\n", traits.name, symbol_name);
 			all_found = false;
 		}
+
 	}
+
+    if(!all_found) return false;
 
 	if (api->api == ROCCU_API_ROCM) {
 
@@ -237,8 +311,8 @@ bool load_symbols() {
 				*value = std::get<int>(lut->second);
 				return RU_SUCCESS;
             }
-            else if (std::holds_alternative<conv_func>(lut->second)) {
-                *value = std::get<conv_func>(lut->second)(device);
+            else if (std::holds_alternative<attr_conv_func>(lut->second)) {
+                *value = std::get<attr_conv_func>(lut->second)(device);
                 return RU_SUCCESS;
             }
             else {
@@ -257,41 +331,26 @@ bool load_symbols() {
 	return all_found;
 }
 
-struct roccu_load_info {
-	roccu_api api;
-	const char* driver;
-	const char* rtc;
-};
-
-constexpr static auto roccu_load_info_list = std::array{
-	roccu_load_info{ROCCU_API_CUDA, "nvcuda", "nvrtc64_120_0"}, // CUDA Windows
-	roccu_load_info{ROCCU_API_CUDA, "libcuda", "libnvrtc"}, // CUDA Linux
-	roccu_load_info{ROCCU_API_ROCM, "amdhip64", "hiprtc0507"}
-};
-
-void hook_allocation() {
-	const static auto old_mem_alloc = ruMemAlloc;
+static void hook_allocation() {
 	ruMemAlloc = [](RUdeviceptr* ptr, size_t size) {
 		std::scoped_lock lock(mem_alloc_mutex);
 		mem_alloc_size += size;
-		auto ret = old_mem_alloc(ptr, size);
+		auto ret = ruMemAlloc_dllsym(ptr, size);
 		mem_alloc_map[*ptr] = { size, std::stacktrace::current() };
 		return ret;
 		};
 
-	const static auto old_mem_free = ruMemFree;
 	ruMemFree = [](RUdeviceptr ptr) {
 		std::scoped_lock lock(mem_alloc_mutex);
 		mem_alloc_size -= mem_alloc_map[ptr].first;
 		mem_alloc_map.erase(ptr);
-		return old_mem_free(ptr);
+		return ruMemFree_dllsym(ptr);
 	};
 
-	const static auto old_mem_alloc_async = ruMemAllocAsync;
 	ruMemAllocAsync = [](RUdeviceptr* ptr, size_t size, RUstream stream) {
 		std::scoped_lock lock(mem_alloc_mutex);
 
-		auto ret = old_mem_alloc_async(ptr, size, stream);
+		auto ret = ruMemAllocAsync_dllsym(ptr, size, stream);
 		mem_alloc_map[*ptr] = { size, std::stacktrace::current() };
 
 		ruLaunchHostFunc(stream, [](void* ptr) {
@@ -301,9 +360,8 @@ void hook_allocation() {
 		return ret;
 	};
 
-	const static auto old_mem_free_async = ruMemFreeAsync;
 	ruMemFreeAsync = [](RUdeviceptr ptr, RUstream stream) {
-		auto ret = old_mem_free_async(ptr, stream);
+		auto ret = ruMemFreeAsync_dllsym(ptr, stream);
 
 		ruLaunchHostFunc(stream, [](void* ptr) {
 			std::scoped_lock lock(mem_alloc_mutex);
@@ -317,21 +375,25 @@ void hook_allocation() {
 	};
 }
 
-roccu_api roccuInit() {
+roccu_api roccuInit(int flags) {
 
 	if(api) return api->api;
 
 	api = []() -> std::optional<roccu_impl> {
 		for(const auto& info : roccu_load_info_list) {
-			try{ return roccu_impl{info.api, dylib{info.driver}, dylib{info.rtc}}; }
-			catch (const dylib::load_error&) { continue; }
+			auto driver = dynamic_library::load(info.driver);
+            auto rtc = dynamic_library::load(info.rtc);
+
+            if(driver && rtc) {
+                return roccu_impl{info.api, std::move(driver.value()), std::move(rtc.value())};
+			}
 		}
 		return std::nullopt;
 	}();
 
 	if(api) {
-		if (load_symbols()) {
-			hook_allocation();
+		if (load_symbols(flags)) {
+			if(flags & ROCCU_INIT_HOOK_ALLOCATION) hook_allocation();
 			return api->api;
 		}
 		else {
@@ -347,6 +409,15 @@ roccu_api roccuGetApi()
 	return api? api->api : ROCCU_API_NONE;
 }
 
+const char* roccuGetApiName()
+{
+    switch(roccuGetApi()) {
+		case ROCCU_API_CUDA: return "CUDA";
+		case ROCCU_API_ROCM: return "ROCm";
+		default: return "None";
+	}
+}
+
 size_t roccuGetMemoryUsage() {
 	return mem_alloc_size;
 }
@@ -354,7 +425,7 @@ size_t roccuGetMemoryUsage() {
 void roccuPrintAllocations() {
 	std::scoped_lock lock(mem_alloc_mutex);
 	for(const auto& [ptr, alloc] : mem_alloc_map) {
-		printf("Allocation at %u of size %zu (%.1f MB)\n", ptr, alloc.first, alloc.first / (1024.0 * 1024.0));
+		printf("Allocation at %lluu of size %zu (%.1f MB)\n", ptr, alloc.first, alloc.first / (1024.0 * 1024.0));
 		for(int i = 1; i < alloc.second.size(); i++) {
 			auto& entry = alloc.second[i];
 			printf("%s %d %s\n", entry.source_file().c_str(), entry.source_line(), entry.description().c_str());

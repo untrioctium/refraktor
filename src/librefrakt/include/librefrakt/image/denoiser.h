@@ -46,4 +46,3 @@ namespace rfkt {
         std::unique_ptr<denoiser_impl> impl;
     };
 }
-

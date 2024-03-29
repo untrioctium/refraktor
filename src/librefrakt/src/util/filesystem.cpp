@@ -111,6 +111,11 @@ bool rfkt::fs::create_directory(const path& dir_path, bool recursive)
 		return std::filesystem::create_directory(dir_path);
 }
 
+bool rfkt::fs::remove_directory(const path& dir_path)
+{
+	return std::filesystem::remove_all(dir_path);
+}
+
 auto rfkt::fs::list(const path& dir_path, list_filter filter) -> std::vector<path>
 {
 	if(!rfkt::fs::is_directory(dir_path)) {

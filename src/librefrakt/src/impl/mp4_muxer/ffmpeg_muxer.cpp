@@ -22,8 +22,8 @@ namespace rfkt {
 
 		}
 
-		void write_chunk(std::span<const std::byte> chunk) override {
-			process.write((uint8_t*) chunk.data(), chunk.size());
+		void write_chunk(std::span<const char> chunk) override {
+			process.write((const uint8_t*) chunk.data(), chunk.size());
 		}
 
 		void finish() override {

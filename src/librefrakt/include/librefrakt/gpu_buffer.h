@@ -7,6 +7,10 @@ namespace rfkt{
 	template<typename PixelType>
 	class gpu_image {
 	public:
+
+		using value_type = PixelType;
+		using pixel_type = PixelType;
+
 		gpu_image() = default;
 		gpu_image(unsigned int w, unsigned int h) :
 			dims_(w, h),
@@ -54,6 +58,8 @@ namespace rfkt{
 
 		void to_host(std::span<PixelType> dest_host) const { buffer.to_host(dest_host); }
 		void to_host(std::span<PixelType> dest_host, RUstream stream) const { buffer.to_host(dest_host, stream); }
+
+		auto to_host() const { return buffer.to_host(); }
 
 		void from_host(std::span<const PixelType> src_host) { buffer.from_host(src_host); }
 		void from_host(std::span<const PixelType> src_host, RUstream stream) { buffer.from_host(src_host, stream); }

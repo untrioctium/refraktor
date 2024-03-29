@@ -179,7 +179,7 @@ namespace ezrtc {
 
 		static spec source_string(std::string name, std::string source) {
 			auto ret = spec{};
-			ret.name = std::move(name);
+			ret.name_ = std::move(name);
 			ret.source = std::move(source);
 
 			return ret;
@@ -189,7 +189,7 @@ namespace ezrtc {
 			namespace fs = std::filesystem;
 
 			auto ret = spec{};
-			ret.name = std::move(name);
+			ret.name_ = std::move(name);
 
 			const auto size = fs::file_size(path);
 			ret.source = std::string(size, '\0');
@@ -210,6 +210,8 @@ namespace ezrtc {
 			return emplace_and_chain(headers, hname, std::string_view{ hsource.c_str(), hsource.size() + 1 });
 		}
 		spec& dependency(const std::filesystem::path& path) { return emplace_and_chain(dependencies, std::filesystem::absolute(path).u8string()); }
+
+		std::string_view name() const noexcept { return name_; }
 
 	private:
 		std::string_view signature() const;
@@ -233,7 +235,7 @@ namespace ezrtc {
 		std::map<std::string, std::string, std::less<>> variables;
 		std::map<std::string, std::string_view, std::less<>> headers;
 
-		std::string name;
+		std::string name_;
 		std::string source;
 		mutable std::optional<std::string> cached_signature;
 	};
