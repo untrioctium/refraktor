@@ -40,6 +40,7 @@ add_library(librefrakt OBJECT
 	"src/impl/mp4_muxer/ffmpeg_muxer.cpp"
 	"src/impl/denoiser/optix_denoiser.cpp"
 	"src/impl/denoiser/oidn_denoiser.cpp"
+	"src/impl/denoiser/null_denoiser.cpp"
 	"src/util/http.cpp"
 	"src/flame_types.cpp"
 	"src/flame_info.cpp"
@@ -63,7 +64,8 @@ set(YAML_CPP_BUILD_TOOLS OFF)
 FetchContent_Declare(
   yaml_cpp
   GIT_REPOSITORY https://github.com/jbeder/yaml-cpp.git
-  GIT_TAG yaml-cpp-0.7.0
+  GIT_TAG 0.8.0
+  GIT_SHALLOW TRUE
   EXCLUDE_FROM_ALL
 )
 FetchContent_MakeAvailable(yaml_cpp)
@@ -72,7 +74,8 @@ FetchContent_MakeAvailable(yaml_cpp)
 FetchContent_Declare(
   xxhash
   GIT_REPOSITORY https://github.com/Cyan4973/xxHash.git
-  GIT_TAG v0.8.0
+  GIT_TAG v0.8.2
+  GIT_SHALLOW TRUE
 )
 FetchContent_MakeAvailable(xxhash)
 file(GLOB XXHASH_SOURCES ${xxhash_SOURCE_DIR}/*.c)
@@ -82,9 +85,13 @@ add_library(xxhash STATIC ${XXHASH_SOURCES})
 target_include_directories(xxhash PUBLIC ${xxhash_SOURCE_DIR})
 
 # sqlite
+set(ENABLE_SHARED OFF CACHE BOOL "" FORCE)
+set(BUILD_SHELL OFF CACHE BOOL "" FORCE)
 FetchContent_Declare(
   sqlite3
-  GIT_REPOSITORY https://github.com/azadkuh/sqlite-amalgamation
+  GIT_REPOSITORY https://github.com/rhuijben/sqlite-amalgamation
+  GIT_TAG 3.45.2
+  GIT_SHALLOW TRUE
 )
 FetchContent_MakeAvailable(sqlite3)
 target_include_directories(librefrakt PUBLIC ${sqlite3_SOURCE_DIR})
@@ -93,6 +100,8 @@ target_include_directories(librefrakt PUBLIC ${sqlite3_SOURCE_DIR})
 FetchContent_Declare(
   glm
   GIT_REPOSITORY https://github.com/g-truc/glm
+  GIT_TAG 1.0.1
+  GIT_SHALLOW TRUE
 )
 FetchContent_MakeAvailable(glm)
 target_link_libraries(librefrakt PUBLIC glm)
@@ -101,6 +110,8 @@ target_link_libraries(librefrakt PUBLIC glm)
 FetchContent_Declare(
   concurrencpp
   GIT_REPOSITORY https://github.com/David-Haim/concurrencpp.git
+  GIT_TAG v.0.1.7
+  GIT_SHALLOW TRUE
 )
 FetchContent_MakeAvailable(concurrencpp)
 
@@ -108,6 +119,8 @@ FetchContent_MakeAvailable(concurrencpp)
 FetchContent_Declare(
   stb
   GIT_REPOSITORY https://github.com/nothings/stb.git
+  GIT_TAG ae721c50eaf761660b4f90cc590453cdb0c2acd0
+  GIT_SHALLOW TRUE
 )
 FetchContent_MakeAvailable(stb)
 file(GLOB STB_SOURCES ${stb_SOURCE_DIR}/*.c)
@@ -118,7 +131,8 @@ target_include_directories(stb PUBLIC ${stb_SOURCE_DIR})
 FetchContent_Declare(
  cppcodec
  GIT_REPOSITORY https://github.com/tplgy/cppcodec.git
- GIT_TAG master
+ GIT_TAG 8019b8b580f8573c33c50372baec7039dfe5a8ce
+ GIT_SHALLOW TRUE
 )
 FetchContent_Populate(cppcodec)
 target_include_directories(librefrakt PRIVATE ${cppcodec_SOURCE_DIR}/cppcodec)
@@ -135,15 +149,19 @@ FetchContent_MakeAvailable(inja)
 FetchContent_Declare(
   pugixml
   GIT_REPOSITORY https://github.com/zeux/pugixml.git
-  GIT_TAG v1.10
+  GIT_TAG v1.14
+  GIT_SHALLOW TRUE
 )
 FetchContent_MakeAvailable(pugixml)
 
-
+set(LUA_BUILD_COMPILER OFF CACHE BOOL "" FORCE)
+set(LUA_ENABLE_SHARED OFF CACHE BOOL "" FORCE)
+set(LUA_ENABLE_TESTING OFF CACHE BOOL "" FORCE)
 FetchContent_Declare(
   lua
   GIT_REPOSITORY https://github.com/walterschell/Lua.git
-  GIT_TAG master
+  GIT_TAG 88246d621abf7b6fba9332f49229d507f020e450
+  GIT_SHALLOW TRUE
 )
 FetchContent_MakeAvailable(lua)
 
@@ -151,7 +169,7 @@ FetchContent_MakeAvailable(lua)
 FetchContent_Declare(
   sol2
   GIT_REPOSITORY https://github.com/ThePhD/sol2.git
-  GIT_TAG v3.2.2
+  GIT_TAG e8e122e9ce46f4f1c0b04003d8b703fe1b89755a
   GIT_SHALLOW TRUE
 )
 
@@ -161,7 +179,8 @@ FetchContent_MakeAvailable(sol2)
 FetchContent_Declare(
     dylib
     GIT_REPOSITORY "https://github.com/martin-olivier/dylib"
-    GIT_TAG        "v2.1.0"
+    GIT_TAG c5b46c650a252bcda0dd94a102cdfc85907b9022
+	GIT_SHALLOW TRUE
 )
 FetchContent_MakeAvailable(dylib)
 
@@ -170,7 +189,8 @@ set(REPROC++ ON)
 FetchContent_Declare(
   reproc
   GIT_REPOSITORY https://github.com/DaanDeMeyer/reproc.git
-  GIT_TAG main
+  GIT_TAG 3179928ae7b085e41dfb846d987519fa7c12ffb3
+  GIT_SHALLOW TRUE
   EXCLUDE_FROM_ALL
 )
 FetchContent_MakeAvailable(reproc)
@@ -184,6 +204,30 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(oidn)
 include("${oidn_SOURCE_DIR}/lib/cmake/OpenImageDenoise-2.2.2/OpenImageDenoiseConfig.cmake")
 
+# imath
+#FetchContent_Declare(
+#	imath
+#	GIT_REPOSITORY "https://github.com/AcademySoftwareFoundation/imath"
+#	GIT_TAG a3c1599c1084cc58416d7d4461eee4337d95b341
+#	GIT_SHALLOW TRUE
+#)
+#FetchContent_MakeAvailable(imath)
+
+# openexr
+#set(OPENEXR_INSTALL OFF CACHE BOOL "" FORCE)
+#set(OPENEXR_INSTALL_TOOLS OFF CACHE BOOL "" FORCE)
+#set(OPENEXR_BUILD_TOOLS OFF CACHE BOOL "" FORCE)
+#set(OPENEXR_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+#set(OPENEXR_INSTALL_DOCS OFF CACHE BOOL "" FORCE)
+#set(OPENEXR_BUILD_PYTHON OFF CACHE BOOL "" FORCE)
+#FetchContent_Declare(
+#    openexr
+#    GIT_REPOSITORY "https://github.com/AcademySoftwareFoundation/openexr"
+#    GIT_TAG        9d3e061a0b4090f268eee50e84fcccf5cbcad9ed
+#	GIT_SHALLOW TRUE
+#)
+#FetchContent_MakeAvailable(openexr)
+
 
 
 if(WIN32)
@@ -193,10 +237,14 @@ endif()
 set(BUILD_CURL_EXE OFF CACHE BOOL "" FORCE)
 set(HTTP_ONLY ON CACHE BOOL "" FORCE)
 set(CURL_ENABLE_EXPORT_TARGET OFF)
+set(CURL_DISABLE_INSTALL ON CACHE BOOL "" FORCE)
+set(BUILD_LIBCURL_DOCS OFF CACHE BOOL "" FORCE)
+set(ENABLE_CURL_MANUAL OFF CACHE BOOL "" FORCE)
 
 FetchContent_Declare(
   curl
   GIT_REPOSITORY https://github.com/curl/curl.git
+  GIT_TAG a41cd15bec379fcea3b2a98e98c322061304b3fd
   GIT_SHALLOW TRUE
 )
 FetchContent_MakeAvailable(curl)
@@ -204,6 +252,7 @@ FetchContent_MakeAvailable(curl)
 FetchContent_Declare(
   zip
   GIT_REPOSITORY https://github.com/kuba--/zip
+  GIT_TAG 6f2116d77cdcbe544e4dbbf1e53895596ed14b89
   GIT_SHALLOW TRUE
 )
 FetchContent_Populate(zip)
@@ -229,6 +278,7 @@ target_link_libraries(librefrakt PRIVATE
 	zip
 	CURL::libcurl_static
 	OpenImageDenoise
+	#OpenEXR::OpenEXR
 )
 
 target_link_libraries(librefrakt PUBLIC
@@ -245,7 +295,8 @@ target_link_libraries(librefrakt PUBLIC
 	lua_static
 	sol2
 	yaml-cpp
-	SQLite3
+	Rpcrt4.lib
+	sqlite3-static
 	zlib
 	pugixml
 	dylib

@@ -1,3 +1,6 @@
+#define DEBUG_GRID(...) if(threadIdx.x == 0 && blockIdx.x == 0) {printf(__VA_ARGS__);}
+#define DEBUG_BLOCK(format, ...) if(threadIdx.x == 0) {printf("block %d: " format "\n", blockIdx.x, __VA_ARGS__);}
+
 #ifdef DOUBLE_PRECISION 
 	using Real = double;
 	#define M_PI 3.14159265358979323846264338327950288419
@@ -181,24 +184,76 @@ namespace flamelib {
 		iterators_t<FloatT, ThreadsPerBlock> iterators;
 		RandCtx rand_states[ThreadsPerBlock];
 		uint16 shuffle_vote[ThreadsPerBlock];
-		//#ifdef USE_ASYNC_MEMCPY
-		//uint16 shuffle[ThreadsPerBlock];
-		//#endif
 		uint8 xform_vote[ThreadsPerBlock];
 	};
 
 	template<typename FlameT, typename FloatT, typename RandCtx, uint64 ThreadsPerBlock>
-	struct __align__(16) shared_state_tmpl {
+	struct __align__(16) sample_state_tmpl {
 		thread_states_t<FloatT, RandCtx, ThreadsPerBlock> ts;
 		uchar3 palette[palette_channel_size];
 		
-		vec2<FloatT> antialiasing_offsets;
 		unsigned long long tss_quality;
 		unsigned long long tss_passes;
-		uint64 tss_start;
-		bool should_bail;
+
+		unsigned long long warmup_hits;
 
 		FlameT flame;
+	};
+
+	struct iteration_info_t {
+		decltype(time()) start_time;
+		uint32 iter;
+		uint32 samples_active;
+		unsigned int loaded_sample;
+		unsigned int current_sample;
+		int temporal_multiplier;
+		int temporal_slicing;
+		bool bail;
+
+		__device__ void init(int multiplier, int slicing) {
+			loaded_sample = 0xffffffff;
+			current_sample = 0;
+			temporal_multiplier = multiplier;
+			temporal_slicing = slicing;
+			start_time = time();
+			iter = 0;
+			samples_active = (1 << temporal_multiplier) - 1;
+			//DEBUG_GRID("sample mask: %d\n", samples_active);
+			bail = false;
+		}
+
+		__device__ bool on_sample_boundary() {
+			return (iter % temporal_slicing) == 0;
+		}
+
+		__device__ unsigned int next_index(unsigned int current) {
+			auto off = __fns(samples_active, current + 1, 1);
+			if(off != 0xffffffff)
+				return off;
+			else
+				return __ffs(samples_active) - 1;
+
+		}
+
+		__device__ void mark_sample_done() {
+			samples_active &= ~(1 << current_sample);
+			// move to the iteration of the next sample
+			iter += temporal_slicing - iter % temporal_slicing - 1;
+			//DEBUG_GRID("sample %d done, iter %d\n", current_sample, iter);
+		}
+
+		__device__ void tick() {
+			iter++;
+			if(on_sample_boundary()) {
+				auto next = next_index(current_sample);
+				//DEBUG_GRID("sample %d -> %d\n", current_sample, next);
+				current_sample = next;
+			}
+		}
+
+		__device__ auto lowest_active_sample() {
+			return __ffs(samples_active) - 1;
+		}
 	};
 }
 

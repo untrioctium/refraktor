@@ -158,7 +158,7 @@ bool rfkt::gui::panels::flame_editor(rfkt::flamedb& fdb, rfkt::flame& f, command
 	f.for_each_xform([&](int xid, rfkt::xform& xf) {
 		ImFtw::Scope::ID xf_scope{ xid };
 
-		std::string xf_name = (xid == -1) ? "Final XForm" : fmt::format("XForm {}", xid);
+		std::string xf_name = (xid == -1) ? "Final XForm" : std::format("XForm {}", xid);
 
 		bool linear_only = (xid != -1 && xf.vchain.size() == 1 && xf.vchain[0].size_variations() == 1 && xf.vchain[0].has_variation("linear"));
 

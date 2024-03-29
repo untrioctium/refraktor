@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.24)
 
-find_package(PythonInterp REQUIRED)
+find_package(Python3 COMPONENTS Interpreter REQUIRED)
 project(optix LANGUAGES CXX)
 
 file(MAKE_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/include)
@@ -20,7 +20,7 @@ set(OPTIX_HEADERS
 foreach(OPTIX_HEADER IN LISTS OPTIX_HEADERS)
     message(STATUS "Downloading Optix header: ${OPTIX_HEADER}")
     execute_process(
-        COMMAND ${PYTHON_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/download_optix_header.py" ${OPTIX_HEADER}
+        COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/download_optix_header.py" ${OPTIX_HEADER}
         WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/include
         RESULT_VARIABLE OPTIX_DOWNLOAD_RESULT
         OUTPUT_VARIABLE OPTIX_DOWNLOADED_HEADERS)

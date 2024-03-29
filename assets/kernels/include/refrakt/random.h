@@ -8,7 +8,7 @@ struct rand_engine {
 
 	__device__ vec2<FloatT> randgauss(FloatT std_dev = 1.0) {		
 		FloatT r, sinang, cosang;
-		sincospif( rand01() * 2, &sinang, &cosang);
+		sincospi( rand01() * 2, &sinang, &cosang);
 		r = std_dev * (rand01() + rand01() + rand01() + rand01() - 2.0);
 		return {r * cosang, r * sinang};
 	}

@@ -27,6 +27,7 @@
 using float16 = std::uint16_t;
 
 using half3 = ushort3;
+using half4 = ushort4;
 
 namespace rfkt::cuda {
 

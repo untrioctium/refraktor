@@ -248,6 +248,11 @@ namespace roccu {
             ROCCU_SAFE_CALL(ruStreamSynchronize(stream));
         }
 
+        void wait_for(const gpu_event& ev) {
+			if (not stream) return;
+			ROCCU_SAFE_CALL(ruStreamWaitEvent(stream, ev, 0));
+		}
+
         using host_func_t = std::move_only_function<void(void)>;
         void host_func(host_func_t&& cb) noexcept {
             auto func = new host_func_t{ std::move(cb) };
@@ -276,10 +281,9 @@ namespace roccu {
 
     template<class Contained, buffer_ownership Ownership>
     class gpu_buffer_base {
-    private:
-        constexpr static bool is_owner = Ownership == buffer_ownership::owner;
-
     public:
+        using value_type = Contained;
+        constexpr static bool is_owner = Ownership == buffer_ownership::owner;
         constexpr static std::size_t element_size = sizeof(Contained);
 
         constexpr gpu_buffer_base() noexcept = default;

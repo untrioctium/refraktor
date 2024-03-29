@@ -1,9 +1,8 @@
 #include <imftw/imftw.h>
 #include <imftw/gui.h>
 
-#include <reproc++/reproc.hpp>
-
-#include <librefrakt/image/denoiser.h>
+#include <librefrakt/interface/denoiser.h>
+#include <librefrakt/interface/mp4_muxer.h>
 #include <librefrakt/image/converter.h>
 #include <librefrakt/image/tonemapper.h>
 
@@ -65,8 +64,6 @@ void rfkt::gui::render_modal::frame_logic(const rfkt::flame& flame) {
 	ImGui::Text("%f seconds, %d frames", total_seconds, total_frames);
 
 	if (worker_state) {
-		ImGui::SameLine();
-
 		auto done_frames = worker_state->rendered_frames->load();
 		double total_real_seconds = std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - start_time).count() / 1e9;
 		double real_frame_rate = done_frames / total_real_seconds;
@@ -76,7 +73,7 @@ void rfkt::gui::render_modal::frame_logic(const rfkt::flame& flame) {
 		int minutes_left = estimated_seconds_left / 60;
 		int seconds_left = estimated_seconds_left % 60;
 
-		ImGui::Text("%.2f %d:%02d", real_frame_rate / render_params.fps, minutes_left, seconds_left);
+		ImGui::Text("%.2fx real time; estimated %d:%02d remaining", real_frame_rate / render_params.fps, minutes_left, seconds_left);
 
 		if (ImGui::Button("Cancel")) {
 			worker_state->worker.request_stop();
@@ -120,14 +117,15 @@ void rfkt::gui::render_modal::frame_logic(const rfkt::flame& flame) {
 namespace rfkt {
 	class postprocessor {
 	public:
-		postprocessor(ezrtc::compiler& kc, uint2 dims, rfkt::denoiser_flag::flags dn_opts = rfkt::denoiser_flag::none) :
+		postprocessor(ezrtc::compiler& kc, uint2 dims, roccu::gpu_stream& stream, rfkt::denoiser_flag::flags dn_opts = rfkt::denoiser_flag::none) :
 			tm(kc),
-			dn(dims, dn_opts),
+			dn(denoiser::make("rfkt::oidn_denoiser", dims, dn_opts, stream)),
 			conv(kc),
 			tonemapped(dn_opts& rfkt::denoiser_flag::upscale ? dims.x / 2 : dims.x, dn_opts& rfkt::denoiser_flag::upscale ? dims.y / 2 : dims.y),
 			denoised(dims.x, dims.y),
 			dims_(dims),
-			upscale(upscale)
+			upscale(upscale),
+			dn_stream(stream)
 		{
 
 		}
@@ -178,7 +176,8 @@ namespace rfkt {
 				});
 
 			tm.run(in, tonemapped, { quality, gamma, brightness, vibrancy }, stream);
-			dn.denoise(tonemapped, denoised, stream);
+			dn->denoise(tonemapped, denoised, dn_event);
+			stream.wait_for(dn_event);
 			conv.to_32bit(denoised, out, planar_output, stream);
 			stream.host_func([&t = perf_timer, p = std::move(promise)]() mutable {
 				p.set_value(t.count());
@@ -189,7 +188,7 @@ namespace rfkt {
 
 	private:
 		rfkt::tonemapper tm;
-		rfkt::denoiser_old dn;
+		std::unique_ptr<rfkt::denoiser> dn;
 		rfkt::converter conv;
 
 		rfkt::gpu_image<half3> tonemapped;
@@ -199,6 +198,9 @@ namespace rfkt {
 
 		uint2 dims_;
 		bool upscale;
+
+		roccu::gpu_stream& dn_stream;
+		roccu::gpu_event dn_event;
 	};
 }
 
@@ -236,20 +238,14 @@ void rfkt::gui::render_modal::launch_worker(const rfkt::flame& flame)
 			static_cast<unsigned int>(render_params.dims.y)
 		};
 
-		auto pp = rfkt::postprocessor{ km, dims, rfkt::denoiser_flag::none };
 		auto post_stream = roccu::gpu_stream{};
+		auto pp = rfkt::postprocessor{ km, dims, post_stream, rfkt::denoiser_flag::none };
 		auto encoder = eznve::encoder{ dims, {static_cast<unsigned int>(render_params.fps), 1}, eznve::codec::hevc, ctx };
 
 		//auto chunkfile_name = std::format("{}.h265", render_params.output_file.string());
 		//auto chunkfile = std::ofstream{ chunkfile_name, std::ios::binary };
 
-		auto ffmpeg_options = reproc::options{};
-		auto ffmpeg_process = reproc::process{};
-
-		ffmpeg_process.start(std::vector<std::string>{
-			std::format("{}\\bin\\ffmpeg.exe", rfkt::fs::working_directory().string()),
-				/*"-hide_banner", "-loglevel", "error", */"-y", "-i", "-", "-c", "copy", "-r", std::to_string(render_params.fps), render_params.output_file.string()
-		});
+		auto muxer = rfkt::mp4_muxer::make("rfkt::ffmpeg_muxer", render_params.output_file.string(), render_params.fps);
 
 
 		auto kernel_result = fc.get_flame_kernel(fdb, rfkt::precision::f32, flame);
@@ -275,8 +271,8 @@ void rfkt::gui::render_modal::launch_worker(const rfkt::flame& flame)
 				bin_worker.join();
 
 				//chunkfile.close();
-				ffmpeg_process.kill();
-				//std::filesystem::remove(chunkfile_name);
+				muxer->finish();
+				std::filesystem::remove(render_params.output_file);
 				promise.set_value(false);
 				return;
 			}
@@ -291,7 +287,7 @@ void rfkt::gui::render_modal::launch_worker(const rfkt::flame& flame)
 			auto chunks = encoder.submit_frame((i % render_params.fps == 0 || i + 1 == total_frames) ? eznve::frame_flag::idr : eznve::frame_flag::none);
 
 			for (auto& chunk : chunks) {
-				ffmpeg_process.write((uint8_t*)chunk.data.data(), chunk.data.size());//chunkfile.write(chunk.data.data(), chunk.data.size());
+				muxer->write_chunk(chunk.data);
 				chunks_processed++;
 			}
 			i++;
@@ -299,14 +295,13 @@ void rfkt::gui::render_modal::launch_worker(const rfkt::flame& flame)
 
 		
 		for (auto chunks = encoder.flush(); auto& chunk : chunks) {
-			ffmpeg_process.write((uint8_t*) chunk.data.data(), chunk.data.size());
+			muxer->write_chunk(chunk.data);
 			chunks_processed++;
 		}
 
 		SPDLOG_INFO("processed {} chunks", chunks_processed);
 
-		ffmpeg_process.close(reproc::stream::in);
-		ffmpeg_process.wait(reproc::milliseconds(1000));
+		muxer->finish();
 
 		//chunkfile.close();
 		//int res = std::system(make_mux_command(chunkfile_name, render_params.output_file.string().c_str(), render_params.fps).c_str());

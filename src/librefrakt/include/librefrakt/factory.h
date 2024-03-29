@@ -48,8 +48,8 @@ namespace rfkt {
 	template<class Base, class... Args>
 	class factory {
 	public:
-		template<class... T>
-		static std::unique_ptr<Base> make(std::string_view name, T&&... args) {
+
+		static std::unique_ptr<Base> make(std::string_view name, Args... args) {
 			auto it = factories().find(name);
 			if (it == factories().end()) return nullptr;
 
@@ -61,7 +61,7 @@ namespace rfkt {
 				}
 				else
 					return it->second(std::forward<decltype(args_inner)>(args_inner)...);
-			}(std::forward<T>(args)...);
+			}(std::forward<Args>(args)...);
 
 			ptr->name_ = name;
 

@@ -13,6 +13,7 @@ namespace rfkt {
 				.kernel("convert_32<false>")
 				.kernel("convert_24")
 				.kernel("to_float3")
+				.kernel("to_half4")
 				.flag(ezrtc::compile_flag::extra_device_vectorization)
 				.flag(ezrtc::compile_flag::use_fast_math)
 				.flag(ezrtc::compile_flag::default_device)
@@ -75,6 +76,22 @@ namespace rfkt {
 			}
 
 			CUDA_SAFE_CALL(conv.kernel("to_float3")
+				.launch(nblocks, block_size, stream)
+				(
+					in.ptr(),
+					out.ptr(),
+					size
+					));
+		}
+
+		void to_half4(roccu::gpu_span<half3> in, roccu::gpu_span<half4> out, roccu::gpu_stream& stream) const {
+			unsigned int size = in.size();
+			auto nblocks = size / block_size;
+			if (size % block_size != 0) {
+				nblocks++;
+			}
+
+			CUDA_SAFE_CALL(conv.kernel("to_half4")
 				.launch(nblocks, block_size, stream)
 				(
 					in.ptr(),

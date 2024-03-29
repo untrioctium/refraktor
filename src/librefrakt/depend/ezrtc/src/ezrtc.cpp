@@ -687,7 +687,7 @@ std::string_view ezrtc::spec::signature() const {
 
 	sha1.process_bytes(detail::get_arch())
 		.process_bytes(detail::get_device_name())
-		.process_bytes(name)
+		.process_bytes(name_)
 		.process_bytes(source);
 
 	auto api = roccuGetApi();
@@ -776,7 +776,7 @@ std::optional<ezrtc::cuda_module> ezrtc::compiler::load_cache(const ezrtc::spec&
 		return std::nullopt;
 	}
 
-	auto row = k_cache->get(s.name);
+	auto row = k_cache->get(s.name_);
 	if (!row.has_value()) {
 		return std::nullopt;
 	}
@@ -977,7 +977,7 @@ ezrtc::compiler::result ezrtc::compiler::compile(const ezrtc::spec& s) {
 			rurtcProgram prog_handle;
 			EZRTC_CHECK_RURTC(
 				rurtcCreateProgram(
-					&prog_handle, s.source.c_str(), s.name.c_str(),
+					&prog_handle, s.source.c_str(), s.name_.c_str(),
 					header_names.size(), header_contents.data(), header_names.data()
 				)
 			);
@@ -1014,7 +1014,7 @@ ezrtc::compiler::result ezrtc::compiler::compile(const ezrtc::spec& s) {
 			for (const auto& [name, header] : missing) {
 
 				auto cwd = [&]() {
-					if (name == s.name) { return std::filesystem::current_path(); }
+					if (name == s.name_) { return std::filesystem::current_path(); }
 					else {
 						auto iter = hcache.find(std::string{ name });
 						if (iter == hcache.end()) return std::filesystem::current_path();
@@ -1092,7 +1092,7 @@ ezrtc::compiler::result ezrtc::compiler::compile(const ezrtc::spec& s) {
 		row.signature = s.signature();
 		row.meta = { meta_bytes.data(), meta_bytes.size() };
 		row.data = { ptx.data(), ptx_size};
-		k_cache->put(s.name, std::move(row));
+		k_cache->put(s.name_, std::move(row));
 	}
 
 	return ret;

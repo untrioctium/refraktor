@@ -33,7 +33,7 @@ __device__ auto generate_segment(Real p0, Real p1, Real p2, Real p3, Real tensio
 __global__ void generate_sample_coefficients( const Real* samples, const unsigned int sample_size, const unsigned int num_segments, catmull::segment* segments ) {
 	
 	const unsigned int grid_rank = threadIdx.x + blockIdx.x * blockDim.x;
-	if(grid_rank > sample_size * num_segments) return;
+	if(grid_rank >= sample_size * num_segments) return;
 	
 	const unsigned int my_segment = grid_rank / sample_size;
 	const unsigned int my_parameter = grid_rank % sample_size;

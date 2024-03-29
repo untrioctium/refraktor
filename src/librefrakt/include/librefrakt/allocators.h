@@ -96,7 +96,7 @@ namespace rfkt {
         };
 
         typename Traits::PtrType reserve(std::size_t amount) {
-            return memory + counter.increment(amount + (16 - amount % 16), size);
+            return memory + counter.increment(amount + 16 - amount % 16, size);
         }
 
         std::size_t size;

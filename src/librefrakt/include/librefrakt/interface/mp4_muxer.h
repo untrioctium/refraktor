@@ -9,7 +9,7 @@ namespace rfkt {
 		explicit mp4_muxer(key) {}
 		virtual ~mp4_muxer() = default;
 
-		virtual void write_chunk(std::span<const std::byte> chunk) = 0;
+		virtual void write_chunk(std::span<const char> chunk) = 0;
 		virtual void finish() = 0;
 	};
 

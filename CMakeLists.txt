@@ -1,4 +1,7 @@
-cmake_minimum_required(VERSION 3.11...3.18)
+cmake_minimum_required(VERSION 3.11...3.24)
+cmake_policy(SET CMP0069 NEW)
+set(CMAKE_POLICY_DEFAULT_CMP0069 NEW)
+set(CMAKE_WARN_DEPRECATED OFF CACHE BOOL "" FORCE)
 enable_language(CXX)
 enable_language(C)
 
@@ -25,11 +28,13 @@ set_property(GLOBAL PROPERTY USE_FOLDERS ON)
 #find_package(CUDAToolkit)
 
 # spdlog
+set(SPDLOG_USE_STD_FORMAT ON CACHE BOOL "" FORCE)
 FetchContent_Declare(
   spdlog
   GIT_REPOSITORY https://github.com/gabime/spdlog.git
-  GIT_TAG v1.8.5
+  GIT_TAG v1.13.0
   EXCLUDE_FROM_ALL
+  GIT_SHALLOW TRUE
 )
 FetchContent_MakeAvailable(spdlog)
 
@@ -42,9 +47,10 @@ FetchContent_Declare(
   GIT_TAG stable
   OVERRIDE_FIND_PACKAGE
   EXCLUDE_FROM_ALL
+  GIT_SHALLOW TRUE
 )
 FetchContent_MakeAvailable(zlib)
-target_include_directories(zlib PUBLIC ${zlib_SOURCE_DIR})
+#target_include_directories(zlib PUBLIC ${zlib_SOURCE_DIR})
 add_library(ZLIB::ZLIB ALIAS zlib)
 set(ZLIB_INCLUDE_DIR "${zlib_SOURCE_DIR}" "${zlib_BINARY_DIR}")
 
@@ -84,7 +90,7 @@ endforeach()
 #set(CPACK_COMPONENTS_ALL refrakt)
 #include(CPack)
 
-get_cmake_property(_variableNames VARIABLES)
-foreach (_variableName ${_variableNames})
-    message(STATUS "${_variableName}=${${_variableName}}")
-endforeach()
+#get_cmake_property(_variableNames VARIABLES)
+#foreach (_variableName ${_variableNames})
+#    message(STATUS "${_variableName}=${${_variableName}}")
+#endforeach()

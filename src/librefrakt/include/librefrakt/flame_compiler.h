@@ -34,8 +34,11 @@ namespace rfkt {
 		struct saved_state: public traits::noncopyable {
 			gpu_image<float4> bins = {};
 			double quality = 0.0;
+			int temporal_multiplier = 1;
 			roccu::gpu_buffer<> shared = {};
 			roccu::gpu_span<bool> stopper;
+			roccu::gpu_buffer<std::size_t> warmup_hits = {};
+			std::future<double> warmup_time;
 
 			saved_state() = default;
 			saved_state(saved_state&& o) noexcept {
@@ -46,19 +49,30 @@ namespace rfkt {
 				std::swap(shared, o.shared);
 				std::swap(quality, o.quality);
 				std::swap(stopper, o.stopper);
+				std::swap(temporal_multiplier, o.temporal_multiplier);
+				std::swap(warmup_hits, o.warmup_hits);
+				std::swap(warmup_time, o.warmup_time);
 				return *this;
 			}
 
-			saved_state(uint2 dims, std::size_t nbytes, RUstream stream) :
+			saved_state(uint2 dims, std::size_t nbytes, int temporal_multiplier, std::future<double>&& warmup_time, RUstream stream) :
 				bins(dims.x, dims.y, stream),
-				shared(nbytes, stream) {
+				temporal_multiplier(temporal_multiplier),
+				shared(nbytes * temporal_multiplier, stream),
+				warmup_hits(1, stream),
+				warmup_time(std::move(warmup_time)) {
 				bins.clear(stream);
+				warmup_hits.clear(stream);
 			}
 
-			saved_state(decltype(saved_state::bins)&& bins, std::size_t nbytes, RUstream stream) :
+			saved_state(decltype(saved_state::bins)&& bins, std::size_t nbytes, int temporal_multiplier, std::future<double>&& warmup_time, RUstream stream) :
 				bins(std::move(bins)),
-				shared(nbytes, stream) {
+				temporal_multiplier(temporal_multiplier),
+				shared(nbytes * temporal_multiplier, stream),
+				warmup_hits(1, stream),
+				warmup_time(std::move(warmup_time)) {
 				bins.clear(stream);
+				warmup_hits.clear(stream);
 			}
 
 			void abort_binning() {
@@ -74,9 +88,9 @@ namespace rfkt {
 			double quality = 128.0;
 		};
 
-		auto bin(roccu::gpu_stream& stream, flame_kernel::saved_state& state, const bailout_args&) const-> std::future<bin_result>;
-		auto warmup(roccu::gpu_stream& stream, std::span<double> samples, uint2 dims, std::uint32_t seed, std::uint32_t count) const->flame_kernel::saved_state;
-		auto warmup(roccu::gpu_stream& stream, std::span<double> samples, gpu_image<float4>&& bins, std::uint32_t seed, std::uint32_t count) const->flame_kernel::saved_state;
+		auto bin(roccu::gpu_stream& stream, flame_kernel::saved_state& state, const bailout_args&, int temporal_slicing = 100) const-> std::future<bin_result>;
+		auto warmup(roccu::gpu_stream& stream, std::span<double> samples, uint2 dims, std::uint32_t seed, std::uint32_t count, int temporal_multiplier = 1) const->flame_kernel::saved_state;
+		auto warmup(roccu::gpu_stream& stream, std::span<double> samples, gpu_image<float4>&& bins, std::uint32_t seed, std::uint32_t count, int temporal_multiplier = 1) const->flame_kernel::saved_state;
 
 		flame_kernel(flame_kernel&& o) noexcept {
 			*this = std::move(o);
@@ -88,6 +102,7 @@ namespace rfkt {
 			this->flame_size_reals = o.flame_size_reals;
 			this->srt = std::move(o.srt);
 			this->affine_indices = std::move(o.affine_indices);
+			this->saved_state_size = o.saved_state_size;
 
 			return *this;
 		}
@@ -106,12 +121,15 @@ namespace rfkt {
 			rfkt::device_ring_allocator dra;
 		};
 
-		std::size_t saved_state_size() const { return mod("bin").shared_bytes() * exec.first; }
-
 		flame_kernel(std::size_t flame_size_reals, ezrtc::cuda_module&& mod, std::pair<int, int> exec, std::shared_ptr<shared_runtime> srt, std::vector<std::size_t> affine_indices) :
 			mod(std::move(mod)), exec(exec), flame_size_reals(flame_size_reals), srt(srt), affine_indices(std::move(affine_indices)) {
+
+			roccu::gpu_buffer<std::size_t> state_size_buf{ 1 };
+			this->mod.kernel("get_sample_state_size").launch(1, 1)(state_size_buf.ptr());
+			saved_state_size = state_size_buf.to_host()[0] * exec.first;
 		}
 
+		std::size_t saved_state_size;
 		std::size_t flame_size_reals = 0;
 		ezrtc::cuda_module mod = {};
 		std::pair<std::uint32_t, std::uint32_t> exec = {};
@@ -170,12 +188,16 @@ namespace rfkt {
 			std::swap(compiled_variations, o.compiled_variations);
 			std::swap(compiled_common, o.compiled_common);
 			std::swap(last_flamedb_hash, o.last_flamedb_hash);
+			std::swap(required_smem, o.required_smem);
+			std::swap(km, o.km);
 		}
 
 	private:
 
-		auto smem_per_block(precision prec, int flame_real_bytes, int threads_per_block) {
-			return required_smem[std::make_pair(prec, threads_per_block)] + flame_real_bytes;
+		auto smem_per_block(precision prec, std::size_t flame_real_count, std::size_t threads_per_block) {
+			auto sample_bytes = required_smem[std::make_pair(prec, threads_per_block)] + flame_real_count * (prec == precision::f32 ? 4: 8);
+			sample_bytes += (sample_bytes % 16 > 0) ? 16 - sample_bytes % 16 : 0;
+			return sample_bytes + iteration_info_size;
 		}
 
 		std::pair<roccu::execution_config, ezrtc::spec> make_opts(precision prec, const flame& f);
@@ -184,7 +206,8 @@ namespace rfkt {
 		std::map<std::size_t, roccu::gpu_buffer<unsigned short>> shuf_bufs;
 		decltype(std::declval<roccu::device_t>().concurrent_block_configurations()) exec_configs;
 
-		std::map<std::pair<precision, int>, int> required_smem;
+		std::map<std::pair<precision, std::size_t>, std::size_t> required_smem;
+		std::size_t iteration_info_size = 0;
 
 		std::size_t num_shufs = 4096;
 

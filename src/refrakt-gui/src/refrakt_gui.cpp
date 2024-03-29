@@ -9,10 +9,9 @@
 #include <librefrakt/flame_info.h>
 #include <librefrakt/flame_compiler.h>
 #include <librefrakt/image/tonemapper.h>
-#include <librefrakt/image/denoiser.h>
+#include <librefrakt/interface/denoiser.h>
 #include <librefrakt/image/converter.h>
 #include <librefrakt/util/cuda.h>
-//#include <librefrakt/util/nvjpeg.h>
 #include <librefrakt/util/filesystem.h>
 #include <librefrakt/util/gpuinfo.h>
 #include <librefrakt/util/http.h>
@@ -643,7 +642,7 @@ public:
 		ImFtw::Sig::SetWindowDecorated(true).get();
 		ImFtw::Sig::SetWindowMaximized(true).get();
 		ImFtw::Sig::SetVSyncEnabled(false);
-		ImFtw::Sig::SetTargetFramerate(60);
+		ImFtw::Sig::SetTargetFramerate(500);
 
 		while (true) {
 			ImFtw::BeginFrame();
@@ -701,7 +700,6 @@ private:
 
 		//SPDLOG_INFO("Max persisting L2 size (megabytes): {}", v);
 
-		show_splash("Initializing denoising system", [&]() { rfkt::denoiser_old::init(ctx); });
 		show_splash("Initializing GPU statistics system", []() { rfkt::gpuinfo::init(); });
 		show_splash("Loading variations", [&]() {rfkt::initialize(fdb, "config"); });
 
@@ -738,18 +736,19 @@ private:
 			"return iv + v * amplitude\n"
 		});
 
-
-
+		dn_stream = std::make_unique<roccu::gpu_stream>();
+		denoise_normal = rfkt::denoiser::make("rfkt::oidn_denoiser", uint2{ 512, 512 }, rfkt::denoiser_flag::tiled, *dn_stream);
+		denoise_upscale = rfkt::denoiser::make("rfkt::optix_denoiser", uint2{ 512, 512 }, rfkt::denoiser_flag::upscale | rfkt::denoiser_flag::tiled, *dn_stream);
 		f_comp = show_splash("Setting up flame compiler", [&]() { return std::make_shared<rfkt::flame_compiler>(k_comp); });
 		tonemap = show_splash("Creating tonemapper", [&] { return std::make_shared<rfkt::tonemapper>( *k_comp ); });
-		denoise_normal = show_splash("Creating denoiser", [] { return std::make_shared<rfkt::denoiser_old>(uint2{ 512, 512 }, rfkt::denoiser_flag::tiled); });
-		denoise_upscale = show_splash("Creating upscaling denoiser", [] { return std::make_shared<rfkt::denoiser_old>(uint2{ 512, 512 }, rfkt::denoiser_flag::upscale | rfkt::denoiser_flag::tiled); });
+		//denoise_normal = show_splash("Creating denoiser", [&dns = *dn_stream]() mutable { return rfkt::denoiser::make("rfkt::oidn_denoiser", uint2{512, 512}, rfkt::denoiser_flag::tiled, *dns); });
+		//denoise_upscale = show_splash("Creating upscaling denoiser", [&dns = *dn_stream]() mutable { return rfkt::denoiser::make("rfkt::optix_denoiser", uint2{ 512, 512 }, rfkt::denoiser_flag::upscale | rfkt::denoiser_flag::tiled, *dns); });
 		convert = show_splash("Creating converter", [&] { return std::make_shared<rfkt::converter>(*k_comp); });
 
-		preview_panel::renderer_t renderer = [&](
+		preview_panel::renderer_t renderer = [&, ev = roccu::gpu_event{}, pp_stream = roccu::gpu_stream{}](
 			roccu::gpu_stream& stream, const rfkt::flame_kernel& kernel,
 			rfkt::flame_kernel::saved_state& state,
-			rfkt::flame_kernel::bailout_args bo, double3 gbv, bool upscale, bool denoise) {
+			rfkt::flame_kernel::bailout_args bo, double3 gbv, bool upscale, bool denoise) mutable {
 
 				const auto total_bins = state.bins.area();
 
@@ -766,15 +765,18 @@ private:
 				auto mpasses_per_ms = (bin_info.total_passes / 1'000'000.0) / bin_info.elapsed_ms;
 				auto mdraws_per_ms = (bin_info.total_draws / 1'000'000.0) / bin_info.elapsed_ms;
 				auto passes_per_pixel = bin_info.total_passes / (double)total_bins;
-				SPDLOG_INFO("{} mpasses/ms, {} mdraws/ms, {} passes per pixel", mpasses_per_ms, mdraws_per_ms, passes_per_pixel);
+				SPDLOG_INFO("{} mpasses/ms, {} mdraws/ms, {} passes per thread", mpasses_per_ms, mdraws_per_ms, bin_info.passes_per_thread);
 
 				tonemap->run(state.bins, tonemapped, { state.quality, gbv.x, gbv.y, gbv.z }, stream);
 				stream.sync();
 				auto& denoiser = upscale ? denoise_upscale : denoise_normal;
-				if(denoise) denoiser->denoise(tonemapped, denoised, stream);
+				if(denoise) denoiser->denoise(tonemapped, denoised, ev).get();
 				
 				if constexpr (std::same_as<preview_panel::pixel_type, float4>) {
-					convert->to_float3(denoised, out_buf, stream);
+					convert->to_float3((denoise) ? denoised : tonemapped, out_buf, stream);
+				}
+				else if constexpr(std::same_as<preview_panel::pixel_type, half4>) {
+					convert->to_half4(denoised, out_buf, stream);
 				}
 				else {
 					convert->to_32bit((denoise)? denoised: tonemapped, out_buf, false, stream);
@@ -898,9 +900,10 @@ private:
 	rfkt::function_table functions;
 
 	std::shared_ptr<rfkt::tonemapper> tonemap;
-	std::shared_ptr<rfkt::denoiser_old> denoise_normal;
-	std::shared_ptr<rfkt::denoiser_old> denoise_upscale;
+	std::shared_ptr<rfkt::denoiser> denoise_normal;
+	std::shared_ptr<rfkt::denoiser> denoise_upscale;
 	std::shared_ptr<rfkt::converter> convert;
+	std::unique_ptr<roccu::gpu_stream> dn_stream;
 
 	concurrencpp::runtime runtime;
 

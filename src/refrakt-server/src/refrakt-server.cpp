@@ -34,7 +34,7 @@ struct StringLiteral {
 
 template<StringLiteral code, StringLiteral desc>
 void end_error(uWS::HttpResponse<true>* res, uWS::HttpRequest* req = nullptr) {
-	res->writeStatus(fmt::format("{} {}", code.value, desc.value));
+	res->writeStatus(std::format("{} {}", code.value, desc.value));
 	res->end();
 
 	if (req) SPDLOG_INFO("{} {} {}", code.value, req->getMethod(), req->getUrl());
@@ -103,7 +103,7 @@ class http_connection_data : public std::enable_shared_from_this<http_connection
 public:
 	http_connection_data() = delete;
 	~http_connection_data() {
-		SPDLOG_INFO("Closing HTTP session {}", fmt::ptr(this));
+		//SPDLOG_INFO("Closing HTTP session {}", fmt::ptr(this));
 	}
 
 	http_connection_data(const http_connection_data&) = delete;
@@ -114,7 +114,7 @@ public:
 
 	[[nodiscard]] static auto make(auto* res) {
 		auto ptr = std::shared_ptr<http_connection_data>{ new http_connection_data{res} };
-		ptr->response()->onAborted([cd = ptr->shared_from_this()]() { SPDLOG_INFO("Aborting HTTP session {}", fmt::ptr(cd.get()));  cd->abort(); });
+		//ptr->response()->onAborted([cd = ptr->shared_from_this()]() { SPDLOG_INFO("Aborting HTTP session {}", fmt::ptr(cd.get()));  cd->abort(); });
 		return ptr;
 	}
 
@@ -136,7 +136,7 @@ private:
 	uWS::Loop* parent;
 
 	http_connection_data(uWS::HttpResponse<true>* res) : response_(res), parent(uWS::Loop::get()) {
-		SPDLOG_INFO("Opening HTTP session {}", fmt::ptr(this));
+		//SPDLOG_INFO("Opening HTTP session {}", fmt::ptr(this));
 	}
 
 };
@@ -327,7 +327,7 @@ namespace rfkt {
 					auto local_flames = rfkt::fs::list("assets/flames_test", rfkt::fs::filter::has_extension(".flam3"));
 					return local_flames[std::rand() % local_flames.size()];
 				}
-				return fmt::format("assets/flames_test/electricsheep.{}.flam3", data["flame"].get<std::string>());
+				return std::format("assets/flames_test/electricsheep.{}.flam3", data["flame"].get<std::string>());
 			}();
 
 			auto upscale = data.value("upscale", false);

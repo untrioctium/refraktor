@@ -94,10 +94,13 @@ bool preview_panel::show(const rfkt::flamedb& fdb, rfkt::flame& flame, rfkt::fun
 				&stream = this->stream, preview_size,
 				target_quality = this->target_quality,
 				upscale = this->upscale,
-				denoise = this->denoise]() mutable {
+				denoise = this->denoise,
+				temporal_multiplier = this->temporal_multiplier]() mutable noexcept {
 
 					if (needs_kernel) {
 						auto result = compiler.get_flame_kernel(fdb, rfkt::precision::f32, *flame_copy);
+
+						SPDLOG_INFO("Source:\n{}", result.source);
 
 						*kernel = std::move(result.kernel.value());
 					}
@@ -106,7 +109,8 @@ bool preview_panel::show(const rfkt::flamedb& fdb, rfkt::flame& flame, rfkt::fun
 
 					if (needs_clear) {
 						auto state_size = upscale ? uint2{ preview_size.x / 2, preview_size.y / 2 } : preview_size;
-						*state = kernel->warmup(stream, samples, state_size, 0xdeadbeef, 100);
+						*state = kernel->warmup(stream, samples, state_size, 0xdeadbeef, 1000, temporal_multiplier);
+						SPDLOG_INFO("Created state of size: {} MB", state->shared.size_bytes() / (1024.0 * 1024.0));
 					}
 					else {
 						//millis = 100u;
@@ -161,6 +165,8 @@ uint2 preview_panel::gui_logic(rfkt::flame& flame, rfkt::function_table& ft) {
 
 			IMFTW_MENU("Quality") {
 				const static std::vector<std::pair<std::string, double>> qualities{
+					{"Terrible", 2},
+					{"Very Low", 8},
 					{"Low", 32},
 					{"Medium", 128},
 					{"High", 512},
@@ -198,6 +204,18 @@ uint2 preview_panel::gui_logic(rfkt::flame& flame, rfkt::function_table& ft) {
 				}
 
 			}
+
+			IMFTW_MENU("Multiplier") {
+				for (int i = 1; i < 16; i++) {
+					if (ImGui::MenuItem(std::to_string(i).c_str(), nullptr, temporal_multiplier == i) && temporal_multiplier != i) {
+						temporal_multiplier = i;
+						render_options_changed = true;
+					}
+				}
+			}
+
+			ImGui::InputFloat("Gamma", &gamma);
+			ImGui::InputFloat("Exposure", &exposure);
 
 			render_options_changed |= ImGui::Checkbox("Animate", &animate);
 			render_options_changed |= ImGui::Checkbox("Denoise", &denoise);
@@ -246,7 +264,26 @@ uint2 preview_panel::gui_logic(rfkt::flame& flame, rfkt::function_table& ft) {
 
 			ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (avail.x - draw_size.x) / 2.0);
 			ImGui::SetCursorPosY(ImGui::GetCursorPosY() + (avail.y - draw_size.y) / 2.0);
+
+			ImGui::GetWindowDrawList()->AddCallback(
+				[](const ImDrawList* parent_list, const ImDrawCmd* cmd) {
+					auto panel = reinterpret_cast<preview_panel*>(cmd->UserCallbackData);
+					glUniform1f(1, panel->gamma);
+					glUniform1f(2, panel->exposure);
+				},
+				this
+			);
+
 			ImGui::Image((void*)(intptr_t)tex->id(), ImVec2(draw_size.x, draw_size.y));
+
+			ImGui::GetWindowDrawList()->AddCallback(
+				[](const ImDrawList* parent_list, const ImDrawCmd* cmd) {
+					glUniform1f(1, 2.2f);
+					glUniform1f(2, 2.0f);
+				},
+				nullptr
+			);
+
 			preview_hovered = ImGui::IsItemHovered();
 		}
 	}

@@ -31,6 +31,7 @@ FetchContent_Declare(
   glfw
   GIT_REPOSITORY https://github.com/glfw/glfw.git
   GIT_TAG 3.3.8
+  PATCH_COMMAND git restore . && git apply ${CMAKE_CURRENT_SOURCE_DIR}/cmake/glfw_hdr.patch
 )
 FetchContent_MakeAvailable(glfw)
 
@@ -46,7 +47,7 @@ FetchContent_MakeAvailable(glad)
 FetchContent_Declare(
   freetype
   GIT_REPOSITORY https://gitlab.freedesktop.org/freetype/freetype.git
-  GIT_TAG VER-2-13-0
+  GIT_TAG VER-2-13-2
 )
 FetchContent_MakeAvailable(freetype)
 target_include_directories(freetype PRIVATE ${ZLIB_INCLUDE_DIR})
@@ -57,6 +58,7 @@ FetchContent_Declare(
   imgui
   GIT_REPOSITORY https://github.com/ocornut/imgui.git
   GIT_TAG docking
+  PATCH_COMMAND git restore . && git apply ${CMAKE_CURRENT_SOURCE_DIR}/cmake/imgui_hdr.patch
 )
 FetchContent_MakeAvailable(imgui)
 file(GLOB IMGUI_SOURCES
@@ -78,7 +80,8 @@ target_link_libraries(imgui PUBLIC freetype)
 FetchContent_Declare(
     concurrentqueue
     GIT_REPOSITORY https://github.com/cameron314/concurrentqueue.git
-    GIT_TAG master
+    GIT_TAG v1.0.4
+    GIT_SHALLOW TRUE
 )
 FetchContent_MakeAvailable(concurrentqueue)
 
@@ -86,7 +89,8 @@ FetchContent_MakeAvailable(concurrentqueue)
 FetchContent_Declare(
     readerwriterqueue
     GIT_REPOSITORY https://github.com/cameron314/readerwriterqueue.git
-    GIT_TAG master
+    GIT_TAG 8e7627d18c2108aca178888d88514179899a044f
+    GIT_SHALLOW TRUE
 )
 FetchContent_MakeAvailable(readerwriterqueue)
 

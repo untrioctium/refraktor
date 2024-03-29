@@ -3,6 +3,7 @@
 #include <OpenImageDenoise/oidn.hpp>
 
 #include <librefrakt/interface/denoiser.h>
+#include <librefrakt/util/filesystem.h>
 
 namespace rfkt {
 
@@ -28,6 +29,12 @@ namespace rfkt {
 			check_error();
 			filter = device.newFilter("RT");
 
+			auto weights_list = rfkt::fs::list(rfkt::fs::working_directory() / "assets/denoise_weights/", rfkt::fs::filter::has_extension(".tza"));
+			std::ranges::sort(weights_list, std::less{});
+
+			SPDLOG_INFO("Using OIDN weights: {}", weights_list.back().string());
+			weights = rfkt::fs::read_bytes(weights_list.back());
+
 			check_error();
 		}
 
@@ -38,6 +45,7 @@ namespace rfkt {
 
 			filter.setImage("color", in_buf, oidn::Format::Half3, in.dims().x, in.dims().y);
 			filter.setImage("output", out_buf, oidn::Format::Half3, out.dims().x, out.dims().y);
+			filter.setData("weights", weights.data(), weights.size());
 			oidnSetFilterInt(filter.getHandle(), "quality", OIDN_QUALITY_BALANCED);
 			filter.commit();
 			check_error();
@@ -49,6 +57,7 @@ namespace rfkt {
 			stream.host_func([timer]() { timer->reset(); });
 
 			filter.execute();
+			check_error();
 			stream.record(event);
 
 			stream.host_func([timer = std::move(timer), promise = std::move(promise)]() mutable {
@@ -65,6 +74,7 @@ namespace rfkt {
 			}
 		}
 
+		std::vector<char> weights;
 		roccu::gpu_stream& stream;
 		oidn::DeviceRef device;
 		oidn::FilterRef filter;

@@ -1,0 +1,19 @@
+diff --git a/backends/imgui_impl_opengl3.cpp b/backends/imgui_impl_opengl3.cpp
+index 0be98b63..2625744c 100644
+--- a/backends/imgui_impl_opengl3.cpp
++++ b/backends/imgui_impl_opengl3.cpp
+@@ -867,9 +867,13 @@ bool    ImGui_ImplOpenGL3_CreateDeviceObjects()
+         "in vec4 Frag_Color;\n"
+         "uniform sampler2D Texture;\n"
+         "layout (location = 0) out vec4 Out_Color;\n"
++        "layout (location = 1) uniform float gamma = 1.0f;\n"
++        "layout (location = 2) uniform float exposure = 1.0f;\n"
+         "void main()\n"
+         "{\n"
+-        "    Out_Color = Frag_Color * texture(Texture, Frag_UV.st);\n"
++        "    const vec4 color = Frag_Color * texture(Texture, Frag_UV.st);\n"
++        "    const vec3 colorTgt = pow(color.rgb, vec3(gamma)) * exposure;\n"
++        "    Out_Color = vec4(colorTgt, color.a);\n"
+         "}\n";
+ 
+     // Select shaders matching our GLSL versions

@@ -14,6 +14,10 @@ struct half3 {
     __half x, y, z;
 };
 
+struct half4 {
+    __half x, y, z, w;
+};
+
 template<bool Planar>
 __device__ consteval auto image_type() {
     if constexpr (Planar) {
@@ -57,9 +61,9 @@ __device__ uint32 rgba10_pack(half3 val) {
 __global__ void convert_24(const half3* const __restrict__ in, uchar3* out, unsigned int size) {
     const unsigned int bin_idx = blockIdx.x * blockDim.x + threadIdx.x;
 
-    if (bin_idx > size) return;
+    if (bin_idx >= size) return;
 
-    const half3 in_val = in[bin_idx];
+    const half3& in_val = in[bin_idx];
 
     out[bin_idx] = uchar3{half2uchar(in_val.x), half2uchar(in_val.y), half2uchar(in_val.z)};
 }
@@ -69,7 +73,7 @@ __global__ void convert_32(const half3* const __restrict__ in, decltype(image_ty
 
     const unsigned int bin_idx = blockIdx.x * blockDim.x + threadIdx.x;
 
-	if (bin_idx > size) return;
+	if (bin_idx >= size) return;
 
     const half3 in_val = in[bin_idx];
 
@@ -87,10 +91,21 @@ __global__ void to_float3(const half3* const __restrict__ in, float4* const __re
     
         const unsigned int bin_idx = blockIdx.x * blockDim.x + threadIdx.x;
     
-        if (bin_idx > size) return;
+        if (bin_idx >= size) return;
     
         const half3 in_val = in[bin_idx];
     
         out[bin_idx] = float4(__half2float(in_val.x), __half2float(in_val.y), __half2float(in_val.z), 1.0f);
 
+}
+
+__global__ void to_half4(const half3* const __restrict__ in, half4* const __restrict__ out, unsigned int size) {
+    
+        const unsigned int bin_idx = blockIdx.x * blockDim.x + threadIdx.x;
+    
+        if (bin_idx >= size) return;
+    
+        const half3 in_val = in[bin_idx];
+    
+        out[bin_idx] = half4{in_val.x, in_val.y, in_val.z, 1.0f};
 }
