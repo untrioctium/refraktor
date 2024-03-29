@@ -8,6 +8,8 @@ jobs:
       - uses: ilammy/msvc-dev-cmd@v1
         with:
           vsversion: "2022"
+          sdk: "10.0.22621.0"
+          toolkit: "14.38.33135"
         
       - name: Configure and Build
         run: |
