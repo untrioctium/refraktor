@@ -28,6 +28,7 @@ namespace rfkt {
 			device.commit();
 			check_error();
 			filter = device.newFilter("RT");
+			alpha_filter = device.newFilter("RT");
 
 			auto weights_list = rfkt::fs::list(rfkt::fs::working_directory() / "assets/denoise_weights/", rfkt::fs::filter::has_extension(".tza"));
 			std::ranges::sort(weights_list, std::less{});
@@ -35,18 +36,25 @@ namespace rfkt {
 			SPDLOG_INFO("Using OIDN weights: {}", weights_list.back().string());
 			weights = rfkt::fs::read_bytes(weights_list.back());
 
+			filter.setData("weights", weights.data(), weights.size());
+			alpha_filter.setData("weights", weights.data(), weights.size());
+
+			oidnSetFilterInt(filter.getHandle(), "quality", OIDN_QUALITY_BALANCED);
+			oidnSetFilterInt(alpha_filter.getHandle(), "quality", OIDN_QUALITY_BALANCED);
+
 			check_error();
 		}
 
-		std::future<double> denoise(const image_type& in, image_type& out, roccu::gpu_event& event) override {
+		template<typename PixelType>
+		std::future<double> denoise_impl(image_type<PixelType> in, image_type<PixelType> out, roccu::gpu_event& event) {
 
 			oidn::BufferRef in_buf = oidnNewSharedBuffer(device.getHandle(), std::bit_cast<void*>(in.ptr()), in.size_bytes());
 			oidn::BufferRef out_buf = oidnNewSharedBuffer(device.getHandle(), std::bit_cast<void*>(out.ptr()), out.size_bytes());
 
-			filter.setImage("color", in_buf, oidn::Format::Half3, in.dims().x, in.dims().y);
-			filter.setImage("output", out_buf, oidn::Format::Half3, out.dims().x, out.dims().y);
-			filter.setData("weights", weights.data(), weights.size());
-			oidnSetFilterInt(filter.getHandle(), "quality", OIDN_QUALITY_BALANCED);
+			constexpr static auto format = std::is_same_v<PixelType, half3> ? oidn::Format::Half3 : oidn::Format::Float3;
+
+			filter.setImage("color", in_buf, format, in.dims().x, in.dims().y);
+			filter.setImage("output", out_buf, format, out.dims().x, out.dims().y);
 			filter.commit();
 			check_error();
 
@@ -56,7 +64,7 @@ namespace rfkt {
 
 			stream.host_func([timer]() { timer->reset(); });
 
-			filter.execute();
+			filter.executeAsync();
 			check_error();
 			stream.record(event);
 
@@ -65,6 +73,59 @@ namespace rfkt {
 			});
 
 			return future;
+		}
+
+		template<typename PixelType>
+		std::future<double> denoise_impl_alpha(image_type<PixelType> in, image_type<PixelType> out, roccu::gpu_event& event) {
+			oidn::BufferRef in_buf = oidnNewSharedBuffer(device.getHandle(), std::bit_cast<void*>(in.ptr()), in.size_bytes());
+			oidn::BufferRef out_buf = oidnNewSharedBuffer(device.getHandle(), std::bit_cast<void*>(out.ptr()), out.size_bytes());
+
+			constexpr static auto format = std::is_same_v<PixelType, half4> ? oidn::Format::Half3 : oidn::Format::Float3;
+			constexpr static auto alpha_format = std::is_same_v<PixelType, half4> ? oidn::Format::Half : oidn::Format::Float;
+			constexpr static auto pixel_size = sizeof(PixelType);
+			constexpr static auto channel_size = sizeof(PixelType::x);
+
+			filter.setImage("color", in_buf, format, in.dims().x, in.dims().y, 0, pixel_size, pixel_size * in.dims().x);
+			filter.setImage("output", out_buf, format, out.dims().x, out.dims().y, 0, pixel_size, pixel_size * out.dims().x);
+			filter.commit();
+			check_error();
+
+			alpha_filter.setImage("color", in_buf, alpha_format, in.dims().x, in.dims().y, channel_size * 3, pixel_size, pixel_size * in.dims().x);
+			alpha_filter.setImage("output", out_buf, alpha_format, out.dims().x, out.dims().y, channel_size * 3, pixel_size, pixel_size * out.dims().x);
+			alpha_filter.commit();
+
+			auto timer = std::make_shared<rfkt::timer>();
+			auto promise = std::promise<double>{};
+			auto future = promise.get_future();
+
+			stream.host_func([timer]() { timer->reset(); });
+
+			filter.executeAsync();
+			alpha_filter.executeAsync();
+			check_error();
+			stream.record(event);
+
+			stream.host_func([timer = std::move(timer), promise = std::move(promise)]() mutable {
+				promise.set_value(timer->count());
+			});
+
+			return future;
+		}
+
+		std::future<double> denoise(image_type<half3> in, image_type<half3> out, roccu::gpu_event& event) override {
+			return denoise_impl(in, out, event);
+		}
+
+		std::future<double> denoise(image_type<half4> in, image_type<half4> out, roccu::gpu_event& event) override {
+			return denoise_impl_alpha(in, out, event);
+		}
+
+		std::future<double> denoise(image_type<float3> in, image_type<float3> out, roccu::gpu_event& event) override {
+			return denoise_impl(in, out, event);
+		}
+
+		std::future<double> denoise(image_type<float4> in, image_type<float4> out, roccu::gpu_event& event) override {
+			return denoise_impl_alpha(in, out, event);
 		}
 
 		void check_error() {
@@ -78,6 +139,7 @@ namespace rfkt {
 		roccu::gpu_stream& stream;
 		oidn::DeviceRef device;
 		oidn::FilterRef filter;
+		oidn::FilterRef alpha_filter;
 	};
 
 }

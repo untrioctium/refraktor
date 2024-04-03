@@ -13,6 +13,8 @@
 
 #include <librefrakt/allocators.h>
 
+#include <librefrakt/constants.h>
+
 namespace rfkt {
 
 	class flame_compiler;
@@ -29,16 +31,18 @@ namespace rfkt {
 			std::size_t total_draws;
 			std::size_t total_bins;
 			double passes_per_thread;
+			double max_density;
 		};
 
 		struct saved_state: public traits::noncopyable {
-			gpu_image<float4> bins = {};
+			roccu::gpu_image<float4> bins = {};
 			double quality = 0.0;
 			int temporal_multiplier = 1;
 			roccu::gpu_buffer<> shared = {};
 			roccu::gpu_span<bool> stopper;
 			roccu::gpu_buffer<std::size_t> warmup_hits = {};
 			std::future<double> warmup_time;
+			roccu::gpu_buffer<std::size_t> density_histogram;
 
 			saved_state() = default;
 			saved_state(saved_state&& o) noexcept {
@@ -52,15 +56,17 @@ namespace rfkt {
 				std::swap(temporal_multiplier, o.temporal_multiplier);
 				std::swap(warmup_hits, o.warmup_hits);
 				std::swap(warmup_time, o.warmup_time);
+				std::swap(density_histogram, o.density_histogram);
 				return *this;
 			}
 
 			saved_state(uint2 dims, std::size_t nbytes, int temporal_multiplier, std::future<double>&& warmup_time, RUstream stream) :
-				bins(dims.x, dims.y, stream),
+				bins(dims, stream),
 				temporal_multiplier(temporal_multiplier),
 				shared(nbytes * temporal_multiplier, stream),
 				warmup_hits(1, stream),
-				warmup_time(std::move(warmup_time)) {
+				warmup_time(std::move(warmup_time)),
+				density_histogram(histogram_size, stream){
 				bins.clear(stream);
 				warmup_hits.clear(stream);
 			}
@@ -70,7 +76,8 @@ namespace rfkt {
 				temporal_multiplier(temporal_multiplier),
 				shared(nbytes * temporal_multiplier, stream),
 				warmup_hits(1, stream),
-				warmup_time(std::move(warmup_time)) {
+				warmup_time(std::move(warmup_time)),
+				density_histogram(histogram_size, stream){
 				bins.clear(stream);
 				warmup_hits.clear(stream);
 			}
@@ -90,7 +97,7 @@ namespace rfkt {
 
 		auto bin(roccu::gpu_stream& stream, flame_kernel::saved_state& state, const bailout_args&, int temporal_slicing = 100) const-> std::future<bin_result>;
 		auto warmup(roccu::gpu_stream& stream, std::span<double> samples, uint2 dims, std::uint32_t seed, std::uint32_t count, int temporal_multiplier = 1) const->flame_kernel::saved_state;
-		auto warmup(roccu::gpu_stream& stream, std::span<double> samples, gpu_image<float4>&& bins, std::uint32_t seed, std::uint32_t count, int temporal_multiplier = 1) const->flame_kernel::saved_state;
+		auto warmup(roccu::gpu_stream& stream, std::span<double> samples, roccu::gpu_image<float4>&& bins, std::uint32_t seed, std::uint32_t count, int temporal_multiplier = 1) const->flame_kernel::saved_state;
 
 		flame_kernel(flame_kernel&& o) noexcept {
 			*this = std::move(o);
@@ -117,6 +124,7 @@ namespace rfkt {
 
 		struct shared_runtime {
 			ezrtc::cuda_module catmull = {};
+			ezrtc::cuda_module histogram = {};
 			rfkt::pinned_ring_allocator pra;
 			rfkt::device_ring_allocator dra;
 		};

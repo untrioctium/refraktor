@@ -36,8 +36,8 @@ namespace rfkt {
         ~denoiser_old();
 
         using pixel_type = half3;
-        using image_type = gpu_image<pixel_type>;
-        std::future<double> denoise(const image_type& in, image_type& out, roccu::gpu_stream& stream);
+        using image_type = roccu::gpu_image_view<pixel_type>;
+        std::future<double> denoise(image_type in, image_type out, roccu::gpu_stream& stream);
 
         static double benchmark(uint2 dims, denoiser_flag::flags options, std::uint32_t num_passes, roccu::gpu_stream& stream);
 

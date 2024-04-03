@@ -253,8 +253,8 @@ namespace rfkt {
 		}
 
 		std::future<double> post_process(
-			roccu::gpu_span<float4> in,
-			roccu::gpu_span<half4> out,
+			roccu::gpu_image_view<float4> in,
+			roccu::gpu_image_view<half4> out,
 			double quality,
 			double gamma, double brightness, double vibrancy,
 			bool planar_output,
@@ -283,8 +283,8 @@ namespace rfkt {
 		std::unique_ptr<rfkt::denoiser> dn;
 		rfkt::converter conv;
 
-		rfkt::gpu_image<half3> tonemapped;
-		rfkt::gpu_image<half3> denoised;
+		roccu::gpu_image<half3> tonemapped;
+		roccu::gpu_image<half3> denoised;
 
 		rfkt::timer perf_timer;
 
@@ -335,11 +335,11 @@ int main() {
 
 	//roccuPrintAllocations();
 
-	auto bins = rfkt::gpu_image<float4>{ pp.input_dims().x, pp.input_dims().y };
-	auto out = rfkt::gpu_image<half4>{ dims.x, dims.y };
-	std::vector<decltype(out)::value_type> out_local_buffer{};
+	auto bins = roccu::gpu_image<float4>{ pp.input_dims() };
+	auto out = roccu::gpu_image<half4>{ dims.x, dims.y };
+	std::vector<decltype(out)::pixel_type> out_local_buffer{};
 	out_local_buffer.resize(out.area());
-	std::span<decltype(out)::value_type> out_local(out_local_buffer);
+	std::span<decltype(out)::pixel_type> out_local(out_local_buffer);
 
 	constexpr static auto fps = 60;
 	constexpr static auto seconds_per_loop = 5;

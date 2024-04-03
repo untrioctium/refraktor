@@ -24,6 +24,7 @@ set(BUILD_TESTING OFF CACHE BOOL "" FORCE)
 set(BUILD_BENCHMARK OFF CACHE BOOL "" FORCE)
 set(BUILD_SHARED_LIBS OFF)
 set_property(GLOBAL PROPERTY USE_FOLDERS ON)
+set(CMAKE_CXX_CLANG_TIDY clang-tidy -checks=-*,cppcoreguidelines-*)
 
 #find_package(CUDAToolkit)
 
@@ -59,6 +60,7 @@ add_subdirectory(src/librefrakt)
 add_subdirectory(src/refraktor)
 add_subdirectory(src/refrakt-server)
 add_subdirectory(src/refrakt-gui)
+add_subdirectory(src/thumbnail-provider-win)
 
 function(get_all_targets var)
     set(targets)

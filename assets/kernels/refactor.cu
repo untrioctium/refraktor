@@ -396,17 +396,20 @@ void bin(
 	volatile bool* __restrict__ stop_render,
 	const int32 temporal_multiplier,
 	const int32 temporal_slicing,
-	const unsigned long long* const __restrict__ warmup_hits)
+	const unsigned long long* const __restrict__ warmup_hits,
+	unsigned long long* const __restrict__ earliest_start,
+	unsigned long long* const __restrict__ latest_stop)
 {
 	
 	if(fl::is_block_leader()) {
 		iter_info.init(temporal_multiplier, temporal_slicing);
+		atomicMin(earliest_start, iter_info.start_time);
+	}
 
-		for(int i = 0; i < temporal_multiplier; i++) {
-			auto& sample = in_state[blockIdx.x + gridDim.x * i];
-			sample.tss_quality = 0;
-			sample.tss_passes = 0;
-		}
+	if(fl::block_rank() < temporal_multiplier) {
+		auto& sample = in_state[blockIdx.x + gridDim.x * fl::block_rank()];
+		sample.tss_quality = 0;
+		sample.tss_passes = 0;
 	}
 	fl::sync_block();
 	
@@ -433,7 +436,7 @@ void bin(
 		fl::sync_block();
 		if(fl::is_block_leader()) {
 
-			if(state.tss_quality >= quality_target * double(state.warmup_hits) / double(*warmup_hits)) {
+			if(state.tss_quality >= double(quality_target) / (temporal_multiplier * gridDim.x)) {
 				iter_info.mark_sample_done();
 			}
 
@@ -453,12 +456,14 @@ void bin(
 	memcpy_sync<sample_state_size_bytes>((uint8*)&state, (uint8*)(in_state + blockIdx.x + gridDim.x * iter_info.loaded_sample));
 
 	
+	if(fl::block_rank() < temporal_multiplier) {
+		auto& sample = in_state[blockIdx.x + gridDim.x * fl::block_rank()];
+		atomicAdd(quality_counter, sample.tss_quality);
+		atomicAdd(pass_counter, sample.tss_passes);
+	}
+	
 	if(fl::is_block_leader()) {
-		for(int i = 0; i < temporal_multiplier; i++) {
-			auto& sample = in_state[blockIdx.x + gridDim.x * i];
-			atomicAdd(quality_counter, sample.tss_quality);
-			atomicAdd(pass_counter, sample.tss_passes);
-		}
+		atomicMax(latest_stop, fl::time());
 	}
 	
 }

@@ -65,3 +65,5 @@ train/
 old/
 oldtrain/
 stats.csv
+dist/
+licenses/

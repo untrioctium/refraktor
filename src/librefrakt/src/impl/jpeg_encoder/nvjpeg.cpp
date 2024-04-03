@@ -101,13 +101,13 @@ namespace rfkt {
 
 		~nvjpeg_encoder() {}
 
-		auto encode_image(const gpu_image<uchar3>& image, int quality, roccu::gpu_stream& stream) -> std::future<encode_thunk> override {
+		auto encode_image(roccu::gpu_image_view<uchar3> image, int quality, roccu::gpu_stream& stream) -> std::future<encode_thunk> override {
 			auto state = get_or_make_state(stream);
 
 			nvjpegImage_t nv_image;
 			memset(&nv_image, 0, sizeof(nv_image));
 			nv_image.channel[0] = (unsigned char*)image.ptr();
-			nv_image.pitch[0] = image.width() * 3;
+			nv_image.pitch[0] = image.pitch() * decltype(image)::element_size;
 
 			struct stream_state_t {
 				decltype(state) state;

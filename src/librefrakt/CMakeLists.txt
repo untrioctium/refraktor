@@ -25,6 +25,7 @@ set(HEADER_LIST
 	"include/librefrakt/anima.h"
 	"include/librefrakt/allocators.h"
 	"include/librefrakt/factory.h"
+	"include/librefrakt/constants.h"
 )
 
 add_library(librefrakt OBJECT

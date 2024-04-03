@@ -12,7 +12,7 @@ namespace rfkt {
 
 		cpu_jpeg_encoder(roccu::gpu_stream& stream) {}
 
-		auto encode_image(const gpu_image<uchar3>& image, int quality, roccu::gpu_stream& stream) -> std::future<encode_thunk> override {
+		auto encode_image(roccu::gpu_image_view<uchar3> image, int quality, roccu::gpu_stream& stream) -> std::future<encode_thunk> override {
 
 			auto local_data = std::make_unique<std::vector<uchar3>>();
 			local_data->resize(image.area());

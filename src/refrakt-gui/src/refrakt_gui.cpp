@@ -642,7 +642,7 @@ public:
 		ImFtw::Sig::SetWindowDecorated(true).get();
 		ImFtw::Sig::SetWindowMaximized(true).get();
 		ImFtw::Sig::SetVSyncEnabled(false);
-		ImFtw::Sig::SetTargetFramerate(500);
+		ImFtw::Sig::SetTargetFramerate(60);
 
 		while (true) {
 			ImFtw::BeginFrame();
@@ -755,9 +755,9 @@ private:
 				const auto output_dims = (upscale) ? uint2{ state.bins.width() * 2, state.bins.height() * 2 } : state.bins.dims();
 				const auto output_bins = output_dims.x * output_dims.y;
 
-				auto tonemapped = rfkt::gpu_image<half3>{ state.bins.width(), state.bins.height(), stream};
-				auto denoised = rfkt::gpu_image<half3>{ output_dims.x, output_dims.y, stream };
-				auto out_buf = rfkt::gpu_image<preview_panel::pixel_type>{ output_dims.x, output_dims.y, stream };
+				auto tonemapped = roccu::gpu_image<half3>{ state.bins.dims(), stream};
+				auto denoised = roccu::gpu_image<half3>{ output_dims, stream };
+				auto out_buf = roccu::gpu_image<preview_panel::pixel_type>{ output_dims, stream };
 
 				auto bin_info = kernel.bin(stream, state, bo).get();
 				state.quality += bin_info.quality;
@@ -767,20 +767,23 @@ private:
 				auto passes_per_pixel = bin_info.total_passes / (double)total_bins;
 				SPDLOG_INFO("{} mpasses/ms, {} mdraws/ms, {} passes per thread", mpasses_per_ms, mdraws_per_ms, bin_info.passes_per_thread);
 
-				tonemap->run(state.bins, tonemapped, { state.quality, gbv.x, gbv.y, gbv.z }, stream);
+				tonemap->run(state.bins, tonemapped, { state.quality, gbv.x, gbv.y, gbv.z, bin_info.max_density }, stream);
 				stream.sync();
 				auto& denoiser = upscale ? denoise_upscale : denoise_normal;
 				if(denoise) denoiser->denoise(tonemapped, denoised, ev).get();
 				
 				if constexpr (std::same_as<preview_panel::pixel_type, float4>) {
-					convert->to_float3((denoise) ? denoised : tonemapped, out_buf, stream);
+					convert->to_float4((denoise) ? denoised : tonemapped, out_buf, stream);
 				}
 				else if constexpr(std::same_as<preview_panel::pixel_type, half4>) {
 					convert->to_half4(denoised, out_buf, stream);
 				}
 				else {
-					convert->to_32bit((denoise)? denoised: tonemapped, out_buf, false, stream);
+					convert->to_uchar4((denoise)? denoised: tonemapped, out_buf, stream);
 				}
+
+				//tonemap->density_hdr((denoise) ? denoised : tonemapped, out_buf, state.density_histogram, stream);
+
 				tonemapped.free_async(stream);
 				denoised.free_async(stream);
 				stream.sync();

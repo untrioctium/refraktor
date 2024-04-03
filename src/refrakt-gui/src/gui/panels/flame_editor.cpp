@@ -171,10 +171,37 @@ bool rfkt::gui::panels::flame_editor(rfkt::flamedb& fdb, rfkt::flame& f, command
 			flame_drag_edit(fdesc::xform{ xid, &rfkt::xform::color_speed }, "Color Speed", 0.001, { 0, 1 });
 			flame_drag_edit(fdesc::xform{ xid, &rfkt::xform::opacity }, "Opacity", 0.001, { 0, 1 });
 
+			if (ImGui::Button("Add Vlink")) {
+				changed = true;
+				exec.execute(
+					[&f, xid]() {
+						f.get_xform(xid)->vchain.push_back(vlink::identity());
+					},
+					[&f, xid]() {
+						f.get_xform(xid)->vchain.pop_back();
+					}
+				);
+			}
+
+
 			if (ImGui::BeginTabBar("VChain")) {
 				for (int i = 0; i < xf.vchain.size(); i++) {
 					if (ImGui::BeginTabItem(std::format("VL {}", i + 1).c_str())) {
 						//ImGui::BeginChild(std::format("vchain{}", i).c_str(), ImVec2(0, 200));
+
+						if(xf.vchain.size() > 1 && ImGui::Button("Remove Vlink")) {
+							changed = true;
+							exec.execute(
+								[&f, xid, i]() {
+									f.get_xform(xid)->vchain.erase(f.get_xform(xid)->vchain.begin() + i);
+								},
+								[&f, xid, i, old_vlink = xf.vchain[i]]() {
+									f.get_xform(xid)->vchain.insert(f.get_xform(xid)->vchain.begin() + i, old_vlink);
+								}
+							);
+
+							continue;
+						}
 
 						auto& vl = xf.vchain[i];
 						{

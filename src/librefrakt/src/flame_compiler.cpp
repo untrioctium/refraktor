@@ -770,11 +770,31 @@ rfkt::flame_compiler::flame_compiler(std::shared_ptr<ezrtc::compiler> k_manager)
         exit(1);
     }
     
-    this->srt = std::shared_ptr<flame_kernel::shared_runtime>(new flame_kernel::shared_runtime{ std::move(result.module.value()), 16 * 1000 * 1000, 16 * 1000 * 1000 });
+    std::string histogram_name = std::format("calculate_histogram<{}>", histogram_granularity);
+
+    auto histogram_result = km->compile(
+        ezrtc::spec::source_file("histogram", "assets/kernels/density_histo.cu")
+        .kernel(histogram_name)
+        .flag(ezrtc::compile_flag::default_device)
+        .flag(ezrtc::compile_flag::extra_device_vectorization)
+    );
+
+    if (not histogram_result.module.has_value()) {
+        SPDLOG_ERROR(histogram_result.log);
+        exit(1);
+    }
+
+    auto hfunc = histogram_result.module->kernel(histogram_name);
+    auto [h_grid, h_block] = hfunc.suggested_dims();
+    SPDLOG_INFO("Loaded histogram kernel: {} regs, {} shared, {} local, {}x{} suggested dims", hfunc.register_count(), hfunc.shared_bytes(), hfunc.local_bytes(), h_grid, h_block);
+
+    this->srt = std::shared_ptr<flame_kernel::shared_runtime>(new flame_kernel::shared_runtime{ std::move(result.module.value()), std::move(histogram_result.module.value()), 16 * 1000 * 1000, 16 * 1000 * 1000 });
 
     auto func = srt->catmull.kernel("generate_sample_coefficients");
     auto [s_grid, s_block] = func.suggested_dims();
     SPDLOG_INFO("Loaded catmull kernel: {} regs, {} shared, {} local, {}x{} suggested dims", func.register_count(), func.shared_bytes(), func.local_bytes(), s_grid, s_block);
+
+
 }
 
 auto rfkt::flame_compiler::make_opts(precision prec, const flame& f)->std::pair<roccu::execution_config, ezrtc::spec>
@@ -854,7 +874,7 @@ auto rfkt::flame_kernel::bin(roccu::gpu_stream& stream, flame_kernel::saved_stat
 
     auto stream_state = std::make_shared<stream_state_t>();
     auto future = stream_state->promise.get_future();
-    const auto num_counters = 2;
+    const auto num_counters = 5;
 
     stream_state->qpx_host = srt->pra.reserve<std::size_t>(num_counters);
 
@@ -863,6 +883,9 @@ auto rfkt::flame_kernel::bin(roccu::gpu_stream& stream, flame_kernel::saved_stat
 
     stream_state->qpx_dev = srt->dra.reserve<std::size_t>(num_counters);
     stream_state->qpx_dev.clear(stream);
+
+    const auto ullmax = std::numeric_limits<std::size_t>::max();
+    ruMemcpyHtoDAsync(stream_state->qpx_dev.ptr() + counter_size * 2, &ullmax, counter_size, stream);
 
     auto klauncher = [&mod = this->mod, &stream, &exec = this->exec]<typename ...Ts>(Ts&&... args) {
         return mod("bin").launch(exec.first, exec.second, stream, true)(std::forward<Ts>(args)...);
@@ -887,21 +910,35 @@ auto rfkt::flame_kernel::bin(roccu::gpu_stream& stream, flame_kernel::saved_stat
             state.stopper.ptr(),
             state.temporal_multiplier,
             temporal_slicing,
-            state.warmup_hits.ptr()
+            state.warmup_hits.ptr(),
+            stream_state->qpx_dev.ptr() + 2 * counter_size,
+            stream_state->qpx_dev.ptr() + 3 * counter_size
         ));
     }
+
+    auto bins_count = state.bins.area();
+    auto num_blocks = bins_count / 256 + 1;
+
+    state.density_histogram.clear(stream);
+    srt->histogram.kernel().launch(num_blocks, 256, stream)(
+		state.bins.ptr(),
+		bins_count,
+		state.density_histogram.ptr(),
+        stream_state->qpx_dev.ptr() + counter_size * 4
+	);
+
     stream_state->qpx_dev.to_host(stream_state->qpx_host, stream);
 
     stream.host_func([ss = stream_state](){
         ss->end = std::chrono::high_resolution_clock::now();
-        //SPDLOG_INFO("{}", ss->qpx_host[0]);
         ss->promise.set_value(flame_kernel::bin_result{
-            ss->qpx_host[0] / (ss->total_bins * 255.0),
-            std::chrono::duration_cast<std::chrono::nanoseconds>(ss->end - ss->start).count() / 1'000'000.0,
-            ss->qpx_host[1],
-            ss->qpx_host[0] / 255,
-            ss->total_bins,
-            double(ss->qpx_host[1]) / (ss->num_threads)
+            .quality = ss->qpx_host[0] / (ss->total_bins * 255.0),
+            .elapsed_ms = (ss->qpx_host[3] - ss->qpx_host[2]) / 1e6,
+            .total_passes = ss->qpx_host[1],
+            .total_draws = ss->qpx_host[0] / 255,
+            .total_bins = ss->total_bins,
+            .passes_per_thread = double(ss->qpx_host[1]) / (ss->num_threads),
+            .max_density = ss->qpx_host[4] * 1.0
         });
     });
 
@@ -988,7 +1025,7 @@ void fix_rotation(std::span<double> samples, std::size_t sample_size, std::size_
     }
 }
 
-auto rfkt::flame_kernel::warmup(roccu::gpu_stream& stream, std::span<double> samples, gpu_image<float4>&& bins, std::uint32_t seed, std::uint32_t count, int temporal_multiplier) const -> flame_kernel::saved_state
+auto rfkt::flame_kernel::warmup(roccu::gpu_stream& stream, std::span<double> samples, roccu::gpu_image<float4>&& bins, std::uint32_t seed, std::uint32_t count, int temporal_multiplier) const -> flame_kernel::saved_state
 {
     const auto sample_size = flame_size_reals + 256 * 3;
     const auto sample_count = samples.size() / sample_size;
@@ -1056,7 +1093,7 @@ auto rfkt::flame_kernel::warmup(roccu::gpu_stream& stream, std::span<double> sam
 
 auto rfkt::flame_kernel::warmup(roccu::gpu_stream& stream, std::span<double> samples, uint2 dims, std::uint32_t seed, std::uint32_t count, int temporal_multiplier) const->flame_kernel::saved_state
 {
-    auto bins = gpu_image<float4>{ dims.x, dims.y, stream };
+    auto bins = roccu::gpu_image<float4>{ dims, stream };
     bins.clear(stream);
     return warmup(stream, samples, std::move(bins), seed, count, temporal_multiplier);
 }

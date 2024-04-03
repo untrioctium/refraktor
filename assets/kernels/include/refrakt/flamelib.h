@@ -209,6 +209,7 @@ namespace flamelib {
 		int temporal_multiplier;
 		int temporal_slicing;
 		bool bail;
+		unsigned long long max_pixel_quality;
 
 		__device__ void init(int multiplier, int slicing) {
 			loaded_sample = 0xffffffff;
@@ -217,6 +218,7 @@ namespace flamelib {
 			temporal_slicing = slicing;
 			start_time = time();
 			iter = 0;
+			max_pixel_quality = 0;
 			samples_active = (1 << temporal_multiplier) - 1;
 			//DEBUG_GRID("sample mask: %d\n", samples_active);
 			bail = false;

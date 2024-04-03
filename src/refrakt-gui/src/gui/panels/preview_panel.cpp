@@ -7,6 +7,8 @@
 
 #include <IconsMaterialDesign.h>
 
+#include <implot.h>
+
 preview_panel::~preview_panel()
 {
 	if (rendering_texture) {
@@ -95,12 +97,18 @@ bool preview_panel::show(const rfkt::flamedb& fdb, rfkt::flame& flame, rfkt::fun
 				target_quality = this->target_quality,
 				upscale = this->upscale,
 				denoise = this->denoise,
-				temporal_multiplier = this->temporal_multiplier]() mutable noexcept {
+				temporal_multiplier = this->temporal_multiplier,
+				&densities = this->densities]() mutable noexcept {
 
 					if (needs_kernel) {
 						auto result = compiler.get_flame_kernel(fdb, rfkt::precision::f32, *flame_copy);
 
 						SPDLOG_INFO("Source:\n{}", result.source);
+
+						if(!result.kernel.has_value()) {
+							SPDLOG_ERROR("Failed to compile kernel: {}", result.log);
+							exit(1);
+						}
 
 						*kernel = std::move(result.kernel.value());
 					}
@@ -119,10 +127,22 @@ bool preview_panel::show(const rfkt::flamedb& fdb, rfkt::flame& flame, rfkt::fun
 					auto result = renderer(stream, *kernel, *state, { .millis = millis, .quality = target_quality - state->quality }, gbv, upscale, denoise);
 					cuda_map.copy_from(result, stream);
 					result.free_async(stream);
+
+					/*auto histo = state->density_histogram.to_host();
+
+					auto total = static_cast<double>(std::accumulate(histo.begin(), histo.end(), 0));
+					double cdf = 0.0;
+
+					for(auto i = 0; i < histo.size(); i++) {
+						auto pct = static_cast<double>(histo[i]) / total * 100;
+						cdf += pct;
+						SPDLOG_INFO("Density histogram[{}]: {:.3} {:.3} cumulative", i, pct, cdf);
+					}*/
 					
 					stream.host_func(
 						ImFtw::MakeDeferer(
-							[promise = std::move(promise), out_tex = std::move(out_tex), cuda_map = std::move(cuda_map)]() mutable {
+							[promise = std::move(promise), out_tex = std::move(out_tex), cuda_map = std::move(cuda_map), state, &densities]() mutable {
+								densities = state->density_histogram.to_host();
 								promise.set_value(std::move(out_tex));
 							}
 						)
@@ -214,8 +234,8 @@ uint2 preview_panel::gui_logic(rfkt::flame& flame, rfkt::function_table& ft) {
 				}
 			}
 
-			ImGui::InputFloat("Gamma", &gamma);
-			ImGui::InputFloat("Exposure", &exposure);
+			//ImGui::InputFloat("Gamma", &gamma);
+			//ImGui::InputFloat("Exposure", &exposure);
 
 			render_options_changed |= ImGui::Checkbox("Animate", &animate);
 			render_options_changed |= ImGui::Checkbox("Denoise", &denoise);
@@ -265,26 +285,52 @@ uint2 preview_panel::gui_logic(rfkt::flame& flame, rfkt::function_table& ft) {
 			ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (avail.x - draw_size.x) / 2.0);
 			ImGui::SetCursorPosY(ImGui::GetCursorPosY() + (avail.y - draw_size.y) / 2.0);
 
-			ImGui::GetWindowDrawList()->AddCallback(
+			/*ImGui::GetWindowDrawList()->AddCallback(
 				[](const ImDrawList* parent_list, const ImDrawCmd* cmd) {
 					auto panel = reinterpret_cast<preview_panel*>(cmd->UserCallbackData);
 					glUniform1f(1, panel->gamma);
 					glUniform1f(2, panel->exposure);
 				},
 				this
-			);
+			);*/
 
 			ImGui::Image((void*)(intptr_t)tex->id(), ImVec2(draw_size.x, draw_size.y));
 
-			ImGui::GetWindowDrawList()->AddCallback(
+			/*ImGui::GetWindowDrawList()->AddCallback(
 				[](const ImDrawList* parent_list, const ImDrawCmd* cmd) {
 					glUniform1f(1, 2.2f);
 					glUniform1f(2, 2.0f);
 				},
 				nullptr
-			);
+			);*/
 
 			preview_hovered = ImGui::IsItemHovered();
+		}
+	}
+
+	IMFTW_WINDOW("Stats") {
+		if (densities.size() > 0) {
+
+			auto densities_pcts = std::vector<double>(densities.size());
+			auto densities_cdf = std::vector<double>(densities.size());
+
+			auto total = static_cast<double>(std::accumulate(densities.begin() + 1, densities.end(), 0));
+			
+			for(auto i = 1; i < densities.size(); i++) {
+				densities_pcts[i] = static_cast<double>(densities[i]) / total * 100;
+				densities_cdf[i] = densities_pcts[i];
+				if(i > 1) densities_cdf[i] += densities_cdf[i - 1];
+			}
+
+			if(ImPlot::BeginPlot("Density Histogram", "Density", "Percentage")) {
+				ImPlot::PlotBars("Density", densities_pcts.data() + 1, densities.size() - 1, 1.0, 0.0, 0);
+				ImPlot::PlotLine("CDF", densities_cdf.data() + 1, densities.size() - 1);
+				
+				const static double guides[] = { 50.0, 75.0, 99.0 };
+				ImPlot::PlotInfLines("Guides", guides, 3, ImPlotInfLinesFlags_Horizontal);
+
+				ImPlot::EndPlot();
+			}
 		}
 	}
 

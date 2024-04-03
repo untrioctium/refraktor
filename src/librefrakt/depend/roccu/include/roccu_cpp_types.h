@@ -401,4 +401,180 @@ namespace roccu {
 
     template<typename Contained = std::byte>
     using gpu_span = gpu_buffer_base<Contained, buffer_ownership::view>;
+
+    template<typename PixelType, buffer_ownership Ownership>
+    class gpu_image_base {
+    public:
+        using pixel_type = PixelType;
+        constexpr static bool is_owner = Ownership == buffer_ownership::owner;
+        constexpr static std::size_t element_size = sizeof(PixelType);
+
+        constexpr gpu_image_base() noexcept = default;
+
+        explicit gpu_image_base(uint2 dims) requires is_owner : dims_(dims), pitch_(dims_.x) {
+			ROCCU_SAFE_CALL(ruMemAlloc(&ptr_, size_bytes()));
+		}
+
+        gpu_image_base(uint2 dims, RUstream stream) requires is_owner : dims_(dims), pitch_(dims_.x) {
+			ROCCU_SAFE_CALL(ruMemAllocAsync(&ptr_, size_bytes(), stream));
+		}
+
+        gpu_image_base(std::size_t width, std::size_t height) requires is_owner : dims_(width, height), pitch_(dims_.x) {
+			ROCCU_SAFE_CALL(ruMemAlloc(&ptr_, size_bytes()));
+		}
+
+        gpu_image_base(std::size_t width, std::size_t height, RUstream stream) requires is_owner : dims_(width, height), pitch_(dims_.x) {
+            ROCCU_SAFE_CALL(ruMemAllocAsync(&ptr_, size_bytes(), stream));
+        }
+
+        gpu_image_base(RUdeviceptr ptr, uint2 dims, std::size_t pitch) requires !is_owner : ptr_(ptr), dims_(dims), pitch_(pitch) {}
+
+        ~gpu_image_base() {
+			if constexpr (!is_owner) return;
+			if (ptr_) {
+				ROCCU_SAFE_CALL(ruMemFree(ptr_));
+			}
+		}
+
+		gpu_image_base(const gpu_image_base&) requires is_owner = delete;
+		gpu_image_base& operator=(const gpu_image_base&) requires is_owner = delete;
+
+		gpu_image_base(const gpu_image_base&) requires !is_owner = default;
+		gpu_image_base& operator=(const gpu_image_base&) requires !is_owner = default;
+
+        gpu_image_base(gpu_image_base&& o) noexcept {
+            std::swap(ptr_, o.ptr_);
+            std::swap(dims_, o.dims_);
+            std::swap(pitch_, o.pitch_);
+        }
+
+        gpu_image_base& operator=(gpu_image_base&& o) noexcept {
+			std::swap(ptr_, o.ptr_);
+            std::swap(dims_, o.dims_);
+			std::swap(pitch_, o.pitch_);
+			return *this;
+		}
+
+        explicit(false) operator gpu_image_base<PixelType, buffer_ownership::view>() requires is_owner {
+            return { ptr_, dims_, pitch_ };
+        }
+
+        constexpr auto ptr() const noexcept { return ptr_; }
+        constexpr auto width() const noexcept { return dims_.x; }
+        constexpr auto height() const noexcept { return dims_.y; }
+        constexpr auto dims() const noexcept { return dims_; }
+        constexpr auto area() const noexcept { return dims_.x * dims_.y; }
+        constexpr auto pitch() const noexcept { return pitch_; }
+        constexpr auto size_bytes() const noexcept { return area() * element_size; }
+
+        constexpr bool valid() const noexcept { return ptr_ != 0; }
+        constexpr explicit operator bool() const noexcept { return valid(); }
+
+        void clear() requires is_owner {
+            ROCCU_SAFE_CALL(ruMemsetD8(ptr_, 0, size_bytes()));
+        }
+
+        void clear(RUstream stream) requires is_owner {
+            ROCCU_SAFE_CALL(ruMemsetD8Async(ptr_, 0, size_bytes(), stream));
+        }
+
+        auto to_host(std::span<PixelType> dest_host) const {
+            auto copy_param = to_host_memcpy(dest_host);
+            ROCCU_SAFE_CALL(ruMemcpy2D(&copy_param));
+        }
+
+        auto to_host(std::span<PixelType> dest_host, RUstream stream) const {
+            auto copy_param = to_host_memcpy(dest_host);
+			ROCCU_SAFE_CALL(ruMemcpy2DAsync(&copy_param, stream));
+		}
+
+        auto to_host() const -> std::vector<PixelType> {
+            auto ret = std::vector<PixelType>(area());
+            to_host(ret.data());
+            return ret;
+        }
+
+        auto to_host(RUstream stream) const -> std::vector<PixelType>  {
+			auto ret = std::vector<PixelType>(area());
+			to_host(ret.data(), stream);
+			return ret;
+		}
+
+        void from_host(std::span<const PixelType> src_host)  {
+            auto copy_param = from_host_memcpy(src_host);
+			ROCCU_SAFE_CALL(ruMemcpy2D(&copy_param));
+		}
+
+        void from_host(std::span<const PixelType> src_host, RUstream stream) {
+            auto copy_param = from_host_memcpy(src_host);
+            ROCCU_SAFE_CALL(ruMemcpy2DAsync(&copy_param, stream));
+        }
+
+        void free_async(RUstream stream) requires is_owner {
+			if (ptr_) {
+				ROCCU_SAFE_CALL(ruMemFreeAsync(ptr_, stream));
+			}
+
+			ptr_ = 0;
+            dims_ = { 0, 0 };
+			pitch_ = 0;
+		}
+
+        auto sub_image(uint2 offset, uint2 dims) -> gpu_image_base<PixelType, buffer_ownership::view> {
+            auto new_ptr = ptr_ + element_size * (offset.y * pitch_ + offset.x);
+			return { new_ptr, dims, pitch_ };
+		}
+
+    private:
+
+        auto to_host_memcpy(std::span<PixelType> dest_host) const {
+            RU_MEMCPY2D copy;
+            copy.srcMemoryType = RU_MEMORYTYPE_DEVICE;
+            copy.srcDevice = ptr_;
+            copy.srcPitch = pitch_ * element_size;
+            copy.srcXInBytes = 0;
+            copy.srcY = 0;
+
+            copy.dstMemoryType = RU_MEMORYTYPE_HOST;
+            copy.dstHost = dest_host.data();
+            copy.dstPitch = dims_.x * element_size;
+            copy.dstXInBytes = 0;
+            copy.dstY = 0;
+
+            copy.WidthInBytes = dims_.x * element_size;
+            copy.Height = dims_.y;
+
+            return copy;
+		}
+        
+        auto from_host_memcpy(std::span<const PixelType> src_host) const {
+			RU_MEMCPY2D copy;
+			copy.srcMemoryType = RU_MEMORYTYPE_HOST;
+			copy.srcHost = src_host.data();
+			copy.srcPitch = dims_.x * element_size;
+			copy.srcXInBytes = 0;
+			copy.srcY = 0;
+
+			copy.dstMemoryType = RU_MEMORYTYPE_DEVICE;
+			copy.dstDevice = ptr_;
+			copy.dstPitch = pitch_ * element_size;
+			copy.dstXInBytes = 0;
+			copy.dstY = 0;
+
+			copy.WidthInBytes = dims_.x * element_size;
+			copy.Height = dims_.y;
+
+			return copy;
+		}
+
+        RUdeviceptr ptr_ = 0;
+        uint2 dims_ = { 0, 0 };
+        std::size_t pitch_ = 0;
+    };
+
+    template<typename PixelType>
+    using gpu_image = gpu_image_base<PixelType, buffer_ownership::owner>;
+
+    template<typename PixelType>
+    using gpu_image_view = gpu_image_base<PixelType, buffer_ownership::view>;
 }
