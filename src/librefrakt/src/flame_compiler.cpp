@@ -641,10 +641,10 @@ auto rfkt::flame_compiler::get_flame_kernel(const flamedb& fdb, precision prec, 
         SPDLOG_ERROR("Kernel for {} needs {} blocks but only got {}; {} shared, {} expected, {} regs, {} local", opts.name(), most_blocks.grid, max_blocks, func.shared_bytes(), expected_shared, func.register_count(), func.local_bytes());
         return r;
     }
-    //SPDLOG_INFO("Loaded flame kernel {}: {} temp. samples, {} flame params, {} regs, {} shared ({} expected), {} local, {:.4} ms", opts.name(), max_blocks, f.size_reals(), func.register_count(), func.shared_bytes(), expected_shared, func.local_bytes(), duration_ms);
+    SPDLOG_INFO("Loaded flame kernel {}: {} temp. samples, {} flame params, {} regs, {} shared ({} expected), {} local, {:.4} ms", opts.name(), max_blocks, f.size_reals(), func.register_count(), func.shared_bytes(), expected_shared, func.local_bytes(), duration_ms);
 
     if (func.local_bytes() > 0) {
-        //SPDLOG_WARN("Kernel for {} uses {} local memory", opts.name(), func.local_bytes());
+        SPDLOG_WARN("Kernel for {} uses {} local memory", opts.name(), func.local_bytes());
     }
 
     auto shuf_dev = compile_result.module.value()["shuf_bufs"];
@@ -737,8 +737,8 @@ rfkt::flame_compiler::flame_compiler(std::shared_ptr<ezrtc::compiler> k_manager)
 
     iteration_info_size = shared_sizes[0];
     for (int i = 0; i < exec_configs.size(); i++) {
-       required_smem[{precision::f32, exec_configs[i].block}] = shared_sizes[i + 1];
-       required_smem[{precision::f64, exec_configs[i].block}] = shared_sizes[i + 1 + exec_configs.size()];
+       required_smem[{precision::f32, exec_configs[i].block}] = shared_sizes[i + 1] + 128;
+       required_smem[{precision::f64, exec_configs[i].block}] = shared_sizes[i + 1 + exec_configs.size()] + 128;
     }
 
     for (auto& exec : exec_configs) {
@@ -822,6 +822,7 @@ auto rfkt::flame_compiler::make_opts(precision prec, const flame& f)->std::pair<
         const auto warp_size = roccu::context::current().device().warp_size();
         while (exec_configs[most_blocks_idx].block / warp_size < 4) most_blocks_idx--;
     }
+    //most_blocks_idx = 0;
     auto& most_blocks = exec_configs[most_blocks_idx];
 
 

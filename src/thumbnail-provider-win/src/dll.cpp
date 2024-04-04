@@ -3,6 +3,8 @@
 #include <thumbcache.h>
 #include <ShlObj.h>
 #include <new>
+#include <cstdio>
+#include <chrono>
 
 #define CLSID_FLAM3THUMBHANDLER L"{892b95d4-3b68-4804-af11-46ac3e88b36b}"
 #define FLAM3THUMBHANDLER L"Flam3ThumbnailHandler"
@@ -27,14 +29,50 @@ const CLASS_OBJECT_INIT c_rgClassObjectInit[] =
 long dll_ref_count = 0;
 HINSTANCE dll_instance = nullptr;
 
+template<typename... Args>
+void write_log(const char* format, Args... args)
+{
+    char buffer[1024];
+    sprintf_s(buffer, format, args...);
+
+    auto unix_timestamp = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+    char buffer2[1024];
+    sprintf_s(buffer2, "%d: (%d, %p) %s", unix_timestamp, GetCurrentProcessId(), dll_instance, buffer);
+
+    // write to a log file
+    FILE* f = nullptr;
+    fopen_s(&f, "C:\\Users\\Public\\flam3.log", "a");
+    if (f)
+    {
+        fprintf(f, "%s\n", buffer2);
+        fclose(f);
+    }
+}
+
 STDAPI_(BOOL) DllMain(HINSTANCE hInstance, DWORD dwReason, void*)
 {
 #pragma EXPORT
+
+    constexpr auto reason_to_string = [](DWORD reason) -> const char*
+	{
+		switch (reason)
+		{
+		case DLL_PROCESS_ATTACH: return "DLL_PROCESS_ATTACH";
+		case DLL_PROCESS_DETACH: return "DLL_PROCESS_DETACH";
+		case DLL_THREAD_ATTACH: return "DLL_THREAD_ATTACH";
+		case DLL_THREAD_DETACH: return "DLL_THREAD_DETACH";
+		default: return "UNKNOWN";
+		}
+	};
+
 	if (dwReason == DLL_PROCESS_ATTACH)
 	{
 		dll_instance = hInstance;
 		DisableThreadLibraryCalls(hInstance);
 	}
+
+    write_log("DllMain: %s", reason_to_string(dwReason));
+
 	return TRUE;
 }
 
@@ -177,6 +215,9 @@ HRESULT CreateRegKeyAndSetValue(const REGISTRY_ENTRY* pRegistryEntry)
 STDAPI DllRegisterServer()
 {
 #pragma EXPORT
+
+    write_log("DllRegisterServer");
+
     HRESULT hr;
 
     WCHAR szModuleName[MAX_PATH];
@@ -218,6 +259,7 @@ STDAPI DllRegisterServer()
 STDAPI DllUnregisterServer()
 {
 #pragma EXPORT
+    write_log("DllUnregisterServer");
     HRESULT hr = S_OK;
 
     const PCWSTR rgpszKeys[] =

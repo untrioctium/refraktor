@@ -490,13 +490,13 @@ namespace roccu {
 
         auto to_host() const -> std::vector<PixelType> {
             auto ret = std::vector<PixelType>(area());
-            to_host(ret.data());
+            to_host(ret);
             return ret;
         }
 
         auto to_host(RUstream stream) const -> std::vector<PixelType>  {
 			auto ret = std::vector<PixelType>(area());
-			to_host(ret.data(), stream);
+			to_host(ret, stream);
 			return ret;
 		}
 

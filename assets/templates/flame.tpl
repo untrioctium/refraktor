@@ -4,7 +4,7 @@ constexpr static uint32 affine_indices[] = {@join(affine_indices, ", ")@};
 constexpr static uint32 num_affines = @length(affine_indices)@;
 
 template<typename FloatT>
-struct affine {
+struct __align__(sizeof(FloatT)) affine {
     FloatT a, d, b, e, c, f;
 
     __device__ void apply(FloatT& px, FloatT& py) const {
@@ -16,7 +16,7 @@ struct affine {
 
 <# for hash, xform in xform_definitions #>
 template<typename FloatT, typename RandCtx>
-struct xform_@hash@_t {
+struct __align__(sizeof(FloatT)) xform_@hash@_t {
 
     FloatT weight;
     FloatT color;
@@ -25,7 +25,7 @@ struct xform_@hash@_t {
 
     <# for vlink in xform.vchain #>
     // vlink @loop.index@
-    struct {
+    struct __align__(sizeof(FloatT))  {
 
         affine<FloatT> aff;
 
@@ -87,7 +87,7 @@ struct xform_@hash@_t {
 
 <# endfor #>
 template<typename FloatT, typename RandCtx>
-struct flame_t {
+struct __align__(sizeof(FloatT)) flame_t {
 
     affine<FloatT> screen_space;
     affine<FloatT> plane_space;
@@ -95,7 +95,7 @@ struct flame_t {
     FloatT weight_sum;
 
     <# if use_chaos #>
-    struct {
+    struct __align__(sizeof(FloatT)) {
 
         FloatT weight_sum;
         FloatT weights[@num_standard_xforms@];
@@ -124,8 +124,8 @@ struct flame_t {
 
     <# if use_chaos #>
 
-    __device__ unsigned short select_xform(unsigned short last, FloatT ratio) const {
-        if(last == 2047) return select_xform(ratio);
+    __device__ unsigned short select_xform(unsigned char last, FloatT ratio) const {
+        if(last == static_cast<unsigned char>(255)) return select_xform(ratio);
 
         const auto& weights = chaos[last].weights;
         FloatT rsum = FloatT(0.0);
@@ -187,6 +187,7 @@ struct flame_t {
     }
     
     void print_debug() { 
+        /*
         printf("flame_t\n");
         printf("  screen_space: { a: %f, d: %f, b: %f, e: %f, c: %f, f: %f }\n", screen_space.a, screen_space.d, screen_space.b, screen_space.e, screen_space.c, screen_space.f);
         printf("  plane_space: { a: %f, d: %f, b: %f, e: %f, c: %f, f: %f }\n", plane_space.a, plane_space.d, plane_space.b, plane_space.e, plane_space.c, plane_space.f);
@@ -226,6 +227,7 @@ struct flame_t {
         <# endfor #> 
         <# endfor #>
         <# endfor #>
+        */
     }
     
 };

@@ -69,25 +69,31 @@ OutElem convert_element(__half elem) {
 
 template<typename InType, typename OutType>
     requires (is_same<InType, half3> || is_same<InType, half4>)
-__global__ void convert_to(const InType* const __restrict__ in, OutType* const __restrict__ out, unsigned int size) {
+__global__ void convert_to(const InType* const __restrict__ in, OutType* const __restrict__ out, unsigned int width, unsigned int height, bool flip_y, bool swap_channels) {
     
     using out_element_type = decltype(OutType::x);
     constexpr static auto out_elements = element_count<OutType>();
     constexpr static auto in_elements = element_count<InType>();
 
-    const unsigned int bin_idx = blockIdx.x * blockDim.x + threadIdx.x;
+    unsigned int bin_idx = blockIdx.x * blockDim.x + threadIdx.x;
 
-    if (bin_idx >= size) return;
+    if (bin_idx >= width * height) return;
 
     const InType in_val = in[bin_idx];
 
+    if (flip_y) {
+        const unsigned int y = bin_idx / width;
+        const unsigned int x = bin_idx % width;
+        bin_idx = (height - y - 1) * width + x;
+    }
+
     if constexpr (out_elements == 3) {
-        out[bin_idx] = OutType{ convert_element<out_element_type>(in_val.x), convert_element<out_element_type>(in_val.y), convert_element<out_element_type>(in_val.z) };
+        out[bin_idx] = OutType{ convert_element<out_element_type>((swap_channels)? in_val.z: in_val.x), convert_element<out_element_type>(in_val.y), convert_element<out_element_type>((swap_channels)? in_val.x: in_val.z) };
     } else {
         if constexpr(in_elements == 4) {
-            out[bin_idx] = OutType{ convert_element<out_element_type>(in_val.x), convert_element<out_element_type>(in_val.y), convert_element<out_element_type>(in_val.z), convert_element<out_element_type>(in_val.w) };
+            out[bin_idx] = OutType{ convert_element<out_element_type>((swap_channels)? in_val.z: in_val.x), convert_element<out_element_type>(in_val.y), convert_element<out_element_type>((swap_channels)? in_val.x: in_val.z), convert_element<out_element_type>(in_val.w) };
         } else {
-            out[bin_idx] = OutType{ convert_element<out_element_type>(in_val.x), convert_element<out_element_type>(in_val.y), convert_element<out_element_type>(in_val.z), convert_element<out_element_type>(__float2half(1.0f)) };
+            out[bin_idx] = OutType{ convert_element<out_element_type>((swap_channels)? in_val.z: in_val.x), convert_element<out_element_type>(in_val.y), convert_element<out_element_type>((swap_channels)? in_val.x: in_val.z), convert_element<out_element_type>(__float2half(1.0f)) };
         }
     }
 }

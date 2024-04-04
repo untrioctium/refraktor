@@ -204,7 +204,6 @@ namespace rfkt {
 
 		auto smem_per_block(precision prec, std::size_t flame_real_count, std::size_t threads_per_block) {
 			auto sample_bytes = required_smem[std::make_pair(prec, threads_per_block)] + flame_real_count * (prec == precision::f32 ? 4: 8);
-			sample_bytes += (sample_bytes % 16 > 0) ? 16 - sample_bytes % 16 : 0;
 			return sample_bytes + iteration_info_size;
 		}
 

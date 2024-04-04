@@ -60,7 +60,6 @@ constexpr static uint32 threads_per_block = THREADS_PER_BLOCK;
 constexpr static uint32 flame_size_reals = FLAME_SIZE_REALS;
 constexpr static uint32 flame_size_bytes = flame_size_reals * sizeof(Real);
 constexpr static uint32 num_shuf_bufs = NUM_SHUF_BUFS;
-constexpr static uint32 shuf_buf_size = threads_per_block * sizeof(uint16);
 
 struct exec_config {
 	uint64 grid;
@@ -234,6 +233,7 @@ vec4<Real> flame_pass(unsigned int pass_idx) {
 	my_iter(y) = out_local.y;
 	my_iter(color) = out_local.z;
 
+	fl::sync_block();
 	return vec4<Real>{out_local.x, out_local.y, out_local.z, opacity};
 }
 #endif
@@ -260,7 +260,7 @@ void warmup(
 		if constexpr(!use_chaos) {
 			queue_shuffle_load(0);
 		} else {
-			my_xform_vote() = 2047;
+			my_xform_vote() = static_cast<unsigned char>(255);
 		}
 
 		const auto sample_idx = sample * gridDim.x + blockIdx.x;
