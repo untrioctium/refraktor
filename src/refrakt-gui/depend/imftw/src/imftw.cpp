@@ -221,9 +221,36 @@ void setup_imgui(ImFtw::context_t& ctx) {
 	ImGui_ImplOpenGL3_Init("#version 460");
 }
 
-int ImFtw::Run(std::string_view window_title, std::string_view ini_path, std::move_only_function<int()>&& main_function) {
+int ImFtw::Run(std::string_view app_name, std::string_view ini_path, int argc, char** argv, std::move_only_function<int()>&& main_function) {
 
 	auto& ctx = context();
+	ctx.app_name = std::string(app_name);
+
+#ifdef WIN32
+	ctx.app_mutex = CreateMutexA(nullptr, TRUE, std::format("{}::AppMutex", app_name).c_str());
+	if (GetLastError() == ERROR_ALREADY_EXISTS) {
+
+		auto base = std::filesystem::temp_directory_path();
+		
+		// create a file that can only be written to by this process
+		auto file = base / std::format("{}.ipc", app_name);
+
+		auto handle = CreateFileA(file.string().c_str(), GENERIC_READ | GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+
+		// write argv line by line
+		for (int i = 0; i < argc; ++i) {
+			DWORD written;
+			WriteFile(handle, argv[i], strlen(argv[i]), &written, nullptr);
+			WriteFile(handle, "\n", 1, &written, nullptr);
+		}
+
+		// close the file
+		CloseHandle(handle);
+
+		return 0;
+	}
+#endif
+
 	ctx.imgui_ini_path = ini_path;
 
 	if (!glfwInit()) {
@@ -244,7 +271,7 @@ int ImFtw::Run(std::string_view window_title, std::string_view ini_path, std::mo
 	//glfwWindowHint(GLFW_ALPHA_BITS, 16);
 
 	ctx.monitor = glfwGetPrimaryMonitor();
-	ctx.window = glfwCreateWindow(1920, 1080, window_title.data(), nullptr, nullptr);
+	ctx.window = glfwCreateWindow(1920, 1080, app_name.data(), nullptr, nullptr);
 
 #ifdef _WIN32
 	ctx.hwnd = glfwGetWin32Window(ctx.window);
@@ -369,6 +396,42 @@ void ImFtw::BeginFrame(ImVec4 clear_color) {
 		}, std::move(event.value()));
 	}
 
+	// check for ipc
+#ifdef WIN32
+	auto ipc_file_path = std::filesystem::temp_directory_path() / std::format("{}.ipc", ctx.app_name);
+
+	if(std::filesystem::exists(ipc_file_path)) {
+		auto handle = CreateFileA(ipc_file_path.string().c_str(), GENERIC_READ, 0, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+
+		if (handle != INVALID_HANDLE_VALUE) {
+			// read the file
+			char buffer[1024];
+			DWORD read;
+
+			std::string data;
+			while (ReadFile(handle, buffer, sizeof(buffer), &read, nullptr)) {
+				if (read == 0) break;
+				data.append(buffer, read);
+			}
+
+			CloseHandle(handle);
+			std::filesystem::remove(ipc_file_path);
+
+			ctx.ipc_data.clear();
+
+			// split the data by newlines
+			std::istringstream stream(data);
+			std::string line;
+			while (std::getline(stream, line)) {
+				ctx.ipc_data.push_back(line);
+			}
+
+			// bring the window to the front
+			glfwFocusWindow(ctx.window);
+		}
+	}
+#endif
+
 	ImGui_ImplOpenGL3_NewFrame();
 	ImGui::NewFrame();
 
@@ -382,6 +445,10 @@ void ImFtw::BeginFrame(ImVec4 clear_color) {
 		if (!ctx.deferred_functions.try_dequeue(func)) break;
 		func();
 	}
+}
+
+std::span<std::string> ImFtw::GetIpcData() {
+	return context().ipc_data;
 }
 
 void precise_sleep(double seconds) {
@@ -417,6 +484,8 @@ void precise_sleep(double seconds) {
 void ImFtw::EndFrame(bool render) {
 
 	auto& ctx = context();
+
+	ctx.ipc_data.clear();
 
 	assert(ctx.opengl_thread_id == std::this_thread::get_id());
 

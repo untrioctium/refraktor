@@ -36,8 +36,8 @@ namespace rfkt {
 			SPDLOG_INFO("Using OIDN weights: {}", weights_list.back().string());
 			weights = rfkt::fs::read_bytes(weights_list.back());
 
-			filter.setData("weights", weights.data(), weights.size());
-			alpha_filter.setData("weights", weights.data(), weights.size());
+			//filter.setData("weights", weights.data(), weights.size());
+			//alpha_filter.setData("weights", weights.data(), weights.size());
 
 			oidnSetFilterInt(filter.getHandle(), "quality", OIDN_QUALITY_BALANCED);
 			oidnSetFilterInt(alpha_filter.getHandle(), "quality", OIDN_QUALITY_BALANCED);

@@ -647,6 +647,21 @@ public:
 		while (true) {
 			ImFtw::BeginFrame();
 
+			if (auto data = ImFtw::GetIpcData(); data.size() == 2 && data[1].ends_with(".flam3")) {
+				runtime.background_executor()->enqueue([&, filename = data[1]]() {
+					auto flame = rfkt::import_flam3(fdb, rfkt::fs::read_string(filename));
+					if (!flame) {
+						SPDLOG_ERROR("could not open flame: {}", filename);
+						return;
+					}
+
+					ImFtw::DeferNextFrame([&, flame = std::move(flame.value())]() mutable {
+						c_exec.clear();
+						cur_flame = proj.add_flame(std::move(flame));
+						});
+				});
+			}
+
 			ImGui::DockSpaceOverViewport(ImGui::GetMainViewport(), ImGuiDockNodeFlags_PassthruCentralNode);
 
 			if (auto selected = mainm.process(); selected) selected->action();
@@ -693,22 +708,11 @@ private:
 			auto ctx = rfkt::cuda::init(); 
 			auto dev = ctx.device();
 			SPDLOG_INFO("Using CUDA device: {}", dev.name());
-			SPDLOG_INFO("L2 cache size (bytes): {}", dev.l2_cache_size());
-			SPDLOG_INFO("Max persisting L2 size (bytes): {}", dev.max_persist_l2_cache_size());
 			return ctx;
 		});
 
-		//SPDLOG_INFO("Max persisting L2 size (megabytes): {}", v);
-
 		show_splash("Initializing GPU statistics system", []() { rfkt::gpuinfo::init(); });
 		show_splash("Loading variations", [&]() {rfkt::initialize(fdb, "config"); });
-
-		//auto runtime_path = show_splash("Setting up CUDA runtime", []() { return rfkt::cuda::check_and_download_cudart(); });
-		//if (!runtime_path) {
-		//	SPDLOG_CRITICAL("Could not find CUDA runtime");
-		//	return false;
-		//}
-
 
 		k_comp = show_splash("Setting up compiler", []() {
 			auto kernel_cache = std::make_shared<ezrtc::sqlite_cache>((rfkt::fs::user_local_directory() / "kernel.sqlite3").string().c_str());
@@ -765,7 +769,7 @@ private:
 				auto mpasses_per_ms = (bin_info.total_passes / 1'000'000.0) / bin_info.elapsed_ms;
 				auto mdraws_per_ms = (bin_info.total_draws / 1'000'000.0) / bin_info.elapsed_ms;
 				auto passes_per_pixel = bin_info.total_passes / (double)total_bins;
-				SPDLOG_INFO("{} mpasses/ms, {} mdraws/ms, {} passes per thread", mpasses_per_ms, mdraws_per_ms, bin_info.passes_per_thread);
+				SPDLOG_INFO("{} mpasses/ms, {} mdraws/ms, {} passes per thread, {} quality/ms, {} quality@40fps", mpasses_per_ms, mdraws_per_ms, bin_info.passes_per_thread, bin_info.quality / bin_info.elapsed_ms, bin_info.quality / bin_info.elapsed_ms * 1000/40.0);
 
 				tonemap->run(state.bins, tonemapped, { state.quality, gbv.x, gbv.y, gbv.z, bin_info.max_density }, stream);
 				stream.sync();
@@ -919,13 +923,17 @@ private:
 	main_menu mainm;
 };
 
-int main(int argc, char**) {
+int main(int argc, char** argv) {
 
 	auto user_dir = rfkt::fs::user_local_directory() / "imgui.ini";
 
+	for(int i = 0; i < argc; i++) {
+		SPDLOG_INFO("arg {}: {}", i, argv[i]);
+	}
+
 	auto app = refrakt_app{};
 	try {
-		ImFtw::Run("Refrakt", user_dir.string(), [&]() { return app.run(); });
+		ImFtw::Run("Refrakt", user_dir.string(), argc, argv, [&]() { return app.run(); });
 	}
 	catch (const std::exception& e) {
 		SPDLOG_ERROR("exception: {}", e.what());

@@ -28,7 +28,7 @@ bool preview_panel::show(const rfkt::flamedb& fdb, rfkt::flame& flame, rfkt::fun
 
 	auto preview_size = gui_logic(flame, ft);
 
-	if (upscale) {
+	if (upscale && denoise) {
 		if (preview_size.x % 2 == 1) preview_size.x -= 1;
 		if (preview_size.y % 2 == 1) preview_size.y -= 1;
 	}
@@ -56,7 +56,7 @@ bool preview_panel::show(const rfkt::flamedb& fdb, rfkt::flame& flame, rfkt::fun
 		bool needs_render = needs_clear || (current_state && current_state->quality < target_quality);
 
 		if (needs_render) {
-			auto state_size = upscale ? uint2{ preview_size.x / 2, preview_size.y / 2 } : preview_size;
+			auto state_size = (upscale && denoise) ? uint2{ preview_size.x / 2, preview_size.y / 2 } : preview_size;
 			auto out_tex = texture_t::element_type::create(preview_size.x, preview_size.y, rfkt::gl::sampling_mode::nearest);
 			auto invoker = ft.make_invoker();
 
@@ -116,7 +116,7 @@ bool preview_panel::show(const rfkt::flamedb& fdb, rfkt::flame& flame, rfkt::fun
 					auto millis = 1000u;
 
 					if (needs_clear) {
-						auto state_size = upscale ? uint2{ preview_size.x / 2, preview_size.y / 2 } : preview_size;
+						auto state_size = (upscale && denoise) ? uint2{ preview_size.x / 2, preview_size.y / 2 } : preview_size;
 						*state = kernel->warmup(stream, samples, state_size, 0xdeadbeef, 1000, temporal_multiplier);
 						SPDLOG_INFO("Created state of size: {} MB", state->shared.size_bytes() / (1024.0 * 1024.0));
 					}
@@ -124,7 +124,7 @@ bool preview_panel::show(const rfkt::flamedb& fdb, rfkt::flame& flame, rfkt::fun
 						//millis = 100u;
 					}
 
-					auto result = renderer(stream, *kernel, *state, { .millis = millis, .quality = target_quality - state->quality }, gbv, upscale, denoise);
+					auto result = renderer(stream, *kernel, *state, { .millis = millis, .quality = target_quality - state->quality }, gbv, upscale && denoise, denoise);
 					cuda_map.copy_from(result, stream);
 					result.free_async(stream);
 

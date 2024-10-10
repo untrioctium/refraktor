@@ -6,7 +6,7 @@
 #include <cstdio>
 #include <span>
 #include <functional>
-
+#include <bit>
 #include <roccu.h>
 
 #define ROCCU_SAFE_CALL(x)                                         \
@@ -335,12 +335,48 @@ namespace roccu {
         constexpr explicit operator bool() const noexcept { return valid(); }
 
         void clear() {
-            ROCCU_SAFE_CALL(ruMemsetD8(ptr_, 0, size_bytes()));
+            if constexpr(sizeof(Contained) % 4 == 0) {
+				ROCCU_SAFE_CALL(ruMemsetD32(ptr_, 0, size_));
+			} else if constexpr(sizeof(Contained) % 2 == 0) {
+				ROCCU_SAFE_CALL(ruMemsetD16(ptr_, 0, size_));
+			} else {
+				ROCCU_SAFE_CALL(ruMemsetD8(ptr_, 0, size_));
+			}
         }
 
         void clear(RUstream stream) {
-            ROCCU_SAFE_CALL(ruMemsetD8Async(ptr_, 0, size_bytes(), stream));
+            if constexpr(sizeof(Contained) % 4 == 0) {
+				ROCCU_SAFE_CALL(ruMemsetD32Async(ptr_, 0, size_, stream));
+			} else if constexpr(sizeof(Contained) % 2 == 0) {
+				ROCCU_SAFE_CALL(ruMemsetD16Async(ptr_, 0, size_, stream));
+			} else {
+				ROCCU_SAFE_CALL(ruMemsetD8Async(ptr_, 0, size_, stream));
+			}
         }
+
+        void clear(Contained value) requires(element_size == 1 || element_size == 2 || element_size == 4) {
+            if constexpr (element_size == 1) {
+                ROCCU_SAFE_CALL(ruMemsetD8(ptr_, value, size_));
+            }
+            else if constexpr (element_size == 2) {
+                ROCCU_SAFE_CALL(ruMemsetD16(ptr_, value, size_));
+            }
+            else {
+                ROCCU_SAFE_CALL(ruMemsetD32(ptr_, value, size_));
+            }
+        }
+
+        void clear(Contained value, RUstream stream) requires(element_size == 1 || element_size == 2 || element_size == 4) {
+			if constexpr (element_size == 1) {
+				ROCCU_SAFE_CALL(ruMemsetD8Async(ptr_, value, size_, stream));
+			}
+			else if constexpr (element_size == 2) {
+				ROCCU_SAFE_CALL(ruMemsetD16Async(ptr_, value, size_, stream));
+			}
+			else {
+				ROCCU_SAFE_CALL(ruMemsetD32Async(ptr_, value, size_, stream));
+			}
+		}
 
         void to_host(std::span<Contained> dest_host) const {
             if (size_ == 0) return;

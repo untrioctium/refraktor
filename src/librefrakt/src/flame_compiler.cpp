@@ -408,7 +408,7 @@ std::string strip_tabs(const std::string& src) {
     return ret;
 }
 
-auto extract_duplicates(const rfkt::flame& f) -> std::map<rfkt::hash_t, std::set<int>> {
+auto extract_duplicate_xforms(const rfkt::flame& f) -> std::map<rfkt::hash_t, std::set<int>> {
 
     std::map<rfkt::hash_t, std::set<int>> shared_xforms;
     for (int i = 0; i <= f.xforms().size(); i++) {
@@ -462,7 +462,7 @@ std::string rfkt::flame_compiler::make_source(const flamedb& fdb, const rfkt::fl
     auto& xfs = info["xforms"];
     auto& xfd = info["xform_definitions"];
 
-    const auto shared_xforms = extract_duplicates(f);
+    const auto shared_xforms = extract_duplicate_xforms(f);
 
     std::set<std::string_view> needed_variations;
 
@@ -655,10 +655,10 @@ auto rfkt::flame_compiler::get_flame_kernel(const flamedb& fdb, precision prec, 
     return r;
 }
 
-roccu::gpu_buffer<unsigned short> make_shuffle_buffers(std::size_t ppts, std::size_t count) {
-    using shuf_t = unsigned short;
+template<typename Contained>
+roccu::gpu_buffer<Contained> make_shuffle_buffers(std::size_t ppts, std::size_t count) {
+    using shuf_t = Contained;
     const auto shuf_size = ppts * count;
-    SPDLOG_INFO("shuf_size: {} bytes", shuf_size * 2);
 
     auto shuf_local = std::vector<shuf_t>(shuf_size);
     auto engine = std::default_random_engine(0);
@@ -678,7 +678,7 @@ roccu::gpu_buffer<unsigned short> make_shuffle_buffers(std::size_t ppts, std::si
         std::shuffle(start, end, engine);
     }
 
-    auto buf = roccu::gpu_buffer<unsigned short>(shuf_local.size());
+    auto buf = roccu::gpu_buffer<Contained>(shuf_local.size());
     buf.from_host(shuf_local);
     return buf;
 }
@@ -742,7 +742,7 @@ rfkt::flame_compiler::flame_compiler(std::shared_ptr<ezrtc::compiler> k_manager)
     }
 
     for (auto& exec : exec_configs) {
-        shuf_bufs[exec.block] = make_shuffle_buffers(exec.block, num_shufs);
+        shuf_bufs[exec.block] = make_shuffle_buffers<unsigned short>(exec.block, num_shufs);
 
         {
             auto needed = smem_per_block(precision::f32, 0, exec.block);
@@ -794,6 +794,13 @@ rfkt::flame_compiler::flame_compiler(std::shared_ptr<ezrtc::compiler> k_manager)
     auto [s_grid, s_block] = func.suggested_dims();
     SPDLOG_INFO("Loaded catmull kernel: {} regs, {} shared, {} local, {}x{} suggested dims", func.register_count(), func.shared_bytes(), func.local_bytes(), s_grid, s_block);
 
+    for(auto& exec: exec_configs)
+        for (int i = 1; i <= 32; i++) {
+            auto sample_count = i * exec.grid;
+            if (!srt->sample_shuf_bufs.contains(sample_count)) {
+                srt->sample_shuf_bufs[sample_count] = make_shuffle_buffers<unsigned int>(sample_count, 1);
+            }
+        }
 
 }
 
@@ -913,7 +920,8 @@ auto rfkt::flame_kernel::bin(roccu::gpu_stream& stream, flame_kernel::saved_stat
             temporal_slicing,
             state.warmup_hits.ptr(),
             stream_state->qpx_dev.ptr() + 2 * counter_size,
-            stream_state->qpx_dev.ptr() + 3 * counter_size
+            stream_state->qpx_dev.ptr() + 3 * counter_size,
+            srt->sample_shuf_bufs[exec.first * state.temporal_multiplier].ptr()
         ));
     }
 

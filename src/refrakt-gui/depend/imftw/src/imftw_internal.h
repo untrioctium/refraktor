@@ -64,9 +64,15 @@ namespace ImFtw {
 
         std::string imgui_ini_path;
 
+        std::string app_name;
+
+        std::vector<std::string> ipc_data;
+
 #ifdef _WIN32
         HWND hwnd;
         ITaskbarList4* taskbar;
+
+        HANDLE app_mutex;
 #endif
 
     };

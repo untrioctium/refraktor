@@ -394,6 +394,10 @@ ROCCU_DEFINE_FUNC(MemFreeHost, RU_DRIVER, cuMemFreeHost, hipHostFree, RUresult, 
 
 ROCCU_DEFINE_FUNC(MemsetD8, RU_DRIVER, cuMemsetD8_v2, hipMemsetD8, RUresult, (RUdeviceptr dstDevice, unsigned char uc, size_t N));
 ROCCU_DEFINE_DIRECT_FUNC(MemsetD8Async, RU_DRIVER, RUresult, (RUdeviceptr dstDevice, unsigned char uc, size_t N, RUstream stream));
+ROCCU_DEFINE_FUNC(MemsetD16, RU_DRIVER, cuMemsetD16_v2, hipMemsetD16, RUresult, (RUdeviceptr dstDevice, unsigned short us, size_t N));
+ROCCU_DEFINE_DIRECT_FUNC(MemsetD16Async, RU_DRIVER, RUresult, (RUdeviceptr dstDevice, unsigned short us, size_t N, RUstream stream));
+ROCCU_DEFINE_FUNC(MemsetD32, RU_DRIVER, cuMemsetD32_v2, hipMemsetD32, RUresult, (RUdeviceptr dstDevice, unsigned int ui, size_t N));
+ROCCU_DEFINE_DIRECT_FUNC(MemsetD32Async, RU_DRIVER, RUresult, (RUdeviceptr dstDevice, unsigned int ui, size_t N, RUstream stream));
 
 ROCCU_DEFINE_DIRECT_FUNC(ModuleGetFunction, RU_DRIVER, RUresult, (RUfunction* hfunc, RUmodule hmod, const char* name));
 ROCCU_DEFINE_FUNC(ModuleGetGlobal, RU_DRIVER, cuModuleGetGlobal_v2, hipModuleGetGlobal, RUresult, (RUdeviceptr* dptr, size_t* bytes, RUmodule hmod, const char* name));

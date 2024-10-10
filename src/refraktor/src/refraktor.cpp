@@ -314,8 +314,6 @@ int main() {
 	auto pp = rfkt::postprocessor{ *km, dims, stream };
 	auto fc = rfkt::flame_compiler{ km };
 
-	SPDLOG_INFO("notepad found: {}", rfkt::fs::command_in_path("notepad.exe") ? "yes" : "no");
-
 	auto api = roccuGetApi();
 	std::pair<std::size_t, std::string_view> best_encoder;
 	best_encoder.first = std::numeric_limits<std::size_t>::max();
@@ -370,6 +368,40 @@ int main() {
 
 	auto invoker = functions.make_invoker();
 
+	sol::state lua;
+	lua.open_libraries(sol::lib::base, sol::lib::math);
+	rfkt::flame_types::bind_to_lua(lua);
+
+	lua["flame"]["import_flam3"] = [&](const std::string& path) {
+
+		auto xml = rfkt::fs::read_string(path);
+
+		return rfkt::import_flam3(fdb, xml);
+	};
+
+	while (true) {
+		std::string line;
+		std::cout << "> ";
+		std::getline(std::cin, line);
+
+		if(line == "exit") {
+			break;
+		}
+
+		try {
+			line = line.substr(line.find_first_not_of(" \t"));
+			if (line.starts_with("?")) {
+				line = std::format("return {}", line.substr(1));
+			}
+			line = std::format("print((function() {} end)())", line);
+			lua.safe_script(line);
+		}
+		catch(const sol::error& e) {
+			SPDLOG_ERROR("{}", e.what());
+		}
+	}
+
+	/*
 	auto must_load_flame = [&](const rfkt::fs::path& path) -> rfkt::flame {
 		auto fxml = rfkt::fs::read_string(path);
 		auto f = rfkt::import_flam3(fdb, fxml);
@@ -417,7 +449,7 @@ int main() {
 	//	return -1;
 	//}
 
-	constexpr static auto render_sample_counts = std::array{ 2u, 8u, 32u, 128u/* 512u, 2048u, 8192u, 32768u, 131072u*/};
+	constexpr static auto render_sample_counts = std::array{ 2u, 8u, 32u, 128u/* 512u, 2048u, 8192u, 32768u, 131072u};
 	auto files = rfkt::fs::list("assets/flames_test/", rfkt::fs::filter::has_extension(".flam3"));
 
 	std::atomic_size_t compile_completed = 0;
@@ -534,7 +566,7 @@ int main() {
 
 		bins = std::move(state.bins);
 		bins.clear(stream);
-	}
+	}*/
 
 	/*for (int i = 0; i < num_frames; i++) {
 		SPDLOG_INFO("frame {}", i);

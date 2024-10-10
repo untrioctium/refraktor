@@ -127,6 +127,7 @@ namespace rfkt {
 			ezrtc::cuda_module histogram = {};
 			rfkt::pinned_ring_allocator pra;
 			rfkt::device_ring_allocator dra;
+			std::map<std::size_t, roccu::gpu_buffer<unsigned int>> sample_shuf_bufs;
 		};
 
 		flame_kernel(std::size_t flame_size_reals, ezrtc::cuda_module&& mod, std::pair<int, int> exec, std::shared_ptr<shared_runtime> srt, std::vector<std::size_t> affine_indices) :
@@ -211,6 +212,7 @@ namespace rfkt {
 
 		std::shared_ptr<ezrtc::compiler> km;
 		std::map<std::size_t, roccu::gpu_buffer<unsigned short>> shuf_bufs;
+
 		decltype(std::declval<roccu::device_t>().concurrent_block_configurations()) exec_configs;
 
 		std::map<std::pair<precision, std::size_t>, std::size_t> required_smem;

@@ -210,6 +210,7 @@ namespace flamelib {
 		int temporal_slicing;
 		bool bail;
 		unsigned long long max_pixel_quality;
+		unsigned int sample_indices[32];
 
 		__device__ void init(int multiplier, int slicing) {
 			loaded_sample = 0xffffffff;
