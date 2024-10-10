@@ -16,6 +16,8 @@ path& working_directory_global() {
 
 void rfkt::fs::set_working_directory(const path& path) {
 	working_directory_global() = path;
+	std::filesystem::current_path(path);
+
 }
 
 const path& rfkt::fs::working_directory() {

@@ -12,7 +12,8 @@ namespace rfkt {
 
 		null_denoiser(uint2 dims, denoiser_flag::flags options, roccu::gpu_stream& stream): stream(stream) {}
 
-		std::future<double> denoise(const image_type& in, image_type& out, roccu::gpu_event& event) {
+		template<typename PixelType>
+		std::future<double> denoise_impl(image_type<PixelType> in, image_type<PixelType> out, roccu::gpu_event& event) {
 
 			auto timer = std::make_shared<rfkt::timer>();
 			auto promise = std::promise<double>{};
@@ -28,6 +29,22 @@ namespace rfkt {
 
 			return future;
 
+		}
+
+		std::future<double> denoise(image_type<half3> in, image_type<half3> out, roccu::gpu_event& event) override {
+			return denoise_impl(in, out, event);
+		}
+
+		std::future<double> denoise(image_type<half4> in, image_type<half4> out, roccu::gpu_event& event) override {
+			return denoise_impl(in, out, event);
+		}
+
+		std::future<double> denoise(image_type<float3> in, image_type<float3> out, roccu::gpu_event& event) override {
+			return denoise_impl(in, out, event);
+		}
+
+		std::future<double> denoise(image_type<float4> in, image_type<float4> out, roccu::gpu_event& event) override {
+			return denoise_impl(in, out, event);
 		}
 
 		roccu::gpu_stream& stream;

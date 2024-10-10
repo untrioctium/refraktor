@@ -186,11 +186,10 @@ namespace rfkt {
 		}
 
 		std::future<double> post_process(
-			roccu::gpu_span<float4> in,
-			roccu::gpu_span<uchar4> out,
+			roccu::gpu_image_view<float4> in,
+			roccu::gpu_image_view<uchar4> out,
 			double quality,
 			double gamma, double brightness, double vibrancy,
-			bool planar_output,
 			roccu::gpu_stream& stream) {
 
 			auto promise = std::promise<double>{};
@@ -203,7 +202,7 @@ namespace rfkt {
 
 			tm.run(in, tonemapped, { quality, gamma, brightness, vibrancy }, stream);
 			dn.denoise(tonemapped, denoised, stream);
-			conv.to_32bit(denoised, out, planar_output, stream);
+			conv.to_uchar4(denoised, out, stream);
 			stream.host_func([&t = perf_timer, p = std::move(promise)]() mutable {
 				p.set_value(t.count());
 				});
@@ -216,8 +215,8 @@ namespace rfkt {
 		rfkt::denoiser_old dn;
 		rfkt::converter conv;
 
-		rfkt::gpu_image<half3> tonemapped;
-		rfkt::gpu_image<half3> denoised;
+		roccu::gpu_image<half3> tonemapped;
+		roccu::gpu_image<half3> denoised;
 
 		rfkt::timer perf_timer;
 
@@ -302,7 +301,7 @@ namespace rfkt {
 	private:
 
 		struct last_frame {
-			rfkt::gpu_image<float4> bins = {};
+			roccu::gpu_image<float4> bins = {};
 			double quality = 0.0;
 			double gamma = 0.0;
 			double brightness = 0.0;
@@ -408,7 +407,7 @@ namespace rfkt {
 			}
 
 			if (lf) {
-				self->pp->post_process(lf->bins, { self->encoder->buffer(), self->encoder->buffer_size() }, lf->quality, lf->gamma, lf->brightness, lf->vibrancy, false, lf->pp_stream);
+				self->pp->post_process(lf->bins, { self->encoder->buffer(), uint2{static_cast<unsigned int>(self->encoder->width()), static_cast<unsigned int>(self->encoder->height())}, self->encoder->width() }, lf->quality, lf->gamma, lf->brightness, lf->vibrancy, lf->pp_stream);
 			}
 
 			const auto t = self->total_frames * self->loops_per_frame;

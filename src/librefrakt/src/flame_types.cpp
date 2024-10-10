@@ -159,6 +159,8 @@ auto rfkt::import_flam3(const flamedb& fdb, std::string_view content) noexcept -
 	ret.gamma = flame_node.attribute("gamma").as_double();
 	ret.brightness = flame_node.attribute("brightness").as_double();
 	ret.vibrancy = flame_node.attribute("vibrancy").as_double();
+	ret.highlight_power = flame_node.attribute("highlight_power").as_double();
+	ret.gamma_threshold = flame_node.attribute("gamma_threshold").as_double();
 
 	std::map<int, std::string> chaos_table{};
 
@@ -405,6 +407,12 @@ ordered_json rfkt::flame::serialize() const noexcept {
 	js["gamma"] = gamma.serialize();
 	js["brightness"] = brightness.serialize();
 	js["vibrancy"] = vibrancy.serialize();
+	js["highlight_power"] = highlight_power.serialize();
+	js["gamma_threshold"] = gamma_threshold.serialize();
+
+	js["mod_hue"] = mod_hue.serialize();
+	js["mod_sat"] = mod_sat.serialize();
+	js["mod_val"] = mod_val.serialize();
 
 	js["xforms"] = ordered_json::array();
 
@@ -439,6 +447,12 @@ std::optional<rfkt::flame> rfkt::flame::deserialize(const json& js, const functi
 	CHECK_AND_DESERIALIZE_ANIMA(ret, gamma);
 	CHECK_AND_DESERIALIZE_ANIMA(ret, brightness);
 	CHECK_AND_DESERIALIZE_ANIMA(ret, vibrancy);
+	CHECK_AND_DESERIALIZE_ANIMA(ret, highlight_power);
+	CHECK_AND_DESERIALIZE_ANIMA(ret, gamma_threshold);
+
+	CHECK_AND_DESERIALIZE_ANIMA(ret, mod_hue);
+	CHECK_AND_DESERIALIZE_ANIMA(ret, mod_sat);
+	CHECK_AND_DESERIALIZE_ANIMA(ret, mod_val);
 
 	if (!js.contains("xforms") || !js.is_array()) return std::nullopt;
 
@@ -496,6 +510,12 @@ rfkt::hash_t rfkt::flame::value_hash() const noexcept
 	process(gamma);
 	process(brightness);
 	process(vibrancy);
+	process(highlight_power);
+	process(gamma_threshold);
+
+	process(mod_hue);
+	process(mod_sat);
+	process(mod_val);
 
 	if (chaos_table.has_value()) {
 		for (const auto& row : chaos_table.value()) {
@@ -529,14 +549,11 @@ rfkt::hash_t rfkt::flame::value_hash() const noexcept
 	});
 
 	state.update(palette);
-	process(mod_hue);
-	process(mod_sat);
-	process(mod_val);
 
 	return state.digest();
 }
 
-void bind_to_lua(sol::state& state) {
+void rfkt::flame_types::bind_to_lua(sol::state& state) {
 	using namespace rfkt;
 
 	auto anima_t = state.new_usertype<rfkt::anima>("anima", sol::constructors<rfkt::anima(), rfkt::anima(double)>());
@@ -565,6 +582,11 @@ void bind_to_lua(sol::state& state) {
 	xform_t["color"] = &rfkt::xform::color;
 	xform_t["color_speed"] = &rfkt::xform::color_speed;
 	xform_t["opacity"] = &rfkt::xform::opacity;
+	xform_t["vchain_size"] = [](const rfkt::xform& xf) { return xf.vchain.size(); };
+	xform_t["vlink"] = [](rfkt::xform& xf, int idx) -> std::optional<vlink*> { 
+		if (idx < 0 || idx >= xf.vchain.size()) return std::nullopt;
+		return &xf.vchain[idx]; 
+	};
 
 	auto flame_t = state.new_usertype<rfkt::flame>("flame", sol::no_constructor);
 	flame_t["center_x"] = &rfkt::flame::center_x;
@@ -575,15 +597,21 @@ void bind_to_lua(sol::state& state) {
 	flame_t["brightness"] = &rfkt::flame::brightness;
 	flame_t["vibrancy"] = &rfkt::flame::vibrancy;
 
-	flame_t["xforms"] = sol::property(
-		[](rfkt::flame& f) {
-			return f.xforms();
-		}
-	);
+	flame_t["num_xforms"] = [](const rfkt::flame& f) {
+		return f.xforms().size();
+	};
+
+	flame_t["xform"] = [](rfkt::flame& f, int idx) -> sol::optional<rfkt::xform*> {
+		if (idx >= 0 && idx < f.xforms().size())
+			return &f.xforms()[idx];
+		else
+			return sol::nullopt;
+	};
 
 	flame_t["final_xform"] = sol::property(
-		[](rfkt::flame& f) {
-			return f.final_xform;
+		[](rfkt::flame& f) -> sol::optional<xform*> {
+			if(!f.final_xform.has_value()) return sol::nullopt;
+			return &f.final_xform.value();
 		},
 		[](rfkt::flame& f, const rfkt::xform& xf) {
 			f.final_xform = xf;
@@ -593,6 +621,4 @@ void bind_to_lua(sol::state& state) {
 	flame_t["has_final_xform"] = [](const rfkt::flame& f) {
 		return f.final_xform.has_value();
 	};
-
-
 }

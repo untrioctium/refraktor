@@ -13,7 +13,7 @@ public:
 	using texture_format = rfkt::gl::texture<rfkt::gl::texture_format::rgba32f>;
 	using pixel_type = texture_format::traits::pixel_type;
 
-	using renderer_t = std::move_only_function<rfkt::gpu_image<pixel_type>(roccu::gpu_stream&, const rfkt::flame_kernel&, rfkt::flame_kernel::saved_state&, rfkt::flame_kernel::bailout_args, double3, bool, bool)>;
+	using renderer_t = std::move_only_function<roccu::gpu_image<pixel_type>(roccu::gpu_stream&, const rfkt::flame_kernel&, rfkt::flame_kernel::saved_state&, rfkt::flame_kernel::bailout_args, double3, bool, bool)>;
 
 	preview_panel() = delete;
 	preview_panel(rfkt::flame_compiler& compiler, executor_t&& submitter, renderer_t&& renderer, command_executor& cmd_exec) :
@@ -68,8 +68,10 @@ private:
 	ImVec2 last_delta = { 0, 0 };
 	double2 drag_start = { 0, 0 };
 
-	float gamma = 2.2f;
+	float gamma = 1.0f;
 	float exposure = 1.0f;
+
+	std::vector<std::size_t> densities;
 
 	std::optional<double> scroll_scale_start;
 	std::chrono::steady_clock::time_point scroll_start_time = std::chrono::steady_clock::now();

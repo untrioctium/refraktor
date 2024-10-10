@@ -18,7 +18,7 @@ namespace rfkt {
 		virtual ~jpeg_encoder() = default;
 
 		using encode_thunk = std::move_only_function<std::vector<std::byte>()>;
-		virtual auto encode_image(const gpu_image<uchar3>& image, int quality, roccu::gpu_stream& stream) -> std::future<encode_thunk> = 0;
+		virtual auto encode_image(roccu::gpu_image_view<uchar3> image, int quality, roccu::gpu_stream& stream) -> std::future<encode_thunk> = 0;
 	};
 
 }

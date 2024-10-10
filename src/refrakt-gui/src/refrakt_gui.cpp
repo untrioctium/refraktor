@@ -91,26 +91,26 @@ void draw_status_bar() {
 	}*/
 }
 
-bool shortcut_pressed(ImGuiModFlags mods, ImGuiKey key) {
+bool shortcut_pressed(ImGuiKey mods, ImGuiKey key) {
 	if (!ImGui::IsKeyPressed(key, false)) return false;
 
-	if (mods & ImGuiModFlags_Alt && !ImGui::IsKeyDown(ImGuiKey_ModAlt)) return false;
-	if (mods & ImGuiModFlags_Ctrl && !ImGui::IsKeyDown(ImGuiKey_ModCtrl)) return false;
-	if (mods & ImGuiModFlags_Shift && !ImGui::IsKeyDown(ImGuiKey_ModShift)) return false;
-	if (mods & ImGuiModFlags_Super && !ImGui::IsKeyDown(ImGuiKey_ModSuper)) return false;
+	if (mods & ImGuiMod_Alt && !ImGui::IsKeyDown(ImGuiKey_ModAlt)) return false;
+	if (mods & ImGuiMod_Ctrl && !ImGui::IsKeyDown(ImGuiKey_ModCtrl)) return false;
+	if (mods & ImGuiMod_Shift && !ImGui::IsKeyDown(ImGuiKey_ModShift)) return false;
+	if (mods & ImGuiMod_Super && !ImGui::IsKeyDown(ImGuiKey_ModSuper)) return false;
 	return true;
 }
 
-std::string_view shortcut_to_string(ImGuiModFlags mods, ImGuiKey key) {
+std::string_view shortcut_to_string(ImGuiKey mods, ImGuiKey key) {
 
-	thread_local std::map<std::pair<ImGuiModFlags, ImGuiKey>, std::string> str_cache;
+	thread_local std::map<std::pair<ImGuiKey, ImGuiKey>, std::string> str_cache;
 	if(auto it = str_cache.find({ mods, key }); it != str_cache.end()) return it->second;
 
 	std::string result;
-	if (mods & ImGuiModFlags_Ctrl) result += "Ctrl+";
-	if (mods & ImGuiModFlags_Shift) result += "Shift+";
-	if (mods & ImGuiModFlags_Alt) result += "Alt+";
-	if (mods & ImGuiModFlags_Super) result += "Super+";
+	if (mods & ImGuiMod_Ctrl) result += "Ctrl+";
+	if (mods & ImGuiMod_Shift) result += "Shift+";
+	if (mods & ImGuiMod_Alt) result += "Alt+";
+	if (mods & ImGuiMod_Super) result += "Super+";
 	result += ImGui::GetKeyName(key);
 	result = "     " + result;
 	
@@ -125,13 +125,13 @@ struct menu_item {
 	std::string icon;
 	std::optional<ImVec4> icon_color;
 	thunk_t action;
-	std::optional<std::pair<ImGuiModFlags, ImGuiKey>> shortcut;
+	std::optional<std::pair<ImGuiKey, ImGuiKey>> shortcut;
 	enabled_func_t enabled;
 
 	menu_item& set_name(std::string_view n) { name = n; return *this; }
 	menu_item& set_action(thunk_t a) { action = std::move(a); return *this; }
 	menu_item& set_enabled(enabled_func_t e) { enabled = std::move(e); return *this; }
-	menu_item& set_shortcut(ImGuiModFlags mods, ImGuiKey key) { shortcut = { mods, key }; return *this; }
+	menu_item& set_shortcut(ImGuiKey mods, ImGuiKey key) { shortcut = { mods, key }; return *this; }
 	menu_item& set_icon(std::string_view i, const std::optional<ImVec4>& color = {}) { icon = i; icon_color = color; return *this; }
 };
 
@@ -642,12 +642,27 @@ public:
 		ImFtw::Sig::SetWindowDecorated(true).get();
 		ImFtw::Sig::SetWindowMaximized(true).get();
 		ImFtw::Sig::SetVSyncEnabled(false);
-		ImFtw::Sig::SetTargetFramerate(500);
+		ImFtw::Sig::SetTargetFramerate(60);
 
 		while (true) {
 			ImFtw::BeginFrame();
 
-			ImGui::DockSpaceOverViewport(ImGui::GetMainViewport(), ImGuiDockNodeFlags_PassthruCentralNode);
+			if (auto data = ImFtw::GetIpcData(); data.size() == 2 && data[1].ends_with(".flam3")) {
+				runtime.background_executor()->enqueue([&, filename = data[1]]() {
+					auto flame = rfkt::import_flam3(fdb, rfkt::fs::read_string(filename));
+					if (!flame) {
+						SPDLOG_ERROR("could not open flame: {}", filename);
+						return;
+					}
+
+					ImFtw::DeferNextFrame([&, flame = std::move(flame.value())]() mutable {
+						c_exec.clear();
+						cur_flame = proj.add_flame(std::move(flame));
+						});
+				});
+			}
+
+			ImGui::DockSpaceOverViewport(0, ImGui::GetMainViewport(), ImGuiDockNodeFlags_PassthruCentralNode);
 
 			if (auto selected = mainm.process(); selected) selected->action();
 
@@ -693,22 +708,11 @@ private:
 			auto ctx = rfkt::cuda::init(); 
 			auto dev = ctx.device();
 			SPDLOG_INFO("Using CUDA device: {}", dev.name());
-			SPDLOG_INFO("L2 cache size (bytes): {}", dev.l2_cache_size());
-			SPDLOG_INFO("Max persisting L2 size (bytes): {}", dev.max_persist_l2_cache_size());
 			return ctx;
 		});
 
-		//SPDLOG_INFO("Max persisting L2 size (megabytes): {}", v);
-
 		show_splash("Initializing GPU statistics system", []() { rfkt::gpuinfo::init(); });
 		show_splash("Loading variations", [&]() {rfkt::initialize(fdb, "config"); });
-
-		//auto runtime_path = show_splash("Setting up CUDA runtime", []() { return rfkt::cuda::check_and_download_cudart(); });
-		//if (!runtime_path) {
-		//	SPDLOG_CRITICAL("Could not find CUDA runtime");
-		//	return false;
-		//}
-
 
 		k_comp = show_splash("Setting up compiler", []() {
 			auto kernel_cache = std::make_shared<ezrtc::sqlite_cache>((rfkt::fs::user_local_directory() / "kernel.sqlite3").string().c_str());
@@ -755,9 +759,9 @@ private:
 				const auto output_dims = (upscale) ? uint2{ state.bins.width() * 2, state.bins.height() * 2 } : state.bins.dims();
 				const auto output_bins = output_dims.x * output_dims.y;
 
-				auto tonemapped = rfkt::gpu_image<half3>{ state.bins.width(), state.bins.height(), stream};
-				auto denoised = rfkt::gpu_image<half3>{ output_dims.x, output_dims.y, stream };
-				auto out_buf = rfkt::gpu_image<preview_panel::pixel_type>{ output_dims.x, output_dims.y, stream };
+				auto tonemapped = roccu::gpu_image<half3>{ state.bins.dims(), stream};
+				auto denoised = roccu::gpu_image<half3>{ output_dims, stream };
+				auto out_buf = roccu::gpu_image<preview_panel::pixel_type>{ output_dims, stream };
 
 				auto bin_info = kernel.bin(stream, state, bo).get();
 				state.quality += bin_info.quality;
@@ -765,22 +769,25 @@ private:
 				auto mpasses_per_ms = (bin_info.total_passes / 1'000'000.0) / bin_info.elapsed_ms;
 				auto mdraws_per_ms = (bin_info.total_draws / 1'000'000.0) / bin_info.elapsed_ms;
 				auto passes_per_pixel = bin_info.total_passes / (double)total_bins;
-				SPDLOG_INFO("{} mpasses/ms, {} mdraws/ms, {} passes per thread", mpasses_per_ms, mdraws_per_ms, bin_info.passes_per_thread);
+				SPDLOG_INFO("{} mpasses/ms, {} mdraws/ms, {} passes per thread, {} quality/ms, {} quality@40fps", mpasses_per_ms, mdraws_per_ms, bin_info.passes_per_thread, bin_info.quality / bin_info.elapsed_ms, bin_info.quality / bin_info.elapsed_ms * 1000/40.0);
 
-				tonemap->run(state.bins, tonemapped, { state.quality, gbv.x, gbv.y, gbv.z }, stream);
+				tonemap->run(state.bins, tonemapped, { state.quality, gbv.x, gbv.y, gbv.z, bin_info.max_density }, stream);
 				stream.sync();
 				auto& denoiser = upscale ? denoise_upscale : denoise_normal;
 				if(denoise) denoiser->denoise(tonemapped, denoised, ev).get();
 				
 				if constexpr (std::same_as<preview_panel::pixel_type, float4>) {
-					convert->to_float3((denoise) ? denoised : tonemapped, out_buf, stream);
+					convert->to_float4((denoise) ? denoised : tonemapped, out_buf, stream);
 				}
 				else if constexpr(std::same_as<preview_panel::pixel_type, half4>) {
 					convert->to_half4(denoised, out_buf, stream);
 				}
 				else {
-					convert->to_32bit((denoise)? denoised: tonemapped, out_buf, false, stream);
+					convert->to_uchar4((denoise)? denoised: tonemapped, out_buf, stream);
 				}
+
+				//tonemap->density_hdr((denoise) ? denoised : tonemapped, out_buf, state.density_histogram, stream);
+
 				tonemapped.free_async(stream);
 				denoised.free_async(stream);
 				stream.sync();
@@ -809,17 +816,17 @@ private:
 
 		file_menu.add_separator();
 
-		file_menu.add_item("Exit").set_shortcut(ImGuiModFlags_Alt, ImGuiKey_F4);
+		file_menu.add_item("Exit").set_shortcut(ImGuiMod_Alt, ImGuiKey_F4);
 
 		auto& edit_menu = mainm.add_menu("Edit");
 		edit_menu.add_item("Undo")
 			.set_icon(ICON_MD_UNDO, ImVec4(1.0, 0.0f, 0.0f, 1.0f))
-			.set_shortcut(ImGuiModFlags_Ctrl, ImGuiKey_Z)
+			.set_shortcut(ImGuiMod_Ctrl, ImGuiKey_Z)
 			.set_action([&]() { c_exec.undo(); })
 			.set_enabled([&]() { return c_exec.can_undo(); });
 
 		edit_menu.add_item("Redo")
-			.set_shortcut(ImGuiModFlags_Ctrl, ImGuiKey_Y)
+			.set_shortcut(ImGuiMod_Ctrl, ImGuiKey_Y)
 			.set_icon(ICON_MD_REDO, ImVec4(0.0, 1.0f, 0.0f, 1.0f))
 			.set_action([&]() { c_exec.redo(); })
 			.set_enabled([&]() { return c_exec.can_redo(); });
@@ -833,7 +840,7 @@ private:
 		project_menu
 			.add_item("Import flame...")
 			.set_icon(ICON_MD_LOCAL_FIRE_DEPARTMENT, ImVec4(251.0 / 255, 139.0 / 255, 35.0 / 255, 1.0f))
-			.set_shortcut(ImGuiModFlags_Ctrl, ImGuiKey_O)
+			.set_shortcut(ImGuiMod_Ctrl, ImGuiKey_O)
 			.set_action([&]() {
 				runtime.background_executor()->enqueue([&]() mutable {
 					ctx.make_current_if_not();
@@ -916,13 +923,17 @@ private:
 	main_menu mainm;
 };
 
-int main(int argc, char**) {
+int main(int argc, char** argv) {
 
 	auto user_dir = rfkt::fs::user_local_directory() / "imgui.ini";
 
+	for(int i = 0; i < argc; i++) {
+		SPDLOG_INFO("arg {}: {}", i, argv[i]);
+	}
+
 	auto app = refrakt_app{};
 	try {
-		ImFtw::Run("Refrakt", user_dir.string(), [&]() { return app.run(); });
+		ImFtw::Run("Refrakt", user_dir.string(), argc, argv, [&]() { return app.run(); });
 	}
 	catch (const std::exception& e) {
 		SPDLOG_ERROR("exception: {}", e.what());

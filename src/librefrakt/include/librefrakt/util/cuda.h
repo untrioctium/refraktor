@@ -11,16 +11,16 @@
 #include <librefrakt/util/filesystem.h>
 #include <librefrakt/util.h>
 
+#include <spdlog/spdlog.h>
+
 #define CUDA_SAFE_CALL(x)                                         \
   do {                                                            \
     RUresult result = x;                                          \
     if (result != RU_SUCCESS) {                                 \
       const char *msg;                                            \
       ruGetErrorName(result, &msg);                               \
-      printf("`%s` failed with result: %s\n", #x, msg);             \
-      printf("%s", rfkt::stacktrace().c_str());                   \
-      __debugbreak();                                             \
-      exit(1);                                                    \
+      SPDLOG_ERROR("`{}` failed with result: {}\n{}", #x, msg, rfkt::stacktrace().c_str());             \
+	  exit(1);                                                    \
     }                                                             \
   } while(0)
 

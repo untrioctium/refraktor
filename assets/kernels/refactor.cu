@@ -60,7 +60,6 @@ constexpr static uint32 threads_per_block = THREADS_PER_BLOCK;
 constexpr static uint32 flame_size_reals = FLAME_SIZE_REALS;
 constexpr static uint32 flame_size_bytes = flame_size_reals * sizeof(Real);
 constexpr static uint32 num_shuf_bufs = NUM_SHUF_BUFS;
-constexpr static uint32 shuf_buf_size = threads_per_block * sizeof(uint16);
 
 struct exec_config {
 	uint64 grid;
@@ -234,6 +233,7 @@ vec4<Real> flame_pass(unsigned int pass_idx) {
 	my_iter(y) = out_local.y;
 	my_iter(color) = out_local.z;
 
+	fl::sync_block();
 	return vec4<Real>{out_local.x, out_local.y, out_local.z, opacity};
 }
 #endif
@@ -260,7 +260,7 @@ void warmup(
 		if constexpr(!use_chaos) {
 			queue_shuffle_load(0);
 		} else {
-			my_xform_vote() = 2047;
+			my_xform_vote() = static_cast<unsigned char>(255);
 		}
 
 		const auto sample_idx = sample * gridDim.x + blockIdx.x;
@@ -377,6 +377,7 @@ __device__ unsigned int pass_and_draw(unsigned int pass_idx, float4* const __res
 		new_bin.y += ((1.0_r - mix) * lower.y + mix * upper.y) / 255.0f * transformed.w;
 		new_bin.z += ((1.0_r - mix) * lower.z + mix * upper.z) / 255.0f * transformed.w;
 		new_bin.w += transformed.w;
+
 		bin = new_bin;
 		hit = (unsigned int)(255.0f * transformed.w);
 	}
@@ -396,17 +397,25 @@ void bin(
 	volatile bool* __restrict__ stop_render,
 	const int32 temporal_multiplier,
 	const int32 temporal_slicing,
-	const unsigned long long* const __restrict__ warmup_hits)
+	const unsigned long long* const __restrict__ warmup_hits,
+	unsigned long long* const __restrict__ earliest_start,
+	unsigned long long* const __restrict__ latest_stop,
+	unsigned int* const __restrict__ sample_indices)
 {
 	
 	if(fl::is_block_leader()) {
 		iter_info.init(temporal_multiplier, temporal_slicing);
+		atomicMin(earliest_start, iter_info.start_time);
 
 		for(int i = 0; i < temporal_multiplier; i++) {
-			auto& sample = in_state[blockIdx.x + gridDim.x * i];
-			sample.tss_quality = 0;
-			sample.tss_passes = 0;
+			iter_info.sample_indices[i] = sample_indices[blockIdx.x + gridDim.x * i];
 		}
+	}
+
+	if(fl::block_rank() < temporal_multiplier) {
+		auto& sample = in_state[iter_info.sample_indices[fl::block_rank()]];
+		sample.tss_quality = 0;
+		sample.tss_passes = 0;
 	}
 	fl::sync_block();
 	
@@ -415,11 +424,11 @@ void bin(
 		if(iter_info.on_sample_boundary() && iter_info.current_sample != iter_info.loaded_sample) {
 
 			if(iter_info.loaded_sample != 0xFFFFFFFF) {
-				memcpy_sync<sample_state_size_bytes>((uint8*)&state, (uint8*)(in_state + blockIdx.x + gridDim.x * iter_info.loaded_sample));
+				memcpy_sync<sample_state_size_bytes>((uint8*)&state, (uint8*)(in_state + iter_info.sample_indices[iter_info.loaded_sample]));
 				//DEBUG_GRID("saved sample %d\n", iter_info.loaded_sample);
 			}
 
-			memcpy_sync<sample_state_size_bytes>((uint8*)(in_state + blockIdx.x + gridDim.x * iter_info.current_sample), (uint8*)&state);
+			memcpy_sync<sample_state_size_bytes>((uint8*)(in_state + iter_info.sample_indices[iter_info.current_sample]), (uint8*)&state);
 			//DEBUG_GRID("loaded sample %d\n", iter_info.current_sample);
 			iter_info.loaded_sample = iter_info.current_sample;
 		}
@@ -433,7 +442,7 @@ void bin(
 		fl::sync_block();
 		if(fl::is_block_leader()) {
 
-			if(state.tss_quality >= quality_target * double(state.warmup_hits) / double(*warmup_hits)) {
+			if(state.tss_quality >= double(quality_target) / (temporal_multiplier * gridDim.x)) {
 				iter_info.mark_sample_done();
 			}
 
@@ -450,15 +459,17 @@ void bin(
 		fl::sync_block();
 	}
 
-	memcpy_sync<sample_state_size_bytes>((uint8*)&state, (uint8*)(in_state + blockIdx.x + gridDim.x * iter_info.loaded_sample));
+	memcpy_sync<sample_state_size_bytes>((uint8*)&state, (uint8*)(in_state + iter_info.sample_indices[iter_info.loaded_sample]));
 
 	
+	if(fl::block_rank() < temporal_multiplier) {
+		auto& sample = in_state[iter_info.sample_indices[fl::block_rank()]];
+		atomicAdd(quality_counter, sample.tss_quality);
+		atomicAdd(pass_counter, sample.tss_passes);
+	}
+	
 	if(fl::is_block_leader()) {
-		for(int i = 0; i < temporal_multiplier; i++) {
-			auto& sample = in_state[blockIdx.x + gridDim.x * i];
-			atomicAdd(quality_counter, sample.tss_quality);
-			atomicAdd(pass_counter, sample.tss_passes);
-		}
+		atomicMax(latest_stop, fl::time());
 	}
 	
 }

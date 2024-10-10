@@ -408,7 +408,7 @@ std::string strip_tabs(const std::string& src) {
     return ret;
 }
 
-auto extract_duplicates(const rfkt::flame& f) -> std::map<rfkt::hash_t, std::set<int>> {
+auto extract_duplicate_xforms(const rfkt::flame& f) -> std::map<rfkt::hash_t, std::set<int>> {
 
     std::map<rfkt::hash_t, std::set<int>> shared_xforms;
     for (int i = 0; i <= f.xforms().size(); i++) {
@@ -462,7 +462,7 @@ std::string rfkt::flame_compiler::make_source(const flamedb& fdb, const rfkt::fl
     auto& xfs = info["xforms"];
     auto& xfd = info["xform_definitions"];
 
-    const auto shared_xforms = extract_duplicates(f);
+    const auto shared_xforms = extract_duplicate_xforms(f);
 
     std::set<std::string_view> needed_variations;
 
@@ -641,10 +641,10 @@ auto rfkt::flame_compiler::get_flame_kernel(const flamedb& fdb, precision prec, 
         SPDLOG_ERROR("Kernel for {} needs {} blocks but only got {}; {} shared, {} expected, {} regs, {} local", opts.name(), most_blocks.grid, max_blocks, func.shared_bytes(), expected_shared, func.register_count(), func.local_bytes());
         return r;
     }
-    //SPDLOG_INFO("Loaded flame kernel {}: {} temp. samples, {} flame params, {} regs, {} shared ({} expected), {} local, {:.4} ms", opts.name(), max_blocks, f.size_reals(), func.register_count(), func.shared_bytes(), expected_shared, func.local_bytes(), duration_ms);
+    SPDLOG_INFO("Loaded flame kernel {}: {} temp. samples, {} flame params, {} regs, {} shared ({} expected), {} local, {:.4} ms", opts.name(), max_blocks, f.size_reals(), func.register_count(), func.shared_bytes(), expected_shared, func.local_bytes(), duration_ms);
 
     if (func.local_bytes() > 0) {
-        //SPDLOG_WARN("Kernel for {} uses {} local memory", opts.name(), func.local_bytes());
+        SPDLOG_WARN("Kernel for {} uses {} local memory", opts.name(), func.local_bytes());
     }
 
     auto shuf_dev = compile_result.module.value()["shuf_bufs"];
@@ -655,10 +655,10 @@ auto rfkt::flame_compiler::get_flame_kernel(const flamedb& fdb, precision prec, 
     return r;
 }
 
-roccu::gpu_buffer<unsigned short> make_shuffle_buffers(std::size_t ppts, std::size_t count) {
-    using shuf_t = unsigned short;
+template<typename Contained>
+roccu::gpu_buffer<Contained> make_shuffle_buffers(std::size_t ppts, std::size_t count) {
+    using shuf_t = Contained;
     const auto shuf_size = ppts * count;
-    SPDLOG_INFO("shuf_size: {} bytes", shuf_size * 2);
 
     auto shuf_local = std::vector<shuf_t>(shuf_size);
     auto engine = std::default_random_engine(0);
@@ -678,7 +678,7 @@ roccu::gpu_buffer<unsigned short> make_shuffle_buffers(std::size_t ppts, std::si
         std::shuffle(start, end, engine);
     }
 
-    auto buf = roccu::gpu_buffer<unsigned short>(shuf_local.size());
+    auto buf = roccu::gpu_buffer<Contained>(shuf_local.size());
     buf.from_host(shuf_local);
     return buf;
 }
@@ -737,12 +737,12 @@ rfkt::flame_compiler::flame_compiler(std::shared_ptr<ezrtc::compiler> k_manager)
 
     iteration_info_size = shared_sizes[0];
     for (int i = 0; i < exec_configs.size(); i++) {
-       required_smem[{precision::f32, exec_configs[i].block}] = shared_sizes[i + 1];
-       required_smem[{precision::f64, exec_configs[i].block}] = shared_sizes[i + 1 + exec_configs.size()];
+       required_smem[{precision::f32, exec_configs[i].block}] = shared_sizes[i + 1] + 128;
+       required_smem[{precision::f64, exec_configs[i].block}] = shared_sizes[i + 1 + exec_configs.size()] + 128;
     }
 
     for (auto& exec : exec_configs) {
-        shuf_bufs[exec.block] = make_shuffle_buffers(exec.block, num_shufs);
+        shuf_bufs[exec.block] = make_shuffle_buffers<unsigned short>(exec.block, num_shufs);
 
         {
             auto needed = smem_per_block(precision::f32, 0, exec.block);
@@ -770,11 +770,38 @@ rfkt::flame_compiler::flame_compiler(std::shared_ptr<ezrtc::compiler> k_manager)
         exit(1);
     }
     
-    this->srt = std::shared_ptr<flame_kernel::shared_runtime>(new flame_kernel::shared_runtime{ std::move(result.module.value()), 16 * 1000 * 1000, 16 * 1000 * 1000 });
+    std::string histogram_name = std::format("calculate_histogram<{}>", histogram_granularity);
+
+    auto histogram_result = km->compile(
+        ezrtc::spec::source_file("histogram", "assets/kernels/density_histo.cu")
+        .kernel(histogram_name)
+        .flag(ezrtc::compile_flag::default_device)
+        .flag(ezrtc::compile_flag::extra_device_vectorization)
+    );
+
+    if (not histogram_result.module.has_value()) {
+        SPDLOG_ERROR(histogram_result.log);
+        exit(1);
+    }
+
+    auto hfunc = histogram_result.module->kernel(histogram_name);
+    auto [h_grid, h_block] = hfunc.suggested_dims();
+    SPDLOG_INFO("Loaded histogram kernel: {} regs, {} shared, {} local, {}x{} suggested dims", hfunc.register_count(), hfunc.shared_bytes(), hfunc.local_bytes(), h_grid, h_block);
+
+    this->srt = std::shared_ptr<flame_kernel::shared_runtime>(new flame_kernel::shared_runtime{ std::move(result.module.value()), std::move(histogram_result.module.value()), 16 * 1000 * 1000, 16 * 1000 * 1000 });
 
     auto func = srt->catmull.kernel("generate_sample_coefficients");
     auto [s_grid, s_block] = func.suggested_dims();
     SPDLOG_INFO("Loaded catmull kernel: {} regs, {} shared, {} local, {}x{} suggested dims", func.register_count(), func.shared_bytes(), func.local_bytes(), s_grid, s_block);
+
+    for(auto& exec: exec_configs)
+        for (int i = 1; i <= 32; i++) {
+            auto sample_count = i * exec.grid;
+            if (!srt->sample_shuf_bufs.contains(sample_count)) {
+                srt->sample_shuf_bufs[sample_count] = make_shuffle_buffers<unsigned int>(sample_count, 1);
+            }
+        }
+
 }
 
 auto rfkt::flame_compiler::make_opts(precision prec, const flame& f)->std::pair<roccu::execution_config, ezrtc::spec>
@@ -802,6 +829,7 @@ auto rfkt::flame_compiler::make_opts(precision prec, const flame& f)->std::pair<
         const auto warp_size = roccu::context::current().device().warp_size();
         while (exec_configs[most_blocks_idx].block / warp_size < 4) most_blocks_idx--;
     }
+    //most_blocks_idx = 0;
     auto& most_blocks = exec_configs[most_blocks_idx];
 
 
@@ -854,7 +882,7 @@ auto rfkt::flame_kernel::bin(roccu::gpu_stream& stream, flame_kernel::saved_stat
 
     auto stream_state = std::make_shared<stream_state_t>();
     auto future = stream_state->promise.get_future();
-    const auto num_counters = 2;
+    const auto num_counters = 5;
 
     stream_state->qpx_host = srt->pra.reserve<std::size_t>(num_counters);
 
@@ -863,6 +891,9 @@ auto rfkt::flame_kernel::bin(roccu::gpu_stream& stream, flame_kernel::saved_stat
 
     stream_state->qpx_dev = srt->dra.reserve<std::size_t>(num_counters);
     stream_state->qpx_dev.clear(stream);
+
+    const auto ullmax = std::numeric_limits<std::size_t>::max();
+    ruMemcpyHtoDAsync(stream_state->qpx_dev.ptr() + counter_size * 2, &ullmax, counter_size, stream);
 
     auto klauncher = [&mod = this->mod, &stream, &exec = this->exec]<typename ...Ts>(Ts&&... args) {
         return mod("bin").launch(exec.first, exec.second, stream, true)(std::forward<Ts>(args)...);
@@ -887,21 +918,36 @@ auto rfkt::flame_kernel::bin(roccu::gpu_stream& stream, flame_kernel::saved_stat
             state.stopper.ptr(),
             state.temporal_multiplier,
             temporal_slicing,
-            state.warmup_hits.ptr()
+            state.warmup_hits.ptr(),
+            stream_state->qpx_dev.ptr() + 2 * counter_size,
+            stream_state->qpx_dev.ptr() + 3 * counter_size,
+            srt->sample_shuf_bufs[exec.first * state.temporal_multiplier].ptr()
         ));
     }
+
+    auto bins_count = state.bins.area();
+    auto num_blocks = bins_count / 256 + 1;
+
+    state.density_histogram.clear(stream);
+    srt->histogram.kernel().launch(num_blocks, 256, stream)(
+		state.bins.ptr(),
+		bins_count,
+		state.density_histogram.ptr(),
+        stream_state->qpx_dev.ptr() + counter_size * 4
+	);
+
     stream_state->qpx_dev.to_host(stream_state->qpx_host, stream);
 
     stream.host_func([ss = stream_state](){
         ss->end = std::chrono::high_resolution_clock::now();
-        //SPDLOG_INFO("{}", ss->qpx_host[0]);
         ss->promise.set_value(flame_kernel::bin_result{
-            ss->qpx_host[0] / (ss->total_bins * 255.0),
-            std::chrono::duration_cast<std::chrono::nanoseconds>(ss->end - ss->start).count() / 1'000'000.0,
-            ss->qpx_host[1],
-            ss->qpx_host[0] / 255,
-            ss->total_bins,
-            double(ss->qpx_host[1]) / (ss->num_threads)
+            .quality = ss->qpx_host[0] / (ss->total_bins * 255.0),
+            .elapsed_ms = (ss->qpx_host[3] - ss->qpx_host[2]) / 1e6,
+            .total_passes = ss->qpx_host[1],
+            .total_draws = ss->qpx_host[0] / 255,
+            .total_bins = ss->total_bins,
+            .passes_per_thread = double(ss->qpx_host[1]) / (ss->num_threads),
+            .max_density = ss->qpx_host[4] * 1.0
         });
     });
 
@@ -988,7 +1034,7 @@ void fix_rotation(std::span<double> samples, std::size_t sample_size, std::size_
     }
 }
 
-auto rfkt::flame_kernel::warmup(roccu::gpu_stream& stream, std::span<double> samples, gpu_image<float4>&& bins, std::uint32_t seed, std::uint32_t count, int temporal_multiplier) const -> flame_kernel::saved_state
+auto rfkt::flame_kernel::warmup(roccu::gpu_stream& stream, std::span<double> samples, roccu::gpu_image<float4>&& bins, std::uint32_t seed, std::uint32_t count, int temporal_multiplier) const -> flame_kernel::saved_state
 {
     const auto sample_size = flame_size_reals + 256 * 3;
     const auto sample_count = samples.size() / sample_size;
@@ -1056,7 +1102,7 @@ auto rfkt::flame_kernel::warmup(roccu::gpu_stream& stream, std::span<double> sam
 
 auto rfkt::flame_kernel::warmup(roccu::gpu_stream& stream, std::span<double> samples, uint2 dims, std::uint32_t seed, std::uint32_t count, int temporal_multiplier) const->flame_kernel::saved_state
 {
-    auto bins = gpu_image<float4>{ dims.x, dims.y, stream };
+    auto bins = roccu::gpu_image<float4>{ dims, stream };
     bins.clear(stream);
     return warmup(stream, samples, std::move(bins), seed, count, temporal_multiplier);
 }

@@ -25,6 +25,7 @@ set(HEADER_LIST
 	"include/librefrakt/anima.h"
 	"include/librefrakt/allocators.h"
 	"include/librefrakt/factory.h"
+	"include/librefrakt/constants.h"
 )
 
 add_library(librefrakt OBJECT
@@ -119,7 +120,6 @@ FetchContent_MakeAvailable(concurrencpp)
 FetchContent_Declare(
   stb
   GIT_REPOSITORY https://github.com/nothings/stb.git
-  GIT_TAG ae721c50eaf761660b4f90cc590453cdb0c2acd0
   GIT_SHALLOW TRUE
 )
 FetchContent_MakeAvailable(stb)
@@ -160,7 +160,6 @@ set(LUA_ENABLE_TESTING OFF CACHE BOOL "" FORCE)
 FetchContent_Declare(
   lua
   GIT_REPOSITORY https://github.com/walterschell/Lua.git
-  GIT_TAG 88246d621abf7b6fba9332f49229d507f020e450
   GIT_SHALLOW TRUE
 )
 FetchContent_MakeAvailable(lua)
@@ -169,7 +168,7 @@ FetchContent_MakeAvailable(lua)
 FetchContent_Declare(
   sol2
   GIT_REPOSITORY https://github.com/ThePhD/sol2.git
-  GIT_TAG e8e122e9ce46f4f1c0b04003d8b703fe1b89755a
+  GIT_TAG main
   GIT_SHALLOW TRUE
 )
 
@@ -179,7 +178,7 @@ FetchContent_MakeAvailable(sol2)
 FetchContent_Declare(
     dylib
     GIT_REPOSITORY "https://github.com/martin-olivier/dylib"
-    GIT_TAG c5b46c650a252bcda0dd94a102cdfc85907b9022
+	GIT_TAG main
 	GIT_SHALLOW TRUE
 )
 FetchContent_MakeAvailable(dylib)
@@ -189,7 +188,7 @@ set(REPROC++ ON)
 FetchContent_Declare(
   reproc
   GIT_REPOSITORY https://github.com/DaanDeMeyer/reproc.git
-  GIT_TAG 3179928ae7b085e41dfb846d987519fa7c12ffb3
+  GIT_TAG main
   GIT_SHALLOW TRUE
   EXCLUDE_FROM_ALL
 )
@@ -244,7 +243,6 @@ set(ENABLE_CURL_MANUAL OFF CACHE BOOL "" FORCE)
 FetchContent_Declare(
   curl
   GIT_REPOSITORY https://github.com/curl/curl.git
-  GIT_TAG a41cd15bec379fcea3b2a98e98c322061304b3fd
   GIT_SHALLOW TRUE
 )
 FetchContent_MakeAvailable(curl)
@@ -252,7 +250,6 @@ FetchContent_MakeAvailable(curl)
 FetchContent_Declare(
   zip
   GIT_REPOSITORY https://github.com/kuba--/zip
-  GIT_TAG 6f2116d77cdcbe544e4dbbf1e53895596ed14b89
   GIT_SHALLOW TRUE
 )
 FetchContent_Populate(zip)

@@ -160,11 +160,10 @@ namespace rfkt {
 		}
 
 		std::future<double> post_process(
-			roccu::gpu_span<float4> in,
-			roccu::gpu_span<uchar4> out,
+			roccu::gpu_image_view<float4> in,
+			roccu::gpu_image_view<uchar4> out,
 			double quality,
 			double gamma, double brightness, double vibrancy,
-			bool planar_output,
 			roccu::gpu_stream& stream) {
 
 			auto promise = std::promise<double>{};
@@ -178,7 +177,7 @@ namespace rfkt {
 			tm.run(in, tonemapped, { quality, gamma, brightness, vibrancy }, stream);
 			dn->denoise(tonemapped, denoised, dn_event);
 			stream.wait_for(dn_event);
-			conv.to_32bit(denoised, out, planar_output, stream);
+			conv.to_uchar4(denoised, out, stream);
 			stream.host_func([&t = perf_timer, p = std::move(promise)]() mutable {
 				p.set_value(t.count());
 				});
@@ -191,8 +190,8 @@ namespace rfkt {
 		std::unique_ptr<rfkt::denoiser> dn;
 		rfkt::converter conv;
 
-		rfkt::gpu_image<half3> tonemapped;
-		rfkt::gpu_image<half3> denoised;
+		roccu::gpu_image<half3> tonemapped;
+		roccu::gpu_image<half3> denoised;
 
 		rfkt::timer perf_timer;
 
@@ -282,8 +281,8 @@ void rfkt::gui::render_modal::launch_worker(const rfkt::flame& flame)
 				continue;
 			}
 
-			auto encoder_input = roccu::gpu_span<uchar4>{ encoder.buffer(), encoder.buffer_size() };
-			pp.post_process(binfo.bins, encoder_input, binfo.quality, binfo.gbv.x, binfo.gbv.y, binfo.gbv.z, false, post_stream).get();
+			auto encoder_input = roccu::gpu_image_view<uchar4>{ encoder.buffer(), dims, dims.x };
+			pp.post_process(binfo.bins, encoder_input, binfo.quality, binfo.gbv.x, binfo.gbv.y, binfo.gbv.z, post_stream).get();
 			auto chunks = encoder.submit_frame((i % render_params.fps == 0 || i + 1 == total_frames) ? eznve::frame_flag::idr : eznve::frame_flag::none);
 
 			for (auto& chunk : chunks) {

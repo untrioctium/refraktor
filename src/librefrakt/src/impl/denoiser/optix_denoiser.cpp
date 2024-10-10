@@ -57,7 +57,7 @@ namespace rfkt {
 			auto denoiser_options = OptixDenoiserOptions{
 				.guideAlbedo = 0,
 				.guideNormal = 0,
-				.denoiseAlpha = OPTIX_DENOISER_ALPHA_MODE_COPY
+				.denoiseAlpha = OPTIX_DENOISER_ALPHA_MODE_DENOISE
 			};
 
 			CHECK_OPTIX(optixDenoiserCreate(optix_context, optix_model, &denoiser_options, &handle));
@@ -85,20 +85,36 @@ namespace rfkt {
 			dp.hdrIntensity = 0;
 		}
 
-		std::future<double> denoise(const image_type& in, image_type& out, roccu::gpu_event& event) override {
+		template<typename PixelType>
+		std::future<double> denoise_impl(image_type<PixelType> in, image_type<PixelType> out, roccu::gpu_event& event) {
 			memset(&layer, 0, sizeof(layer));
 
 			layer.input.width = in.dims().x;
 			layer.input.height = in.dims().y;
-			layer.input.rowStrideInBytes = in.width() * sizeof(pixel_type);
-			layer.input.pixelStrideInBytes = sizeof(pixel_type);
-			layer.input.format = OPTIX_PIXEL_FORMAT_HALF3;
+			layer.input.rowStrideInBytes = in.pitch() * sizeof(PixelType);
+			layer.input.pixelStrideInBytes = sizeof(PixelType);
+			
+			if constexpr (std::is_same_v<PixelType, half3>) {
+				layer.input.format = OPTIX_PIXEL_FORMAT_HALF3;
+			}
+			else if constexpr (std::is_same_v<PixelType, half4>) {
+				layer.input.format = OPTIX_PIXEL_FORMAT_HALF4;
+			}
+			else if constexpr (std::is_same_v<PixelType, float3>) {
+				layer.input.format = OPTIX_PIXEL_FORMAT_FLOAT3;
+			}
+			else if constexpr (std::is_same_v<PixelType, float4>) {
+				layer.input.format = OPTIX_PIXEL_FORMAT_FLOAT4;
+			}
+			else {
+				static_assert(false, "Unsupported pixel type");
+			}
 
 			layer.output = layer.input;
 
 			layer.output.width = out.dims().x;
 			layer.output.height = out.dims().y;
-			layer.output.rowStrideInBytes = out.width() * sizeof(pixel_type);
+			layer.output.rowStrideInBytes = out.pitch() * sizeof(PixelType);
 
 			layer.input.data = in.ptr();
 			layer.output.data = out.ptr();
@@ -140,6 +156,22 @@ namespace rfkt {
 			});
 
 			return future;
+		}
+
+		std::future<double> denoise(image_type<half3> in, image_type<half3> out, roccu::gpu_event& event) override {
+			return denoise_impl(in, out, event);
+		}
+
+		std::future<double> denoise(image_type<half4> in, image_type<half4> out, roccu::gpu_event& event) override {
+			return denoise_impl(in, out, event);
+		}
+
+		std::future<double> denoise(image_type<float3> in, image_type<float3> out, roccu::gpu_event& event) override {
+			return denoise_impl(in, out, event);
+		}
+
+		std::future<double> denoise(image_type<float4> in, image_type<float4> out, roccu::gpu_event& event) override {
+			return denoise_impl(in, out, event);
 		}
 
 		roccu::gpu_stream& stream;

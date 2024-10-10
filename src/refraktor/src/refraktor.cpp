@@ -253,8 +253,8 @@ namespace rfkt {
 		}
 
 		std::future<double> post_process(
-			roccu::gpu_span<float4> in,
-			roccu::gpu_span<half4> out,
+			roccu::gpu_image_view<float4> in,
+			roccu::gpu_image_view<half4> out,
 			double quality,
 			double gamma, double brightness, double vibrancy,
 			bool planar_output,
@@ -283,8 +283,8 @@ namespace rfkt {
 		std::unique_ptr<rfkt::denoiser> dn;
 		rfkt::converter conv;
 
-		rfkt::gpu_image<half3> tonemapped;
-		rfkt::gpu_image<half3> denoised;
+		roccu::gpu_image<half3> tonemapped;
+		roccu::gpu_image<half3> denoised;
 
 		rfkt::timer perf_timer;
 
@@ -314,8 +314,6 @@ int main() {
 	auto pp = rfkt::postprocessor{ *km, dims, stream };
 	auto fc = rfkt::flame_compiler{ km };
 
-	SPDLOG_INFO("notepad found: {}", rfkt::fs::command_in_path("notepad.exe") ? "yes" : "no");
-
 	auto api = roccuGetApi();
 	std::pair<std::size_t, std::string_view> best_encoder;
 	best_encoder.first = std::numeric_limits<std::size_t>::max();
@@ -335,11 +333,11 @@ int main() {
 
 	//roccuPrintAllocations();
 
-	auto bins = rfkt::gpu_image<float4>{ pp.input_dims().x, pp.input_dims().y };
-	auto out = rfkt::gpu_image<half4>{ dims.x, dims.y };
-	std::vector<decltype(out)::value_type> out_local_buffer{};
+	auto bins = roccu::gpu_image<float4>{ pp.input_dims() };
+	auto out = roccu::gpu_image<half4>{ dims.x, dims.y };
+	std::vector<decltype(out)::pixel_type> out_local_buffer{};
 	out_local_buffer.resize(out.area());
-	std::span<decltype(out)::value_type> out_local(out_local_buffer);
+	std::span<decltype(out)::pixel_type> out_local(out_local_buffer);
 
 	constexpr static auto fps = 60;
 	constexpr static auto seconds_per_loop = 5;
@@ -370,6 +368,40 @@ int main() {
 
 	auto invoker = functions.make_invoker();
 
+	sol::state lua;
+	lua.open_libraries(sol::lib::base, sol::lib::math);
+	rfkt::flame_types::bind_to_lua(lua);
+
+	lua["flame"]["import_flam3"] = [&](const std::string& path) {
+
+		auto xml = rfkt::fs::read_string(path);
+
+		return rfkt::import_flam3(fdb, xml);
+	};
+
+	while (true) {
+		std::string line;
+		std::cout << "> ";
+		std::getline(std::cin, line);
+
+		if(line == "exit") {
+			break;
+		}
+
+		try {
+			line = line.substr(line.find_first_not_of(" \t"));
+			if (line.starts_with("?")) {
+				line = std::format("return {}", line.substr(1));
+			}
+			line = std::format("print((function() {} end)())", line);
+			lua.safe_script(line);
+		}
+		catch(const sol::error& e) {
+			SPDLOG_ERROR("{}", e.what());
+		}
+	}
+
+	/*
 	auto must_load_flame = [&](const rfkt::fs::path& path) -> rfkt::flame {
 		auto fxml = rfkt::fs::read_string(path);
 		auto f = rfkt::import_flam3(fdb, fxml);
@@ -417,7 +449,7 @@ int main() {
 	//	return -1;
 	//}
 
-	constexpr static auto render_sample_counts = std::array{ 2u, 8u, 32u, 128u/* 512u, 2048u, 8192u, 32768u, 131072u*/};
+	constexpr static auto render_sample_counts = std::array{ 2u, 8u, 32u, 128u/* 512u, 2048u, 8192u, 32768u, 131072u};
 	auto files = rfkt::fs::list("assets/flames_test/", rfkt::fs::filter::has_extension(".flam3"));
 
 	std::atomic_size_t compile_completed = 0;
@@ -534,7 +566,7 @@ int main() {
 
 		bins = std::move(state.bins);
 		bins.clear(stream);
-	}
+	}*/
 
 	/*for (int i = 0; i < num_frames; i++) {
 		SPDLOG_INFO("frame {}", i);

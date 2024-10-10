@@ -210,7 +210,7 @@ rfkt::denoiser_old::denoiser_old(denoiser_old&& d) noexcept {
 }
 
 
-std::future<double> rfkt::denoiser_old::denoise(const gpu_image<half3>& in, gpu_image<half3>& out, roccu::gpu_stream& stream) {
+std::future<double> rfkt::denoiser_old::denoise(roccu::gpu_image_view<half3> in, roccu::gpu_image_view<half3> out, roccu::gpu_stream& stream) {
 	return impl->denoise(in, out, stream);
 }
 
@@ -239,8 +239,8 @@ double rfkt::denoiser_old::benchmark(uint2 dims, denoiser_flag::flags options, s
 
 	auto dn = rfkt::denoiser_old{ dims, options };
 
-	auto input = gpu_image<half3>{ input_dims.x, input_dims.y };
-	auto output = gpu_image<half3>{ dims.x, dims.x };
+	auto input = roccu::gpu_image<half3>{ input_dims };
+	auto output = roccu::gpu_image<half3>{ dims };
 
 	auto input_size_nshorts = input_size * 3;
 

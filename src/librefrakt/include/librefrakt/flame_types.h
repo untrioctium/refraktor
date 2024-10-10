@@ -329,12 +329,20 @@ namespace rfkt {
 			return self.variations_.find(name)->second;
 		}
 
-		auto begin(this auto&& self) {
-			return self.variations_.begin();
+		auto begin() {
+			return variations_.begin();
 		}
 
-		auto end(this auto&& self) {
-			return self.variations_.end();
+		auto end() {
+			return variations_.end();
+		}
+
+		auto begin() const {
+			return variations_.cbegin();
+		}
+
+		auto end() const {
+			return variations_.cend();
 		}
 
 		void add_variation(std::pair<std::string, vardata>&& vdata) {
@@ -557,6 +565,8 @@ namespace rfkt {
 		anima gamma;
 		anima brightness;
 		anima vibrancy;
+		anima highlight_power;
+		anima gamma_threshold;
 
 		palette_t palette;
 		anima mod_hue;
@@ -763,6 +773,8 @@ namespace rfkt {
 			if (ptr == &flame::gamma) return "gamma";
 			if (ptr == &flame::brightness) return "brightness";
 			if (ptr == &flame::vibrancy) return "vibrancy";
+			if (ptr == &flame::highlight_power) return "highlight_power";
+			if (ptr == &flame::gamma_threshold) return "gamma_threshold";
 			if (ptr == &flame::mod_hue) return "mod_hue";
 			if (ptr == &flame::mod_sat) return "mod_sat";
 			if (ptr == &flame::mod_val) return "mod_val";
@@ -777,6 +789,8 @@ namespace rfkt {
 			if(name == "gamma") return &flame::gamma;
 			if(name == "brightness") return &flame::brightness;
 			if(name == "vibrancy") return &flame::vibrancy;
+			if(name == "highlight_power") return &flame::highlight_power;
+			if(name == "gamma_threshold") return &flame::gamma_threshold;
 			if(name == "mod_hue") return &flame::mod_hue;
 			if(name == "mod_sat") return &flame::mod_sat;
 			if(name == "mod_val") return &flame::mod_val;
@@ -1035,4 +1049,12 @@ namespace rfkt {
 	class flamedb;
 
 	auto import_flam3(const flamedb&, std::string_view content) noexcept -> std::optional<flame>;
+}
+
+namespace sol {
+	class state;
+}
+
+namespace rfkt::flame_types {
+	void bind_to_lua(sol::state& lua);
 }

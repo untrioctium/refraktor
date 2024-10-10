@@ -26,13 +26,16 @@ namespace rfkt {
 			bool upscale_supported;
 		};
 
-		using pixel_type = half3;
-		using image_type = gpu_image<pixel_type>;
-
 		denoiser(key) {}
 		virtual ~denoiser() = default;
 
-		virtual std::future<double> denoise(const image_type& in, image_type& out, roccu::gpu_event& event) = 0;
+		template<typename PixelType>
+		using image_type = roccu::gpu_image_view<PixelType>;
+
+		virtual std::future<double> denoise(image_type<half3> in, image_type<half3> out, roccu::gpu_event& stream) = 0;
+		virtual std::future<double> denoise(image_type<half4> in, image_type<half4> out, roccu::gpu_event& stream) = 0;
+		virtual std::future<double> denoise(image_type<float3> in, image_type<float3> out, roccu::gpu_event& stream) = 0;
+		virtual std::future<double> denoise(image_type<float4> in, image_type<float4> out, roccu::gpu_event& stream) = 0;
 	};
 
 }

@@ -10,7 +10,7 @@
 
 namespace ImFtw {
 
-    int Run(std::string_view window_title, std::string_view ini_path, std::move_only_function<int()>&& main_function);
+    int Run(std::string_view app_name, std::string_view ini_path, int argc, char** argv, std::move_only_function<int()>&& main_function);
 
     void BeginFrame(ImVec4 clear_color = ImVec4(0.0f, 0.0f, 0.0f, 1.0f));
     void EndFrame(bool render = true);
@@ -23,6 +23,8 @@ namespace ImFtw {
 			DeferNextFrame(std::move(f));
 		};
 	}
+
+    std::span<std::string> GetIpcData();
 
     bool OnRenderingThread();
 
