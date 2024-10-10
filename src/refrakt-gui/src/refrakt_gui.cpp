@@ -91,26 +91,26 @@ void draw_status_bar() {
 	}*/
 }
 
-bool shortcut_pressed(ImGuiModFlags mods, ImGuiKey key) {
+bool shortcut_pressed(ImGuiKey mods, ImGuiKey key) {
 	if (!ImGui::IsKeyPressed(key, false)) return false;
 
-	if (mods & ImGuiModFlags_Alt && !ImGui::IsKeyDown(ImGuiKey_ModAlt)) return false;
-	if (mods & ImGuiModFlags_Ctrl && !ImGui::IsKeyDown(ImGuiKey_ModCtrl)) return false;
-	if (mods & ImGuiModFlags_Shift && !ImGui::IsKeyDown(ImGuiKey_ModShift)) return false;
-	if (mods & ImGuiModFlags_Super && !ImGui::IsKeyDown(ImGuiKey_ModSuper)) return false;
+	if (mods & ImGuiMod_Alt && !ImGui::IsKeyDown(ImGuiKey_ModAlt)) return false;
+	if (mods & ImGuiMod_Ctrl && !ImGui::IsKeyDown(ImGuiKey_ModCtrl)) return false;
+	if (mods & ImGuiMod_Shift && !ImGui::IsKeyDown(ImGuiKey_ModShift)) return false;
+	if (mods & ImGuiMod_Super && !ImGui::IsKeyDown(ImGuiKey_ModSuper)) return false;
 	return true;
 }
 
-std::string_view shortcut_to_string(ImGuiModFlags mods, ImGuiKey key) {
+std::string_view shortcut_to_string(ImGuiKey mods, ImGuiKey key) {
 
-	thread_local std::map<std::pair<ImGuiModFlags, ImGuiKey>, std::string> str_cache;
+	thread_local std::map<std::pair<ImGuiKey, ImGuiKey>, std::string> str_cache;
 	if(auto it = str_cache.find({ mods, key }); it != str_cache.end()) return it->second;
 
 	std::string result;
-	if (mods & ImGuiModFlags_Ctrl) result += "Ctrl+";
-	if (mods & ImGuiModFlags_Shift) result += "Shift+";
-	if (mods & ImGuiModFlags_Alt) result += "Alt+";
-	if (mods & ImGuiModFlags_Super) result += "Super+";
+	if (mods & ImGuiMod_Ctrl) result += "Ctrl+";
+	if (mods & ImGuiMod_Shift) result += "Shift+";
+	if (mods & ImGuiMod_Alt) result += "Alt+";
+	if (mods & ImGuiMod_Super) result += "Super+";
 	result += ImGui::GetKeyName(key);
 	result = "     " + result;
 	
@@ -125,13 +125,13 @@ struct menu_item {
 	std::string icon;
 	std::optional<ImVec4> icon_color;
 	thunk_t action;
-	std::optional<std::pair<ImGuiModFlags, ImGuiKey>> shortcut;
+	std::optional<std::pair<ImGuiKey, ImGuiKey>> shortcut;
 	enabled_func_t enabled;
 
 	menu_item& set_name(std::string_view n) { name = n; return *this; }
 	menu_item& set_action(thunk_t a) { action = std::move(a); return *this; }
 	menu_item& set_enabled(enabled_func_t e) { enabled = std::move(e); return *this; }
-	menu_item& set_shortcut(ImGuiModFlags mods, ImGuiKey key) { shortcut = { mods, key }; return *this; }
+	menu_item& set_shortcut(ImGuiKey mods, ImGuiKey key) { shortcut = { mods, key }; return *this; }
 	menu_item& set_icon(std::string_view i, const std::optional<ImVec4>& color = {}) { icon = i; icon_color = color; return *this; }
 };
 
@@ -662,7 +662,7 @@ public:
 				});
 			}
 
-			ImGui::DockSpaceOverViewport(ImGui::GetMainViewport(), ImGuiDockNodeFlags_PassthruCentralNode);
+			ImGui::DockSpaceOverViewport(0, ImGui::GetMainViewport(), ImGuiDockNodeFlags_PassthruCentralNode);
 
 			if (auto selected = mainm.process(); selected) selected->action();
 
@@ -816,17 +816,17 @@ private:
 
 		file_menu.add_separator();
 
-		file_menu.add_item("Exit").set_shortcut(ImGuiModFlags_Alt, ImGuiKey_F4);
+		file_menu.add_item("Exit").set_shortcut(ImGuiMod_Alt, ImGuiKey_F4);
 
 		auto& edit_menu = mainm.add_menu("Edit");
 		edit_menu.add_item("Undo")
 			.set_icon(ICON_MD_UNDO, ImVec4(1.0, 0.0f, 0.0f, 1.0f))
-			.set_shortcut(ImGuiModFlags_Ctrl, ImGuiKey_Z)
+			.set_shortcut(ImGuiMod_Ctrl, ImGuiKey_Z)
 			.set_action([&]() { c_exec.undo(); })
 			.set_enabled([&]() { return c_exec.can_undo(); });
 
 		edit_menu.add_item("Redo")
-			.set_shortcut(ImGuiModFlags_Ctrl, ImGuiKey_Y)
+			.set_shortcut(ImGuiMod_Ctrl, ImGuiKey_Y)
 			.set_icon(ICON_MD_REDO, ImVec4(0.0, 1.0f, 0.0f, 1.0f))
 			.set_action([&]() { c_exec.redo(); })
 			.set_enabled([&]() { return c_exec.can_redo(); });
@@ -840,7 +840,7 @@ private:
 		project_menu
 			.add_item("Import flame...")
 			.set_icon(ICON_MD_LOCAL_FIRE_DEPARTMENT, ImVec4(251.0 / 255, 139.0 / 255, 35.0 / 255, 1.0f))
-			.set_shortcut(ImGuiModFlags_Ctrl, ImGuiKey_O)
+			.set_shortcut(ImGuiMod_Ctrl, ImGuiKey_O)
 			.set_action([&]() {
 				runtime.background_executor()->enqueue([&]() mutable {
 					ctx.make_current_if_not();

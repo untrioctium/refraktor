@@ -51,7 +51,7 @@ target_link_libraries(refrakt-gui PRIVATE implot)
 FetchContent_Declare(
   iconfontcppheaders
   GIT_REPOSITORY https://github.com/juliettef/IconFontCppHeaders.git
-  GIT_TAG 8886c5657bac22b8fee34354871e3ade2a596433
+  GIT_TAG main
   GIT_SHALLOW TRUE
 )
 FetchContent_MakeAvailable(iconfontcppheaders)
