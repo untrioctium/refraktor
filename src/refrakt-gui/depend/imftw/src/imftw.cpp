@@ -203,11 +203,9 @@ void setup_imgui(ImFtw::context_t& ctx) {
 	ImVector<ImWchar> ranges;
 	builder.BuildRanges(&ranges);
 
-	ImFontConfig config;
-	config.FontBuilderFlags = ImGuiFreeTypeBuilderFlags_LightHinting;
-
-	io.Fonts->AddFontFromFileTTF("C:/windows/fonts/segoeui.ttf", font_size, &config, ranges.Data);
-
+	ImFontConfig font_config;
+	font_config.FontLoaderFlags = ImGuiFreeTypeLoaderFlags_LightHinting;
+	io.Fonts->AddFontFromFileTTF("/windows/fonts/segoeui.ttf", 21.0f, &font_config, ranges.Data);
 	static const ImWchar icons_ranges[] = { 0xe000, 0x10fffd, 0 };
 	ImFontConfig icons_config;
 	icons_config.MergeMode = true;
@@ -216,7 +214,6 @@ void setup_imgui(ImFtw::context_t& ctx) {
 	icons_config.GlyphMaxAdvanceX = font_size;
 	icons_config.GlyphOffset.y = 4.0f;
 	io.Fonts->AddFontFromFileTTF("assets/fonts/MaterialIcons-Regular.ttf", icons_config.GlyphMinAdvanceX, &icons_config, icons_ranges);
-	io.Fonts->Build();
 
 	ImGui_ImplOpenGL3_Init("#version 460");
 }
@@ -263,12 +260,12 @@ int ImFtw::Run(std::string_view app_name, std::string_view ini_path, int argc, c
 	glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GLFW_TRUE);
 	glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
 	glfwWindowHint(GLFW_DOUBLEBUFFER, GLFW_TRUE);
-	//glfwWindowHint(GLFW_FLOAT_PIXEL_TYPE, GLFW_TRUE);
-	//glfwWindowHint(GLFW_SRGB_CAPABLE, GLFW_TRUE);
-	//glfwWindowHint(GLFW_RED_BITS, 16);
-	//glfwWindowHint(GLFW_GREEN_BITS, 16);
-	//glfwWindowHint(GLFW_BLUE_BITS, 16);
-	//glfwWindowHint(GLFW_ALPHA_BITS, 16);
+	glfwWindowHint(GLFW_FLOAT_PIXEL_TYPE, GLFW_TRUE);
+	glfwWindowHint(GLFW_SRGB_CAPABLE, GLFW_TRUE);
+	glfwWindowHint(GLFW_RED_BITS, 16);
+	glfwWindowHint(GLFW_GREEN_BITS, 16);
+	glfwWindowHint(GLFW_BLUE_BITS, 16);
+	glfwWindowHint(GLFW_ALPHA_BITS, 16);
 
 	ctx.monitor = glfwGetPrimaryMonitor();
 	ctx.window = glfwCreateWindow(1920, 1080, app_name.data(), nullptr, nullptr);

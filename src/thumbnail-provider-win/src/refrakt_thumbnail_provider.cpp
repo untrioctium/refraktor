@@ -93,7 +93,6 @@ auto render_flame(shared_state& state, std::string_view fxml, uint2 dims) -> std
 	auto bin_result = bin_future.get();
 
 	tonemap_args.quality = bin_result.quality;
-	tonemap_args.max_density = bin_result.max_density;
 
 	auto tonemapped = roccu::gpu_image<half3>(dims, *state.stream);
 	auto denoised = roccu::gpu_image<half3>(dims, *state.stream);

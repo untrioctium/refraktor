@@ -5,9 +5,9 @@ set(CMAKE_WARN_DEPRECATED OFF CACHE BOOL "" FORCE)
 enable_language(CXX)
 enable_language(C)
 
-set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
-set(CMAKE_INSTALL_PREFIX "${CMAKE_HOME_DIRECTORY}/dist")
-set(CMAKE_SKIP_INSTALL_ALL_DEPENDENCY true)
+#set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+#set(CMAKE_INSTALL_PREFIX "${CMAKE_HOME_DIRECTORY}/dist")
+#set(CMAKE_SKIP_INSTALL_ALL_DEPENDENCY true)
 
 include(FetchContent)
 include(CheckIPOSupported)
@@ -41,18 +41,19 @@ FetchContent_MakeAvailable(spdlog)
 
 set(ZLIB_ENABLE_TESTS OFF)
 set(ZLIB_COMPAT ON)
+set(ZLIB_ALIASES ON)
+set(ZLIB_LIBRARY "zlib-ng-static")
 # zlib
 FetchContent_Declare(
-  zlib
+  zlib-ng
   GIT_REPOSITORY https://github.com/zlib-ng/zlib-ng
   GIT_TAG stable
   OVERRIDE_FIND_PACKAGE
   EXCLUDE_FROM_ALL
   GIT_SHALLOW TRUE
 )
-FetchContent_MakeAvailable(zlib)
+FetchContent_MakeAvailable(zlib-ng)
 #target_include_directories(zlib PUBLIC ${zlib_SOURCE_DIR})
-add_library(ZLIB::ZLIB ALIAS zlib)
 set(ZLIB_INCLUDE_DIR "${zlib_SOURCE_DIR}" "${zlib_BINARY_DIR}")
 
 

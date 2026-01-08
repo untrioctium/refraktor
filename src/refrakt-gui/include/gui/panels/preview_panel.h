@@ -13,7 +13,7 @@ public:
 	using texture_format = rfkt::gl::texture<rfkt::gl::texture_format::rgba32f>;
 	using pixel_type = texture_format::traits::pixel_type;
 
-	using renderer_t = std::move_only_function<roccu::gpu_image<pixel_type>(roccu::gpu_stream&, const rfkt::flame_kernel&, rfkt::flame_kernel::saved_state&, rfkt::flame_kernel::bailout_args, double3, bool, bool)>;
+	using renderer_t = std::move_only_function<roccu::gpu_image<pixel_type>(roccu::gpu_stream&, const rfkt::flame_kernel&, rfkt::flame_kernel::saved_state&, rfkt::flame_kernel::bailout_args, double3, bool, bool, bool)>;
 
 	preview_panel() = delete;
 	preview_panel(rfkt::flame_compiler& compiler, executor_t&& submitter, renderer_t&& renderer, command_executor& cmd_exec) :
@@ -60,6 +60,7 @@ private:
 	bool render_options_changed = false;
 	bool upscale = true;
 	bool denoise = true;
+	bool hdr = true;
 	bool animate = true;
 	bool dragging = false;
 	bool playing = false;

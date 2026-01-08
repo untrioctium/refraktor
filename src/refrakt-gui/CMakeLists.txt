@@ -37,7 +37,7 @@ FetchContent_MakeAvailable(rtmidi)
 FetchContent_Declare(
   implot
   GIT_REPOSITORY https://github.com/epezent/implot.git
-  GIT_TAG f156599faefe316f7dd20fe6c783bf87c8bb6fd9
+  GIT_TAG master
   GIT_SHALLOW TRUE
 )
 FetchContent_MakeAvailable(implot)

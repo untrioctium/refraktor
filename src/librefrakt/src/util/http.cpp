@@ -1,4 +1,4 @@
-#include <curl/curl.h>
+/*#include <curl/curl.h>
 
 #include <librefrakt/util/http.h>
 
@@ -82,4 +82,4 @@ auto rfkt::http::head(std::string_view url) -> std::optional<std::map<std::strin
 	}
 
 	return std::nullopt;
-}
+}*/

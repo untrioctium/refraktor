@@ -178,7 +178,7 @@ FetchContent_MakeAvailable(sol2)
 FetchContent_Declare(
     dylib
     GIT_REPOSITORY "https://github.com/martin-olivier/dylib"
-	GIT_TAG main
+	GIT_TAG v2.2.1
 	GIT_SHALLOW TRUE
 )
 FetchContent_MakeAvailable(dylib)
@@ -229,23 +229,23 @@ include("${oidn_SOURCE_DIR}/lib/cmake/OpenImageDenoise-2.2.2/OpenImageDenoiseCon
 
 
 
-if(WIN32)
-	set(CURL_USE_SCHANNEL ON CACHE BOOL "" FORCE)
-endif()
+#if(WIN32)
+#	set(CURL_USE_SCHANNEL ON CACHE BOOL "" FORCE)
+#endif()
 
-set(BUILD_CURL_EXE OFF CACHE BOOL "" FORCE)
-set(HTTP_ONLY ON CACHE BOOL "" FORCE)
-set(CURL_ENABLE_EXPORT_TARGET OFF)
-set(CURL_DISABLE_INSTALL ON CACHE BOOL "" FORCE)
-set(BUILD_LIBCURL_DOCS OFF CACHE BOOL "" FORCE)
-set(ENABLE_CURL_MANUAL OFF CACHE BOOL "" FORCE)
+#set(BUILD_CURL_EXE OFF CACHE BOOL "" FORCE)
+#set(HTTP_ONLY ON CACHE BOOL "" FORCE)
+#set(CURL_ENABLE_EXPORT_TARGET OFF)
+#set(CURL_DISABLE_INSTALL ON CACHE BOOL "" FORCE)
+#set(BUILD_LIBCURL_DOCS OFF CACHE BOOL "" FORCE)
+#set(ENABLE_CURL_MANUAL OFF CACHE BOOL "" FORCE)
 
-FetchContent_Declare(
-  curl
-  GIT_REPOSITORY https://github.com/curl/curl.git
-  GIT_SHALLOW TRUE
-)
-FetchContent_MakeAvailable(curl)
+#FetchContent_Declare(
+#  curl
+#  GIT_REPOSITORY https://github.com/curl/curl.git
+#  GIT_SHALLOW TRUE
+#)
+#FetchContent_MakeAvailable(curl)
 
 FetchContent_Declare(
   zip
@@ -273,7 +273,7 @@ target_link_libraries(librefrakt PRIVATE
 	#CUDA::nvjpeg
 	stb
 	zip
-	CURL::libcurl_static
+	#CURL::libcurl_static
 	OpenImageDenoise
 	#OpenEXR::OpenEXR
 )
@@ -285,9 +285,9 @@ target_link_libraries(librefrakt PUBLIC
 	eznve
 	spdlog 
 	reproc++
+	concurrencpp
 	#CUDA::nvml
 	#CUDA::cuda_driver
-	concurrencpp
 	inja
 	lua_static
 	sol2

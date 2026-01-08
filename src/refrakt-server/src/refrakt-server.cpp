@@ -21,6 +21,8 @@
 
 #include <readerwritercircularbuffer.h>
 
+#undef delete
+
 using json = nlohmann::json;
 
 template<size_t N>

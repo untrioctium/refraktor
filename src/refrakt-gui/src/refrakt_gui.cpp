@@ -94,10 +94,10 @@ void draw_status_bar() {
 bool shortcut_pressed(ImGuiKey mods, ImGuiKey key) {
 	if (!ImGui::IsKeyPressed(key, false)) return false;
 
-	if (mods & ImGuiMod_Alt && !ImGui::IsKeyDown(ImGuiKey_ModAlt)) return false;
-	if (mods & ImGuiMod_Ctrl && !ImGui::IsKeyDown(ImGuiKey_ModCtrl)) return false;
-	if (mods & ImGuiMod_Shift && !ImGui::IsKeyDown(ImGuiKey_ModShift)) return false;
-	if (mods & ImGuiMod_Super && !ImGui::IsKeyDown(ImGuiKey_ModSuper)) return false;
+	if (mods & ImGuiMod_Alt && !ImGui::IsKeyDown(ImGuiKey_LeftAlt)) return false;
+	if (mods & ImGuiMod_Ctrl && !ImGui::IsKeyDown(ImGuiKey_LeftCtrl)) return false;
+	if (mods & ImGuiMod_Shift && !ImGui::IsKeyDown(ImGuiKey_LeftShift)) return false;
+	if (mods & ImGuiMod_Super && !ImGui::IsKeyDown(ImGuiKey_LeftSuper)) return false;
 	return true;
 }
 
@@ -752,7 +752,7 @@ private:
 		preview_panel::renderer_t renderer = [&, ev = roccu::gpu_event{}, pp_stream = roccu::gpu_stream{}](
 			roccu::gpu_stream& stream, const rfkt::flame_kernel& kernel,
 			rfkt::flame_kernel::saved_state& state,
-			rfkt::flame_kernel::bailout_args bo, double3 gbv, bool upscale, bool denoise) mutable {
+			rfkt::flame_kernel::bailout_args bo, double3 gbv, bool upscale, bool denoise, bool hdr) mutable {
 
 				const auto total_bins = state.bins.area();
 
@@ -771,7 +771,7 @@ private:
 				auto passes_per_pixel = bin_info.total_passes / (double)total_bins;
 				SPDLOG_INFO("{} mpasses/ms, {} mdraws/ms, {} passes per thread, {} quality/ms, {} quality@40fps", mpasses_per_ms, mdraws_per_ms, bin_info.passes_per_thread, bin_info.quality / bin_info.elapsed_ms, bin_info.quality / bin_info.elapsed_ms * 1000/40.0);
 
-				tonemap->run(state.bins, tonemapped, { state.quality, gbv.x, gbv.y, gbv.z, bin_info.max_density }, stream);
+				tonemap->run(state.bins, tonemapped, { state.quality, gbv.x, gbv.y, gbv.z, hdr }, stream);
 				stream.sync();
 				auto& denoiser = upscale ? denoise_upscale : denoise_normal;
 				if(denoise) denoiser->denoise(tonemapped, denoised, ev).get();

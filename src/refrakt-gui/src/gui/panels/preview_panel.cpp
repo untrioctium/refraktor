@@ -98,6 +98,7 @@ bool preview_panel::show(const rfkt::flamedb& fdb, rfkt::flame& flame, rfkt::fun
 				upscale = this->upscale,
 				denoise = this->denoise,
 				temporal_multiplier = this->temporal_multiplier,
+				hdr = this->hdr,
 				&densities = this->densities]() mutable noexcept {
 
 					if (needs_kernel) {
@@ -124,7 +125,7 @@ bool preview_panel::show(const rfkt::flamedb& fdb, rfkt::flame& flame, rfkt::fun
 						//millis = 100u;
 					}
 
-					auto result = renderer(stream, *kernel, *state, { .millis = millis, .quality = target_quality - state->quality }, gbv, upscale && denoise, denoise);
+					auto result = renderer(stream, *kernel, *state, { .millis = millis, .quality = target_quality - state->quality }, gbv, upscale && denoise, denoise, hdr);
 					cuda_map.copy_from(result, stream);
 					result.free_async(stream);
 
@@ -239,6 +240,7 @@ uint2 preview_panel::gui_logic(rfkt::flame& flame, rfkt::function_table& ft) {
 
 			render_options_changed |= ImGui::Checkbox("Animate", &animate);
 			render_options_changed |= ImGui::Checkbox("Denoise", &denoise);
+			render_options_changed |= ImGui::Checkbox("HDR", &hdr);
 		}
 
 		static double tmin = 0.0;

@@ -107,7 +107,7 @@ const std::map<std::string, std::pair<unsigned long long, ImGuiConfigType>>& con
 		{ "LogSliderDeadzone", {offsetof(ImGuiStyle, LogSliderDeadzone), ImGuiConfigType::float32} },
 		{ "TabRounding", {offsetof(ImGuiStyle, TabRounding), ImGuiConfigType::float32} },
 		{ "TabBorderSize", {offsetof(ImGuiStyle, TabBorderSize), ImGuiConfigType::float32} },
-		{ "TabMinWidthForCloseButton", {offsetof(ImGuiStyle, TabMinWidthForCloseButton), ImGuiConfigType::float32} },
+		//{ "TabMinWidthForCloseButton", {offsetof(ImGuiStyle, TabMinWidthForCloseButton), ImGuiConfigType::float32} },
 		{ "ColorButtonPosition", {offsetof(ImGuiStyle, ColorButtonPosition), ImGuiConfigType::integer} },
 		{ "ButtonTextAlign", {offsetof(ImGuiStyle, ButtonTextAlign), ImGuiConfigType::vec} },
 		{ "SelectableTextAlign", {offsetof(ImGuiStyle, SelectableTextAlign), ImGuiConfigType::vec} },
