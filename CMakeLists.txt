@@ -1,4 +1,7 @@
 cmake_minimum_required(VERSION 3.11...3.24)
+project(refrakt)
+
+
 cmake_policy(SET CMP0069 NEW)
 set(CMAKE_POLICY_DEFAULT_CMP0069 NEW)
 set(CMAKE_WARN_DEPRECATED OFF CACHE BOOL "" FORCE)
@@ -14,8 +17,6 @@ include(CheckIPOSupported)
 check_ipo_supported()
 
 set(CMAKE_INTERPROCEDURAL_OPTIMIZATION TRUE)
-
-project(refrakt)
 
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED TRUE)
@@ -39,11 +40,10 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(spdlog)
 
-set(ZLIB_ENABLE_TESTS OFF)
-set(ZLIB_COMPAT ON)
-set(ZLIB_ALIASES ON)
-set(ZLIB_LIBRARY "zlib-ng-static")
-# zlib
+# zlib-ng as zlib replacement
+set(ZLIB_ENABLE_TESTS OFF CACHE BOOL "" FORCE)
+set(ZLIB_COMPAT ON CACHE BOOL "" FORCE)
+set(ZLIB_ALIASES ON CACHE BOOL "" FORCE)
 FetchContent_Declare(
   zlib-ng
   GIT_REPOSITORY https://github.com/zlib-ng/zlib-ng
@@ -53,8 +53,6 @@ FetchContent_Declare(
   GIT_SHALLOW TRUE
 )
 FetchContent_MakeAvailable(zlib-ng)
-#target_include_directories(zlib PUBLIC ${zlib_SOURCE_DIR})
-set(ZLIB_INCLUDE_DIR "${zlib_SOURCE_DIR}" "${zlib_BINARY_DIR}")
 
 
 add_subdirectory(src/librefrakt)

@@ -5,8 +5,6 @@ project(imftw LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 23)
 
-find_package(ZLIB)
-
 add_library(imftw STATIC
     include/imftw/gui.h
     include/imftw/imftw.h
@@ -39,19 +37,19 @@ FetchContent_MakeAvailable(glfw)
 FetchContent_Declare(
   glad
   GIT_REPOSITORY https://github.com/Dav1dde/glad.git
-  GIT_TAG master
+  GIT_TAG glad2
+  SOURCE_SUBDIR cmake
 )
 FetchContent_MakeAvailable(glad)
+glad_add_library(glad_gl_core_43 STATIC REPRODUCIBLE LOADER API gl:core=4.3)
 
 # freetype
 FetchContent_Declare(
   freetype
   GIT_REPOSITORY https://gitlab.freedesktop.org/freetype/freetype.git
-  GIT_TAG VER-2-13-2
+  GIT_TAG VER-2-14-1
 )
 FetchContent_MakeAvailable(freetype)
-target_include_directories(freetype PRIVATE ${ZLIB_INCLUDE_DIR})
-target_link_libraries(freetype PUBLIC ${ZLIB_LIBRARIES})
 
 #imgui
 FetchContent_Declare(
@@ -73,7 +71,7 @@ target_include_directories(imgui PUBLIC ${imgui_SOURCE_DIR}/backends)
 target_include_directories(imgui PUBLIC ${imgui_SOURCE_DIR}/misc/freetype)
 target_compile_definitions(imgui PUBLIC IMGUI_ENABLE_FREETYPE)
 target_compile_definitions(imgui PUBLIC IMGUI_USE_WCHAR32)
-target_link_libraries(imgui PRIVATE glfw glad)
+target_link_libraries(imgui PRIVATE glfw glad_gl_core_43)
 target_link_libraries(imgui PUBLIC freetype)
 
 # concurrentqueue
@@ -95,4 +93,4 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(readerwriterqueue)
 
 target_link_libraries(imftw PRIVATE glfw)
-target_link_libraries(imftw PUBLIC glad imgui concurrentqueue readerwriterqueue)
+target_link_libraries(imftw PUBLIC glad_gl_core_43 imgui concurrentqueue readerwriterqueue)

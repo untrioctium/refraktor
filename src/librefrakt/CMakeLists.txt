@@ -65,7 +65,7 @@ set(YAML_CPP_BUILD_TOOLS OFF)
 FetchContent_Declare(
   yaml_cpp
   GIT_REPOSITORY https://github.com/jbeder/yaml-cpp.git
-  GIT_TAG 0.8.0
+  GIT_TAG master
   GIT_SHALLOW TRUE
   EXCLUDE_FROM_ALL
 )
@@ -113,6 +113,7 @@ FetchContent_Declare(
   GIT_REPOSITORY https://github.com/David-Haim/concurrencpp.git
   GIT_TAG v.0.1.7
   GIT_SHALLOW TRUE
+  PATCH_COMMAND git restore . && git apply ${CMAKE_CURRENT_SOURCE_DIR}/cmake/concurrencpp.patch
 )
 FetchContent_MakeAvailable(concurrencpp)
 

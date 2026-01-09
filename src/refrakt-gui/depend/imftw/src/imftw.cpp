@@ -286,7 +286,7 @@ int ImFtw::Run(std::string_view app_name, std::string_view ini_path, int argc, c
 	glfwSetInputMode(ctx.window, GLFW_RAW_MOUSE_MOTION, GLFW_TRUE);
 
 	glfwMakeContextCurrent(ctx.window);
-	gladLoadGL();
+	gladLoadGL(glfwGetProcAddress);
 
 	glEnable(GL_DEBUG_OUTPUT_SYNCHRONOUS);
 	glDebugMessageCallback(GLDebugMessageCallback, nullptr);
