@@ -9,6 +9,8 @@
 #include <sqlite3.h>
 #endif
 
+#include <string_view>
+#include <optional>
 #include <array>
 #include <vector>
 #include <map>
@@ -28,6 +30,13 @@
 namespace ezrtc {
 
 	class kernel {
+	private:
+		template<RUfunction_attribute a>
+		std::size_t attribute() const noexcept {
+			int ret;
+			ruFuncGetAttribute(&ret, a, f);
+			return static_cast<std::size_t>(ret);
+		}
 	public:
 
 		explicit kernel(RUfunction f) noexcept : f(f) {}
@@ -64,15 +73,6 @@ namespace ezrtc {
 		auto const_bytes() const noexcept { return attribute<RU_FUNC_ATTRIBUTE_CONST_SIZE_BYTES>(); }
 		auto local_bytes() const noexcept { return attribute<RU_FUNC_ATTRIBUTE_LOCAL_SIZE_BYTES>(); }
 		auto register_count() const noexcept { return attribute<RU_FUNC_ATTRIBUTE_NUM_REGS>(); }
-
-	private:
-
-		template<RUfunction_attribute a>
-		auto attribute() const noexcept {
-			int ret;
-			ruFuncGetAttribute(&ret, a, f);
-			return static_cast<std::size_t>(ret);
-		}
 
 
 		static RUresult launch_impl(RUfunction f, dim3 grid, dim3 block, RUstream stream, bool cooperative, void** args) noexcept;

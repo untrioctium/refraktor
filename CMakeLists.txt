@@ -20,12 +20,17 @@ set(CMAKE_INTERPROCEDURAL_OPTIMIZATION TRUE)
 
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED TRUE)
+
+if(MSVC)
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /Zc:__cplusplus")
+endif()
+
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(BUILD_TESTING OFF CACHE BOOL "" FORCE)
 set(BUILD_BENCHMARK OFF CACHE BOOL "" FORCE)
 set(BUILD_SHARED_LIBS OFF)
 set_property(GLOBAL PROPERTY USE_FOLDERS ON)
-set(CMAKE_CXX_CLANG_TIDY clang-tidy -checks=-*,cppcoreguidelines-*)
+#set(CMAKE_CXX_CLANG_TIDY clang-tidy -checks=-*,cppcoreguidelines-*)
 
 #find_package(CUDAToolkit)
 
@@ -56,10 +61,10 @@ FetchContent_MakeAvailable(zlib-ng)
 
 
 add_subdirectory(src/librefrakt)
-add_subdirectory(src/refraktor)
-add_subdirectory(src/refrakt-server)
-add_subdirectory(src/refrakt-gui)
-add_subdirectory(src/thumbnail-provider-win)
+#add_subdirectory(src/refraktor)
+#add_subdirectory(src/refrakt-server)
+#add_subdirectory(src/refrakt-gui)
+#add_subdirectory(src/thumbnail-provider-win)
 add_subdirectory(src/refrakt-qt)
 
 function(get_all_targets var)
@@ -84,6 +89,10 @@ foreach(target_name ${all_targets})
 	get_target_property(is_first_party ${target_name} FIRST_PARTY)
 	if(NOT ${is_first_party} STREQUAL true)
 		set_property(TARGET ${target_name} PROPERTY FOLDER "Dependencies")
+	else()
+		set_target_properties(${target_name} PROPERTIES
+    CXX_CLANG_TIDY "clang-tidy;--extra-arg=-Xclang;--extra-arg=-fcxx-exceptions;--extra-arg=-Xclang;--extra-arg=-std=c++23"
+		)
 	endif()
 endforeach()
 

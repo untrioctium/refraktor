@@ -1,6 +1,5 @@
 #pragma once
 
-#include <type_traits>
 #include <roccu_vector_types.h>
 
 using RUdevice = int;
@@ -87,7 +86,7 @@ struct RUaccessPolicyWindow {
 };
 
 using RUlaunchAttributeValue = union {
-    char pad[64];
+    char pad[64]; // NOLINT(cppcoreguidelines-avoid-c-arrays)
     RUaccessPolicyWindow accessPolicyWindow;
 };
 
@@ -179,6 +178,8 @@ const char* roccuGetApiName();
 size_t roccuGetMemoryUsage();
 void roccuPrintAllocations();
 
+// NOLINTBEGIN(cppcoreguidelines-avoid-non-const-global-variables)
+
 #ifndef ROCCU_IMPL
     #define ROCCU_DEFINE_FUNC(name, SRC, CUDA_NAME, ROCM_NAME, RET, ARGS) extern RET(*ru ## name)ARGS
 #else 
@@ -189,6 +190,7 @@ void roccuPrintAllocations();
 #endif
 
 #define ROCCU_DEFINE_DIRECT_FUNC(name, SRC, RET, ARGS) ROCCU_DEFINE_FUNC(name, SRC, cu##name, hip##name, RET, ARGS)
+// NOLINTEND(cppcoreguidelines-avoid-non-const-global-variables)
 
 ROCCU_DEFINE_FUNC(CtxCreate, RU_DRIVER, cuCtxCreate_v2, hipCtxCreate, RUresult, (RUcontext* pctx, unsigned int flags, RUdevice dev));
 ROCCU_DEFINE_FUNC(CtxDestroy, RU_DRIVER, cuCtxDestroy_v2, hipCtxDestroy, RUresult, (RUcontext ctx));

@@ -581,7 +581,7 @@ std::string rfkt::flame_compiler::make_source(const flamedb& fdb, const rfkt::fl
 
 std::string annotate_source(std::string src) {
     int linecount = 2;
-    for (int i = src.find("\n"); i != std::string::npos; i = src.find("\n", i)) {
+    for (auto i = src.find("\n"); i != std::string::npos; i = src.find("\n", i)) {
         auto linenum = std::format("{:>4}| ", linecount);
         src.insert(i + 1, linenum);
         i += linenum.size();

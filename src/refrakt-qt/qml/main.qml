@@ -34,6 +34,7 @@ ApplicationWindow {
 
         Rectangle {
             color: "#1e1e1e"
+            SplitView.preferredWidth: window.width / 4
 
             RowLayout {
                 id: test
@@ -56,6 +57,7 @@ ApplicationWindow {
         }
 
         Rectangle {
+            SplitView.preferredWidth: window.width * 3 / 4
             color: "black"
         }
     }

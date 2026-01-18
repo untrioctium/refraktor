@@ -66,3 +66,7 @@ oldtrain/
 stats.csv
 dist/
 licenses/
+.clang-tidy
+.clangd
+.qmlls.ini
+.cache/

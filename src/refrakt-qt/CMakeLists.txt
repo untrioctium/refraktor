@@ -12,4 +12,4 @@ set_target_properties(refrakt-qt PROPERTIES AUTOMOC TRUE)
 
 qt_add_qml_module(refrakt-qt URI refrakt-qt-qml VERSION 1.0 QML_FILES qml/main.qml)
 
-target_link_libraries(refrakt-qt PRIVATE Qt6::Quick)  
+target_link_libraries(refrakt-qt PRIVATE Qt6::Quick librefrakt)  

@@ -2,6 +2,7 @@
 
 #include <vector>
 #include <string>
+#include <string_view>
 
 #include <tao/pegtl/demangle.hpp>
 
@@ -39,7 +40,7 @@ namespace flang {
 				if (pred(child)) {
 					result.push_back(child);
 				}
-				auto sub = child->find_descendants(pred);
+				auto sub = child->find_descendents(pred);
 				result.insert(result.end(), sub.begin(), sub.end());
 			}
 			return result;

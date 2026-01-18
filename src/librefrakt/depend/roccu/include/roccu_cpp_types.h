@@ -154,7 +154,7 @@ namespace roccu {
             return *this;
         }
 
-        explicit(false) [[nodiscard]] operator RUevent() const noexcept {
+        explicit(false) operator RUevent() const noexcept {
             return event;
         }
 
@@ -239,7 +239,7 @@ namespace roccu {
             return *this;
         }
 
-        explicit(false) [[nodiscard]] operator RUstream() const noexcept {
+        explicit(false) operator RUstream() const noexcept {
             return stream;
         }
 
@@ -288,18 +288,18 @@ namespace roccu {
 
         constexpr gpu_buffer_base() noexcept = default;
 
-        explicit gpu_buffer_base(std::size_t size) requires is_owner : size_(size) {
+        explicit gpu_buffer_base(std::size_t size) requires (is_owner) : size_(size) {
             ROCCU_SAFE_CALL(ruMemAlloc(&ptr_, size_bytes()));
 		}
 
-        gpu_buffer_base(std::size_t size, RUstream stream) requires is_owner : size_(size) {
+        gpu_buffer_base(std::size_t size, RUstream stream) requires (is_owner) : size_(size) {
             ROCCU_SAFE_CALL(ruMemAllocAsync(&ptr_, size_bytes(), stream));
 		}
 
-        gpu_buffer_base(RUdeviceptr ptr, std::size_t size) requires !is_owner : ptr_(ptr), size_(size) {}
+        gpu_buffer_base(RUdeviceptr ptr, std::size_t size) requires (!is_owner) : ptr_(ptr), size_(size) {}
         //explicit(false) gpu_buffer_base(const gpu_buffer_base<Contained, buffer_ownership::owner>& o) requires !is_owner  : ptr_(o.ptr()), size_(o.size()) {}
 
-        explicit(false) operator gpu_buffer_base<Contained, buffer_ownership::view>() const requires is_owner {
+        explicit(false) operator gpu_buffer_base<Contained, buffer_ownership::view>() const requires (is_owner) {
 			return { ptr_, size_ };
 		}
 
@@ -310,11 +310,11 @@ namespace roccu {
 			}
 		}
 
-        gpu_buffer_base(const gpu_buffer_base&) requires is_owner  = delete;
-        gpu_buffer_base& operator=(const gpu_buffer_base&) requires is_owner  = delete;
+        gpu_buffer_base(const gpu_buffer_base&) requires (is_owner)  = delete;
+        gpu_buffer_base& operator=(const gpu_buffer_base&) requires (is_owner) = delete;
 
-        gpu_buffer_base(const gpu_buffer_base&) requires !is_owner  = default;
-        gpu_buffer_base& operator=(const gpu_buffer_base&) requires !is_owner  = default;
+        gpu_buffer_base(const gpu_buffer_base&) requires (!is_owner)  = default;
+        gpu_buffer_base& operator=(const gpu_buffer_base&) requires (!is_owner) = default;
 
         gpu_buffer_base(gpu_buffer_base&& o) noexcept {
 			std::swap(ptr_, o.ptr_);
@@ -354,7 +354,7 @@ namespace roccu {
 			}
         }
 
-        void clear(Contained value) requires(element_size == 1 || element_size == 2 || element_size == 4) {
+        void clear(Contained value) requires((element_size == 1 || element_size == 2 || element_size == 4)) {
             if constexpr (element_size == 1) {
                 ROCCU_SAFE_CALL(ruMemsetD8(ptr_, value, size_));
             }
@@ -366,7 +366,7 @@ namespace roccu {
             }
         }
 
-        void clear(Contained value, RUstream stream) requires(element_size == 1 || element_size == 2 || element_size == 4) {
+        void clear(Contained value, RUstream stream) requires((element_size == 1 || element_size == 2 || element_size == 4) ) {
 			if constexpr (element_size == 1) {
 				ROCCU_SAFE_CALL(ruMemsetD8Async(ptr_, value, size_, stream));
 			}
@@ -412,7 +412,7 @@ namespace roccu {
             ROCCU_SAFE_CALL(ruMemcpyHtoDAsync(ptr_, src_host.data(), min_size(src_host.size()), stream));
         }
 
-        void free_async(RUstream stream) requires is_owner {
+        void free_async(RUstream stream) requires (is_owner) {
             if (ptr_) {
                 ROCCU_SAFE_CALL(ruMemFreeAsync(ptr_, stream));
             }
@@ -447,23 +447,23 @@ namespace roccu {
 
         constexpr gpu_image_base() noexcept = default;
 
-        explicit gpu_image_base(uint2 dims) requires is_owner : dims_(dims), pitch_(dims_.x) {
+        explicit gpu_image_base(uint2 dims) requires (is_owner) : dims_(dims), pitch_(dims_.x) {
 			ROCCU_SAFE_CALL(ruMemAlloc(&ptr_, size_bytes()));
 		}
 
-        gpu_image_base(uint2 dims, RUstream stream) requires is_owner : dims_(dims), pitch_(dims_.x) {
+        gpu_image_base(uint2 dims, RUstream stream) requires (is_owner) : dims_(dims), pitch_(dims_.x) {
 			ROCCU_SAFE_CALL(ruMemAllocAsync(&ptr_, size_bytes(), stream));
 		}
 
-        gpu_image_base(std::size_t width, std::size_t height) requires is_owner : dims_(width, height), pitch_(dims_.x) {
+        gpu_image_base(std::size_t width, std::size_t height) requires (is_owner) : dims_(width, height), pitch_(dims_.x) {
 			ROCCU_SAFE_CALL(ruMemAlloc(&ptr_, size_bytes()));
 		}
 
-        gpu_image_base(std::size_t width, std::size_t height, RUstream stream) requires is_owner : dims_(width, height), pitch_(dims_.x) {
+        gpu_image_base(std::size_t width, std::size_t height, RUstream stream) requires (is_owner) : dims_(width, height), pitch_(dims_.x) {
             ROCCU_SAFE_CALL(ruMemAllocAsync(&ptr_, size_bytes(), stream));
         }
 
-        gpu_image_base(RUdeviceptr ptr, uint2 dims, std::size_t pitch) requires !is_owner : ptr_(ptr), dims_(dims), pitch_(pitch) {}
+        gpu_image_base(RUdeviceptr ptr, uint2 dims, std::size_t pitch) requires (!is_owner) : ptr_(ptr), dims_(dims), pitch_(pitch) {}
 
         ~gpu_image_base() {
 			if constexpr (!is_owner) return;
@@ -472,11 +472,11 @@ namespace roccu {
 			}
 		}
 
-		gpu_image_base(const gpu_image_base&) requires is_owner = delete;
-		gpu_image_base& operator=(const gpu_image_base&) requires is_owner = delete;
+		gpu_image_base(const gpu_image_base&) requires (is_owner) = delete;
+		gpu_image_base& operator=(const gpu_image_base&) requires (is_owner) = delete;
 
-		gpu_image_base(const gpu_image_base&) requires !is_owner = default;
-		gpu_image_base& operator=(const gpu_image_base&) requires !is_owner = default;
+		gpu_image_base(const gpu_image_base&) requires (!is_owner) = default;
+		gpu_image_base& operator=(const gpu_image_base&) requires (!is_owner) = default;
 
         gpu_image_base(gpu_image_base&& o) noexcept {
             std::swap(ptr_, o.ptr_);
@@ -491,7 +491,7 @@ namespace roccu {
 			return *this;
 		}
 
-        explicit(false) operator gpu_image_base<PixelType, buffer_ownership::view>() requires is_owner {
+        explicit(false) operator gpu_image_base<PixelType, buffer_ownership::view>() requires (is_owner) {
             return { ptr_, dims_, pitch_ };
         }
 
@@ -506,11 +506,11 @@ namespace roccu {
         constexpr bool valid() const noexcept { return ptr_ != 0; }
         constexpr explicit operator bool() const noexcept { return valid(); }
 
-        void clear() requires is_owner {
+        void clear() requires (is_owner) {
             ROCCU_SAFE_CALL(ruMemsetD8(ptr_, 0, size_bytes()));
         }
 
-        void clear(RUstream stream) requires is_owner {
+        void clear(RUstream stream) requires (is_owner) {
             ROCCU_SAFE_CALL(ruMemsetD8Async(ptr_, 0, size_bytes(), stream));
         }
 
@@ -546,7 +546,7 @@ namespace roccu {
             ROCCU_SAFE_CALL(ruMemcpy2DAsync(&copy_param, stream));
         }
 
-        void free_async(RUstream stream) requires is_owner {
+        void free_async(RUstream stream) requires (is_owner) {
 			if (ptr_) {
 				ROCCU_SAFE_CALL(ruMemFreeAsync(ptr_, stream));
 			}

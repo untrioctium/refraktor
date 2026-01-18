@@ -14,6 +14,7 @@
 
 #include <cstdio>
 
+// NOLINTBEGIN(cppcoreguidelines-pro-type-vararg)
 #define EZRTC_CHECK_RURTC(expression)                              \
 do {                                                               \
 	if (const auto result = expression; result != RURTC_SUCCESS) { \
@@ -39,6 +40,8 @@ do {                                                               \
 		);                                                         \
 	}                                                              \
 } while(0)
+
+// NOLINTEND(cppcoreguidelines-pro-type-vararg)
 
 namespace ezrtc::detail::hash {
 
@@ -66,6 +69,7 @@ namespace ezrtc::detail::hash {
 	 * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 	*/
 
+	// NOLINTBEGIN(cppcoreguidelines-pro-bounds-constant-array-index)
 	class sha1 {
 	public:
 		using byte = std::uint8_t;
@@ -154,7 +158,7 @@ namespace ezrtc::detail::hash {
 		}
 
 		template<std::size_t Size>
-		constexpr sha1& process_bytes(const char(&str)[Size]) {
+		constexpr sha1& process_bytes(const char(&str)[Size]) noexcept { // NOLINT(cppcoreguidelines-avoid-c-arrays)
 			return process_bytes(str, (str[Size - 1] == '\0') ? Size - 1 : Size);
 		}
 
@@ -275,6 +279,7 @@ namespace ezrtc::detail::hash {
 			digest[4] += e;
 		}
 	};
+	// NOLINTEND(cppcoreguidelines-pro-bounds-constant-array-index)
 }
 
 RUresult ezrtc::kernel::launch_impl(RUfunction f, dim3 grid, dim3 block, RUstream stream, bool cooperative, void** args) noexcept {
@@ -305,7 +310,7 @@ namespace ezrtc::detail {
 	}
 
 	std::string get_arch() {
-		RUdevice dev;
+		RUdevice dev{};
 		EZRTC_CHECK_ROCCU(ruCtxGetDevice(&dev));
 
 		int major = 0;
@@ -317,13 +322,13 @@ namespace ezrtc::detail {
 	}
 
 	std::string get_device_name() {
-		RUdevice dev;
+		RUdevice dev{};
 		EZRTC_CHECK_ROCCU(ruCtxGetDevice(&dev));
 
 		std::string buf;
 		buf.resize(128);
 
-		ruDeviceGetName(buf.data(), buf.size(), dev);
+		ruDeviceGetName(buf.data(), static_cast<int>(buf.size()), dev);
 		return buf;
 	}
 
@@ -445,7 +450,7 @@ namespace ezrtc::detail {
 			    auto variable = iter.pop_len()
 
 #define MUST_STR(variable, t)           \
-			    auto variable = std## t ## string_view{}; \
+			    auto variable = t{}; \
 				do {                                   \
 					MUST_LEN(s_len);				\
                                                     \
@@ -471,7 +476,7 @@ namespace ezrtc::detail {
 			// loop through dependencies
 			for (int i = 0; i < dep_length; i++) {
 				// get path string
-				MUST_STR(path, ::u8);
+				MUST_STR(path, std::u8string_view);
 
 				// get last modified timestamp
 				MUST_LONG(last_mod);
@@ -488,8 +493,8 @@ namespace ezrtc::detail {
 
 			// loop through kernels
 			for (int i = 0; i < k_length; i++) {
-				MUST_STR(pretty, ::);
-				MUST_STR(mangled, ::);
+				MUST_STR(pretty, std::string_view);
+				MUST_STR(mangled, std::string_view);
 
 				if (mangled.back() != '\0') {
 					return std::nullopt;
@@ -500,8 +505,8 @@ namespace ezrtc::detail {
 
 			MUST_LEN(v_length);
 			for (int i = 0; i < v_length; i++) {
-				MUST_STR(pretty, ::);
-				MUST_STR(mangled, ::);
+				MUST_STR(pretty, std::string_view);
+				MUST_STR(mangled, std::string_view);
 
 				if (mangled.back() != '\0') {
 					return std::nullopt;
@@ -643,7 +648,7 @@ std::optional<ezrtc::cuda_module> ezrtc::cuda_module::from_cubin(std::span<const
 bool ezrtc::cuda_module::load_kernel(std::string_view pretty, std::string_view mangled) {
 	if (mangled.back() != '\0') return false;
 
-	RUfunction f;
+	RUfunction f{};
 
 	if (const auto status = ruModuleGetFunction(&f, handle, mangled.data());
 		status != RU_SUCCESS) {
@@ -657,8 +662,8 @@ bool ezrtc::cuda_module::load_kernel(std::string_view pretty, std::string_view m
 bool ezrtc::cuda_module::load_variable(std::string_view pretty, std::string_view mangled) {
 	if (mangled.back() != '\0') return false;
 
-	RUdeviceptr ptr;
-	std::size_t size;
+	RUdeviceptr ptr{};
+	std::size_t size{};
 
 	if (const auto status = ruModuleGetGlobal(&ptr, &size, handle, mangled.data());
 		status != RU_SUCCESS) {
@@ -729,7 +734,7 @@ ezrtc::compiler::compiler(cache::handle kernel_cache) :
 	k_cache(std::move(kernel_cache)),
 	arch_flag("--gpu-architecture=" + detail::get_arch())
 {
-	RUcontext ctx;
+	RUcontext ctx{};
 	const auto status = ruCtxGetCurrent(&ctx);
 	if (status != RU_SUCCESS or not ctx) throw std::runtime_error("cannot create ezrtc::compiler without a CUDA context");
 }
@@ -908,7 +913,7 @@ bool ezrtc::compiler::cache_header(std::string_view name, const std::filesystem:
 
 	std::string src{};
 	src.resize(size);
-	is.read(src.data(), size);
+	is.read(src.data(), static_cast<std::streamsize>(size));
 	hcache.emplace(std::string{ name }, hcache_info{ std::move(src), path, path.u8string(), static_cast<std::size_t>(std::chrono::file_clock::now().time_since_epoch().count()) });
 	return true;
 }
@@ -974,7 +979,7 @@ ezrtc::compiler::result ezrtc::compiler::compile(const ezrtc::spec& s) {
 	auto make_program = [&]() {
 		while (true) {
 			attempts++;
-			rurtcProgram prog_handle;
+			rurtcProgram prog_handle{};
 			EZRTC_CHECK_RURTC(
 				rurtcCreateProgram(
 					&prog_handle, s.source.c_str(), s.name_.c_str(),
@@ -985,17 +990,17 @@ ezrtc::compiler::result ezrtc::compiler::compile(const ezrtc::spec& s) {
 			auto prog = prog_scope{ prog_handle };
 
 			for (const auto& kernel : s.kernels) {
-				EZRTC_CHECK_RURTC(rurtcAddNameExpression(prog, kernel.c_str()));
+				EZRTC_CHECK_RURTC(rurtcAddNameExpression(prog, kernel.c_str())); 
 			}
 
 			for (const auto& [_, expr] : s.variables) {
 				EZRTC_CHECK_RURTC(rurtcAddNameExpression(prog, expr.c_str()));
 			}
 
-			auto status = rurtcCompileProgram(prog, compile_options.size(), compile_options.data());
+			auto status = rurtcCompileProgram(prog, static_cast<int>(compile_options.size()), compile_options.data());
 
 			ret.log.clear();
-			std::size_t log_size;
+			std::size_t log_size{};
 			EZRTC_CHECK_RURTC(rurtcGetProgramLogSize(prog, &log_size));
 			if (log_size > 1) {
 				ret.log.resize(log_size);
@@ -1041,7 +1046,7 @@ ezrtc::compiler::result ezrtc::compiler::compile(const ezrtc::spec& s) {
 		return ret;
 	}
 
-	std::size_t ptx_size;
+	std::size_t ptx_size{};
 	EZRTC_CHECK_RURTC(rurtcGetAssemblySize(prog, &ptx_size));
 	auto ptx = std::string(ptx_size, '\0');
 	EZRTC_CHECK_RURTC(rurtcGetAssembly(prog, ptx.data()));
@@ -1067,7 +1072,7 @@ ezrtc::compiler::result ezrtc::compiler::compile(const ezrtc::spec& s) {
 	}
 
 	auto get_lowered_name = [&prog](std::string_view expression) {
-		const char* name;
+		const char* name{};
 		EZRTC_CHECK_RURTC(rurtcGetLoweredName(prog, expression.data(), &name));
 		return std::string_view{ name, std::strlen(name) + 1 }; // include null terminator
 	};

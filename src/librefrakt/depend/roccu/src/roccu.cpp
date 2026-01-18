@@ -3,7 +3,6 @@
 #include <cstdio>
 #include <array>
 #include <atomic>
-#include <span>
 #include <mutex>
 #include <variant>
 
@@ -103,11 +102,11 @@ struct roccu_impl {
     std::optional<dynamic_library> rtc_lib;
 };
 
-static inline std::optional<roccu_impl> api;
-constinit inline static std::atomic_size_t mem_alloc_size = 0;
+static inline std::optional<roccu_impl> api; // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
+constinit inline static std::atomic_size_t mem_alloc_size = 0; // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
 
-inline static std::unordered_map<RUdeviceptr, std::pair<size_t, std::stacktrace>> mem_alloc_map = {};
-inline static std::mutex mem_alloc_mutex = {};
+inline static std::unordered_map<RUdeviceptr, std::pair<size_t, std::stacktrace>> mem_alloc_map = {}; // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
+inline static std::mutex mem_alloc_mutex = {}; // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
 
 enum hipDeviceAttribute_t {
     hipDeviceAttributeCudaCompatibleBegin = 0,

@@ -19,8 +19,8 @@ do { \
 	} \
 } while(0) \
 
-using nv_create_api = NVENCSTATUS(NVENCAPI)(NV_ENCODE_API_FUNCTION_LIST*);
-using nv_check_version = NVENCSTATUS(NVENCAPI)(uint32_t*);
+using nv_create_api = NVENCSTATUS NVENCAPI(NV_ENCODE_API_FUNCTION_LIST*);
+using nv_check_version = NVENCSTATUS NVENCAPI(uint32_t*);
 
 consteval bool is_posix() {
 #ifdef _WIN32

@@ -13,7 +13,7 @@ public:
     }
     
     Q_INVOKABLE void setCursorPos(qreal x, qreal y) {
-        QCursor::setPos(QPoint(x, y));
+        QCursor::setPos(QPoint(static_cast<int>(x), static_cast<int>(y)));
     }
 };
 
