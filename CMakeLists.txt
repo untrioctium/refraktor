@@ -60,6 +60,7 @@ add_subdirectory(src/refraktor)
 add_subdirectory(src/refrakt-server)
 add_subdirectory(src/refrakt-gui)
 add_subdirectory(src/thumbnail-provider-win)
+add_subdirectory(src/refrakt-qt)
 
 function(get_all_targets var)
     set(targets)
@@ -77,7 +78,7 @@ macro(get_all_targets_recursive targets dir)
     list(APPEND ${targets} ${current_targets})
 endmacro()
 
-get_all_targets(all_targets)
+get_all_targets(all_targets) 
 
 foreach(target_name ${all_targets})
 	get_target_property(is_first_party ${target_name} FIRST_PARTY)

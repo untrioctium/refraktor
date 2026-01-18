@@ -1,5 +1,9 @@
 #pragma once
 
+#ifdef delete
+#undef delete
+#endif
+
 #include <optional>
 #include <map>
 #include <vector>
@@ -41,6 +45,13 @@ namespace rfkt {
 
 		template<typename T>
 		constexpr static const T* typed_nullptr = nullptr;
+
+		// split foo/bar/baz into ("foo", "bar/baz")
+		constexpr std::tuple<std::string_view, std::string_view> split_path(std::string_view path) {
+			auto pos = path.find('/');
+			if (pos == std::string_view::npos) return std::tuple{ path, "" };
+			return std::tuple{ path.substr(0, pos), path.substr(pos + 1) };
+		}
 
 	}
 
@@ -214,6 +225,13 @@ namespace rfkt {
 			return nullptr;
 		}
 
+		anima* lookup(std::string_view path) {
+			auto ptr = name_to_pointer(path);
+			if (ptr) return &(this->*ptr);
+
+			return nullptr;
+		}
+
 	};
 
 	class vardata {
@@ -304,6 +322,18 @@ namespace rfkt {
 
 		static std::pair<std::string, vardata> identity() {
 			return { "linear", vardata{ 1.0, 0, {} } };
+		}
+
+		anima* lookup(std::string_view path) {
+			auto [head, tail] = detail::split_path(path);
+			if (head == "weight") return &weight;
+			if (head == "parameter") {
+				auto [param_name, _] = detail::split_path(tail);
+				if(param_name.empty()) return nullptr;
+				auto iter = parameters_.find(param_name);
+				if(iter == parameters_.end()) return nullptr;
+				return &iter->second;
+			}
 		}
 
 	private:
@@ -453,6 +483,20 @@ namespace rfkt {
 			return vl;
 		}
 
+		anima* lookup(std::string_view path) {
+			auto [head, tail] = detail::split_path(path);
+			if (head == "transform") return transform.lookup(tail);
+			if( auto ptr = name_to_pointer(head); ptr) return &(this->*ptr);
+			if (head == "variation") {
+				auto [var_name, _] = detail::split_path(tail);
+				if(var_name.empty()) return nullptr;
+				auto iter = variations_.find(var_name);
+				if(iter == variations_.end()) return nullptr;
+				return iter->second.lookup(tail);
+			}
+			return nullptr;
+		}
+
 	private:
 		std::map<std::string, vardata, std::less<>> variations_;
 	};
@@ -542,6 +586,19 @@ namespace rfkt {
 			xf.opacity = 1.0;
 			xf.vchain.emplace_back(vlink::identity());
 			return xf;
+		}
+
+		anima* lookup(std::string_view path) {
+			auto [head, tail] = detail::split_path(path);
+			if (auto ptr = name_to_pointer(head); ptr) return &(this->*ptr);
+			if (head == "vlink") {
+				auto [vlink_idx, vlink_path] = detail::split_path(tail);
+				if(vlink_idx.empty()) return nullptr;
+				int idx = std::stoi(std::string(vlink_idx));
+				if(idx < 0 || idx >= vchain.size()) return nullptr;
+				return vchain[idx].lookup(vlink_path);
+			}
+			return nullptr;
 		}
 
 	};
@@ -798,6 +855,20 @@ namespace rfkt {
 			return nullptr;
 		}
 
+		anima* lookup(std::string_view path) {
+			auto [head, tail] = detail::split_path(path);
+			if (auto ptr = name_to_pointer(head); ptr) return &(this->*ptr);
+			if (head == "xform") {
+				auto [xform_idx, xform_path] = detail::split_path(tail);
+				if(xform_idx.empty()) return nullptr;
+				if(xform_idx == "final") return final_xform ? final_xform->lookup(xform_path) : nullptr;
+				int idx = std::stoi(std::string(xform_idx));
+				if(idx < 0 || idx >= xforms_.size()) return nullptr;
+				return xforms_[idx].lookup(xform_path);
+			}
+			return nullptr;
+		}
+
 		rfkt::hash_t value_hash() const noexcept;
 
 	private:
@@ -833,7 +904,7 @@ namespace rfkt {
 			}
 
 			std::string to_string() const {
-				return std::format("flame.{}", detail::ptr_name(p));
+				return std::format("{}", detail::ptr_name(p));
 			}
 
 			constexpr std::strong_ordering operator<=>(const flame& o) const noexcept {
@@ -859,7 +930,7 @@ namespace rfkt {
 			}
 
 			std::string to_string() const {
-				return std::format("flame.xf[{}].{}", xid, detail::ptr_name(p));
+				return std::format("xform/{}/{}", xid, detail::ptr_name(p));
 			}
 
 			constexpr std::strong_ordering operator<=>(const xform& o) const noexcept {
@@ -889,7 +960,7 @@ namespace rfkt {
 			}
 
 			std::string to_string() const {
-				return std::format("flame.xf[{}].vl[{}].{}", xid, vid, detail::ptr_name(p));
+				return std::format("xform/{}/vlink/{}/{}", xid, vid, detail::ptr_name(p));
 			}
 
 			constexpr std::strong_ordering operator<=>(const vlink& o) const noexcept {
@@ -921,7 +992,7 @@ namespace rfkt {
 			}
 
 			std::string to_string() const {
-				return std::format("flame.xf[{}].vl[{}].transform.{}", xid, vid, detail::ptr_name(p));
+				return std::format("xform/{}/vlink/{}/transform/{}", xid, vid, detail::ptr_name(p));
 			}
 
 			constexpr std::strong_ordering operator<=>(const transform& o) const noexcept {
@@ -955,7 +1026,7 @@ namespace rfkt {
 			}
 
 			std::string to_string() const {
-				return std::format("flame.xf[{}].vl[{}].var[{}].{}", xid, vid, var_name, detail::ptr_name(p));
+				return std::format("xform/{}/vlink/{}/variation/{}/{}", xid, vid, var_name, detail::ptr_name(p));
 			}
 
 			constexpr std::strong_ordering operator<=>(const vardata& o) const noexcept {
@@ -991,7 +1062,7 @@ namespace rfkt {
 			}
 
 			std::string to_string() const {
-				return std::format("flame.xf[{}].vl[{}].var[{}].{}", xid, vid, var_name, param_name);
+				return std::format("xform/{}/vlink/{}/variation/{}/parameter/{}", xid, vid, var_name, param_name);
 			}
 
 			constexpr std::strong_ordering operator<=>(const parameter& o) const noexcept {

@@ -56,7 +56,6 @@ imgui.ini
 *.sqlite3
 scripts/
 testrender/
-refrakt-qt/
 webapp/
 *.mp4
 *.h264
