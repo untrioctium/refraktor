@@ -1,7 +1,7 @@
 #include <spdlog/spdlog.h>
 
-#include <librefrakt/image/tonemapper.h>
-#include <librefrakt/constants.h>
+#include <librefrakt/image/tonemapper.hpp>
+#include <librefrakt/constants.hpp>
 
 #define RFKT_ASSERT(x) 
 

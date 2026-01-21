@@ -13,16 +13,16 @@
 
 #include <spdlog/spdlog.h>
 
-#include <librefrakt/flame_info.h>
-#include <librefrakt/flame_compiler.h>
-#include <librefrakt/util/cuda.h>
-#include <librefrakt/util/gpuinfo.h>
-#include <librefrakt/util/filesystem.h>
+#include <librefrakt/flame_info.hpp>
+#include <librefrakt/flame_compiler.hpp>
+#include <librefrakt/util/cuda.hpp>
+#include <librefrakt/util/gpuinfo.hpp>
+#include <librefrakt/util/filesystem.hpp>
 
 #include <inja/inja.hpp>
 
-#include <flang/grammar.h>
-#include <flang/matcher.h>
+#include <flang/grammar.hpp>
+#include <flang/matcher.hpp>
 
 using json = nlohmann::json;
 
@@ -46,64 +46,6 @@ struct environment {
 };
 std::string create_source(std::string_view name, const flang::ast_node* node);
 std::string create_source(const flang::ast_node* node, const environment& env);
-
-namespace handlers {
-
-    using namespace flang::matchers;
-    using namespace flang::grammar;
-
-    template<typename Handler>
-    struct base {
-
-        static std::string create_source(const flang::ast_node* node, const environment& env) {
-
-            if (Handler::matcher(node))
-                return Handler::handle(node, env);
-			else if constexpr (!std::is_same_v<typename Handler::next, void>)
-				return Handler::next::create_source(node, env);
-			else
-				throw std::runtime_error("No handler found for node " + std::string(node->type()));
-		}
-
-    };
-
-    struct globals;
-
-    struct fma {
-        constexpr static auto matcher = of_type<op::plus, op::minus, op::plus_assign, op::minus_assign> and with_child(of_type<op::times>);
-
-        using next = globals;
-
-        static std::string handle(const flang::ast_node* node, const environment& env) {
-			auto multiply_child = (node->first()->is_type<op::times>()) ? 0 : 1;
-			auto mul_lhs = create_source(node->nth(multiply_child)->nth(0), env);
-			auto mul_rhs = create_source(node->nth(multiply_child)->nth(1), env);
-			auto add_lhs = create_source(node->nth(1 - multiply_child), env);
-
-            if (node->is_type<op::plus>()) {
-				return std::format("fl::fma<FloatT>({}, {}, {})", mul_lhs, mul_rhs, add_lhs);
-			}
-            else if (node->is_type<op::minus>()) {
-				if (multiply_child == 0)
-					return std::format("fl::fma<FloatT>({}, {}, -({}))", mul_lhs, mul_rhs, add_lhs);
-				else
-					return std::format("fl::fma<FloatT>({}, -({}), {})", mul_lhs, mul_rhs, add_lhs);
-			}
-            else if (node->is_type<op::plus_assign>()) {
-				return std::format("fl::fma<FloatT>({}, {}, {})", mul_lhs, mul_rhs, add_lhs);
-			}
-            else if (node->is_type<op::minus_assign>()) {
-				return std::format("fl::fma<FloatT>({}, {}, -({}))", mul_lhs, mul_rhs, add_lhs);
-			}
-            else {
-				throw std::runtime_error("invalid node type");
-			}
-		}
-    };
-
-}
-
-
 
 auto make_table() {
     auto table = std::vector<std::pair<flang::matcher, std::add_pointer_t<std::string(std::string_view, const flang::ast_node*)>>>{};
@@ -598,10 +540,8 @@ void rfkt::flame_compiler::add_to_hash(rfkt::hash::state_t& state)
     state.update(rfkt::fs::last_modified("assets/kernels/include/refrakt/flamelib.h"));
 }
 
-auto rfkt::flame_compiler::get_flame_kernel(const flamedb& fdb, precision prec, const flame& f) -> result
+auto rfkt::flame_compiler::prepare_flame_kernel(const flamedb& fdb, precision prec, const flame& f) -> std::move_only_function<result()>
 {
-    auto start = std::chrono::high_resolution_clock::now();
-
     if (fdb.hash() != last_flamedb_hash) {
         compiled_common.clear();
         compiled_variations.clear();
@@ -619,40 +559,51 @@ auto rfkt::flame_compiler::get_flame_kernel(const flamedb& fdb, precision prec, 
     opts.header("refrakt/flamelib.h", flamelib_src);
     opts.define("FLAMEDB_HASH", fdb.hash().str32());
 
-    auto compile_result = km->compile(opts);
-    auto duration_ms = std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::high_resolution_clock::now() - start).count() / 1'000'000.0;
+    auto size_reals = f.size_reals();
+    auto affine_indices = f.affine_indices();
 
-    auto r = result(
-        annotate_source(src),
-        std::move(compile_result.log)
-    );
-    r.compile_ms = duration_ms;
-
-    if (not compile_result.module.has_value()) {
+    return [=, this, opts=std::move(opts), src=std::move(src)]() mutable -> result {
+        auto start = std::chrono::high_resolution_clock::now();
+        auto compile_result = km->compile(opts);
+        auto duration_ms = std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::high_resolution_clock::now() - start).count() / 1'000'000.0;
+    
+        auto r = result(
+            annotate_source(src),
+            std::move(compile_result.log)
+        );
+        r.compile_ms = duration_ms;
+    
+        if (not compile_result.module.has_value()) {
+            return r;
+        }
+    
+        auto func = compile_result.module->kernel("bin");
+    
+        auto max_blocks = func.max_blocks_per_mp(most_blocks.block) * roccu::context::current().device().mp_count();
+        auto expected_shared = smem_per_block(prec, size_reals, most_blocks.block);
+        if (max_blocks < most_blocks.grid) {
+    
+            SPDLOG_ERROR("Kernel for {} needs {} blocks but only got {}; {} shared, {} expected, {} regs, {} local", opts.name(), most_blocks.grid, max_blocks, func.shared_bytes(), expected_shared, func.register_count(), func.local_bytes());
+            return r;
+        }
+        SPDLOG_INFO("Loaded flame kernel {}: {} temp. samples, {} flame params, {} regs, {} shared ({} expected), {} local, {:.4} ms", opts.name(), max_blocks, size_reals, func.register_count(), func.shared_bytes(), expected_shared, func.local_bytes(), duration_ms);
+    
+        if (func.local_bytes() > 0) {
+            SPDLOG_WARN("Kernel for {} uses {} local memory", opts.name(), func.local_bytes());
+        }
+    
+        auto shuf_dev = compile_result.module.value()["shuf_bufs"];
+        ruMemcpyDtoD(shuf_dev.ptr(), shuf_bufs[most_blocks.block].ptr(), shuf_dev.size());
+    
+        r.kernel = flame_kernel{ size_reals, std::move(compile_result.module.value()), std::pair<int, int>{most_blocks.grid, most_blocks.block}, srt, affine_indices};
+    
         return r;
-    }
+    };
+}
 
-    auto func = compile_result.module->kernel("bin");
-
-    auto max_blocks = func.max_blocks_per_mp(most_blocks.block) * roccu::context::current().device().mp_count();
-    auto expected_shared = smem_per_block(prec, f.size_reals(), most_blocks.block);
-    if (max_blocks < most_blocks.grid) {
-
-        SPDLOG_ERROR("Kernel for {} needs {} blocks but only got {}; {} shared, {} expected, {} regs, {} local", opts.name(), most_blocks.grid, max_blocks, func.shared_bytes(), expected_shared, func.register_count(), func.local_bytes());
-        return r;
-    }
-    SPDLOG_INFO("Loaded flame kernel {}: {} temp. samples, {} flame params, {} regs, {} shared ({} expected), {} local, {:.4} ms", opts.name(), max_blocks, f.size_reals(), func.register_count(), func.shared_bytes(), expected_shared, func.local_bytes(), duration_ms);
-
-    if (func.local_bytes() > 0) {
-        SPDLOG_WARN("Kernel for {} uses {} local memory", opts.name(), func.local_bytes());
-    }
-
-    auto shuf_dev = compile_result.module.value()["shuf_bufs"];
-    ruMemcpyDtoD(shuf_dev.ptr(), shuf_bufs[most_blocks.block].ptr(), shuf_dev.size());
-
-    r.kernel = flame_kernel{ f.size_reals(), std::move(compile_result.module.value()), std::pair<int, int>{most_blocks.grid, most_blocks.block}, srt, f.affine_indices()};
-
-    return r;
+auto rfkt::flame_compiler::get_flame_kernel(const flamedb& fdb, precision prec, const flame& f) -> result
+{
+    return prepare_flame_kernel(fdb, prec, f)();
 }
 
 template<typename Contained>

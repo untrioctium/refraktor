@@ -3,7 +3,7 @@
 
 //#include <ImfRgbaFile.h>
 
-#include "librefrakt/util/stb.h"
+#include "librefrakt/util/stb.hpp"
 
 bool write_file_impl(const void* data, int w, int h, int comp, const std::string& path) {
 	if (path.ends_with("png"))

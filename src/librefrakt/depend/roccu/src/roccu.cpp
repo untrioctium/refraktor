@@ -19,7 +19,7 @@ namespace fs = std::filesystem;
 #endif
 
 #define ROCCU_IMPL
-#include "roccu.h"
+#include "roccu.hpp"
 
 struct roccu_load_info {
     roccu_api api;
@@ -75,7 +75,7 @@ public:
     
     void* function(const char* name) const {
 #ifdef _WIN32
-        return GetProcAddress(handle, name);
+        return reinterpret_cast<void*>(GetProcAddress(handle, name));
 #else
         return dlsym(handle, name);
 #endif
@@ -424,10 +424,10 @@ size_t roccuGetMemoryUsage() {
 void roccuPrintAllocations() {
 	std::scoped_lock lock(mem_alloc_mutex);
 	for(const auto& [ptr, alloc] : mem_alloc_map) {
-		printf("Allocation at %lluu of size %zu (%.1f MB)\n", ptr, alloc.first, alloc.first / (1024.0 * 1024.0));
+		printf("Allocation at %lluu of size %zu (%.1f MB)\n", ptr, alloc.first, static_cast<double>(alloc.first) / (1024.0 * 1024.0)); // NOLINT(cppcoreguidelines-pro-type-vararg)
 		for(int i = 1; i < alloc.second.size(); i++) {
 			auto& entry = alloc.second[i];
-			printf("%s %d %s\n", entry.source_file().c_str(), entry.source_line(), entry.description().c_str());
+			printf("%s %d %s\n", entry.source_file().c_str(), entry.source_line(), entry.description().c_str()); // NOLINT(cppcoreguidelines-pro-type-vararg)
 		}
 	}
 }

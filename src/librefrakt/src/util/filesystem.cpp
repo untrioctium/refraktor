@@ -5,7 +5,7 @@
 #include <ShlObj.h>
 #endif
 
-#include <librefrakt/util/filesystem.h>
+#include <librefrakt/util/filesystem.hpp>
 
 using path = rfkt::fs::path;
 

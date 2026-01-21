@@ -3,6 +3,9 @@ import QtQuick.Controls.Fusion
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import Qt.labs.folderlistmodel
+
+import Refrakt
 
 ApplicationWindow {
     id: window
@@ -12,6 +15,8 @@ ApplicationWindow {
     title: "Test Window"
 
     menuBar: MenuBar {
+        topPadding: 0
+        bottomPadding: 0
 
         Menu {
             topPadding: 0
@@ -36,29 +41,88 @@ ApplicationWindow {
             color: "#1e1e1e"
             SplitView.preferredWidth: window.width / 4
 
-            RowLayout {
-                id: test
+            ListView {
+                id: flameList
+                anchors.fill: parent
+                anchors.margins: 4
+                interactive: false
+                clip: true
+                spacing: 4
 
-                TextField {
-                    id: textField
-                    text: dial.value
-                    onTextChanged: dial.value = text
+                WheelHandler {
+                    onWheel: (event) => {
+                        flameList.contentY = Math.max(0, 
+                            Math.min(flameList.contentHeight - flameList.height,
+                                flameList.contentY - event.angleDelta.y))
+                    }
                 }
-                Dial {
-                    id: dial
-                    implicitWidth: textField.implicitHeight
-                    implicitHeight: textField.implicitHeight
-                    value: textField.value
+
+                model: FolderListModel {
+                    id: folderModel
+                    folder: "file:./assets/flames_test"
+                    nameFilters: ["*.flam3"]
+                    showDirs: false
+                    sortField: FolderListModel.Name
                 }
-                Label {
-                    text: "Linear"
+
+                delegate: Item {
+                    width: flameList.width
+                    height: width * 3 / 4  // 4:3 aspect ratio
+
+                    Rectangle {
+                        anchors.fill: parent
+                        anchors.margins: 2
+                        color: "black"
+                        border.color: flamePreview.source === model.filePath ? "#0078d4" : "transparent"
+                        border.width: 2
+
+                        FlamePreview {
+                            anchors.fill: parent
+                            anchors.margins: 2
+                            source: model.filePath
+                            quality: 50
+                            denoise: true
+                            maxRenderMillis: 50
+
+                            BusyIndicator {
+                                anchors.centerIn: parent
+                                running: parent.status === FlamePreview.Loading
+                            }
+                        }
+
+                        MouseArea {
+                            anchors.fill: parent
+                            onClicked: {
+                                flamePreview.source = model.filePath
+                            }
+
+                            onPressed: {
+                                flameList.cancelFlick();
+                            }
+                        }
+                    }
                 }
+
+                ScrollBar.vertical: ScrollBar {}
             }
         }
 
         Rectangle {
             SplitView.preferredWidth: window.width * 3 / 4
             color: "black"
+
+            FlamePreview {
+                id: flamePreview
+                anchors.fill: parent
+                source: ""
+                quality: 1000
+                denoise: true
+                
+                BusyIndicator {
+                    anchors.centerIn: parent
+                    running: parent.status === FlamePreview.Loading
+                }
+            }
         }
     }
 }

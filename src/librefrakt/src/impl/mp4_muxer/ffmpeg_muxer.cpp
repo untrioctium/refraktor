@@ -1,7 +1,7 @@
 #include <reproc++/reproc.hpp>
 
-#include <librefrakt/interface/mp4_muxer.h>
-#include <librefrakt/util/filesystem.h>
+#include <librefrakt/interface/mp4_muxer.hpp>
+#include <librefrakt/util/filesystem.hpp>
 
 namespace rfkt {
 

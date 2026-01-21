@@ -1,10 +1,10 @@
-#include <imgui.h>
+#include <imgui.hpp>
 #include <GLFW/glfw3.h>
 #include <readerwriterqueue.h>
 
-#include <imftw/imftw.h>
+#include <imftw/imftw.hpp>
 
-#include "events.h"
+#include "events.hpp"
 
 namespace ImFtw {
 	using event_queue_t = moodycamel::ReaderWriterQueue<event>;

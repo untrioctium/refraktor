@@ -1,6 +1,6 @@
-#include <librefrakt/image/denoiser.h>
-#include <librefrakt/util/cuda.h>
-#include <librefrakt/util.h>
+#include <librefrakt/image/denoiser.hpp>
+#include <librefrakt/util/cuda.hpp>
+#include <librefrakt/util.hpp>
 
 #include <spdlog/spdlog.h>
 

@@ -4,15 +4,15 @@
 #include <chrono>
 #include <cstdio>
 
-#include <librefrakt/util/filesystem.h>
-#include <librefrakt/flame_info.h>
-#include <librefrakt/flame_compiler.h>
+#include <librefrakt/util/filesystem.hpp>
+#include <librefrakt/flame_info.hpp>
+#include <librefrakt/flame_compiler.hpp>
 
-#include <librefrakt/image/converter.h>
-#include <librefrakt/image/tonemapper.h>
-#include <librefrakt/interface/denoiser.h>
+#include <librefrakt/image/converter.hpp>
+#include <librefrakt/image/tonemapper.hpp>
+#include <librefrakt/interface/denoiser.hpp>
 
-#include <librefrakt/util/stb.h>
+#include <librefrakt/util/stb.hpp>
 
 #include <spdlog/spdlog.h>
 #include <spdlog/sinks/basic_file_sink.h>

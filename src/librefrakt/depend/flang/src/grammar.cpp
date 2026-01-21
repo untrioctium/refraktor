@@ -1,4 +1,4 @@
-#include "flang/grammar.h"
+#include "flang/grammar.hpp"
 
 const flang::detail::operator_map& flang::detail::op_type_map() {
 

@@ -7,13 +7,13 @@ set(CMAKE_CXX_STANDARD 23)
 set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
 
 add_library(flang STATIC
-    include/flang/ast_node.h
-    include/flang/ast.h
-    include/flang/matcher.h
-    include/flang/grammar.h
-    include/flang/interpreter.h
-    include/flang.h
-    src/grammar_defs.h
+    include/flang/ast_node.hpp
+    include/flang/ast.hpp
+    include/flang/matcher.hpp
+    include/flang/grammar.hpp
+    include/flang/interpreter.hpp
+    include/flang.hpp
+    src/grammar_defs.hpp
     src/ast.cpp
     src/grammar.cpp
     src/matcher.cpp

@@ -1,9 +1,9 @@
-#include <imftw/imftw.h>
+#include <imftw/imftw.hpp>
 
-#include <librefrakt/util/cuda.h>
-#include <librefrakt/util/filesystem.h>
+#include <librefrakt/util/cuda.hpp>
+#include <librefrakt/util/filesystem.hpp>
 
-#include "gl.h"
+#include "gl.hpp"
 
 //#include <cudaGL.h>
 

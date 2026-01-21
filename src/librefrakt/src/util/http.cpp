@@ -1,6 +1,6 @@
 /*#include <curl/curl.h>
 
-#include <librefrakt/util/http.h>
+#include <librefrakt/util/http.hpp>
 
 static void check_curl_init() {
 	struct curl_init_wrapper {

@@ -1,20 +1,20 @@
 #include <App.h>
 #include "concurrencpp/concurrencpp.h"
 
-#include <roccu_vector_types.h>
+#include <roccu_vector_types.hpp>
 
-#include <librefrakt/flame_compiler.h>
+#include <librefrakt/flame_compiler.hpp>
 #include <eznve.hpp>
 //#include <librefrakt/util/nvjpeg.h>
-#include <librefrakt/util/filesystem.h>
-#include <librefrakt/util.h>
+#include <librefrakt/util/filesystem.hpp>
+#include <librefrakt/util.hpp>
 
-#include <librefrakt/image/tonemapper.h>
-#include <librefrakt/image/denoiser.h>
-#include <librefrakt/image/converter.h>
-#include <librefrakt/anima.h>
+#include <librefrakt/image/tonemapper.hpp>
+#include <librefrakt/image/denoiser.hpp>
+#include <librefrakt/image/converter.hpp>
+#include <librefrakt/anima.hpp>
 
-#include <librefrakt/util/gpuinfo.h>
+#include <librefrakt/util/gpuinfo.hpp>
 
 #include <cmath>
 #include <ranges>

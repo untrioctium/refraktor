@@ -1,8 +1,8 @@
-#include <imgui.h>
+#include <imgui.hpp>
 #include <yaml-cpp/yaml.h>
 
-#include "gl.h"
-#include "gui.h"
+#include "gl.hpp"
+#include "gui.hpp"
 
 YAML::Node& styles() {
 	static YAML::Node styles_ = YAML::LoadFile("config/styles.yml");

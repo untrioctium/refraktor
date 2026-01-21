@@ -1,7 +1,7 @@
 #include <optional>
 #include <dylib.hpp>
 
-#include "librefrakt/util/gpuinfo.h"
+#include "librefrakt/util/gpuinfo.hpp"
 
 static inline std::optional<dylib> nvml_api = {};
 

@@ -2,7 +2,7 @@
 #include <dylib.hpp>
 #include <queue>
 
-#include <librefrakt/interface/jpeg_encoder.h>
+#include <librefrakt/interface/jpeg_encoder.hpp>
 
 constexpr static std::size_t NVJPEG_MAX_COMPONENT = 4;
 constexpr static int NVJPEG_STATUS_SUCCESS = 0;

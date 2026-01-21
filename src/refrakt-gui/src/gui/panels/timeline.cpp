@@ -1,7 +1,7 @@
-#include <imgui.h>
+#include <imgui.hpp>
 #include <imgui_internal.h>
 
-#include "gui/panels/timeline.h"
+#include "gui/panels/timeline.hpp"
 
 namespace rfkt::gui::panel::timeline {
 

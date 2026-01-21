@@ -3,10 +3,10 @@
 
 #include <spdlog/spdlog.h>
 
-#include "librefrakt/flame_types.h"
-#include "librefrakt/flame_info.h"
+#include "librefrakt/flame_types.hpp"
+#include "librefrakt/flame_info.hpp"
 
-#include "flang/grammar.h"
+#include "flang/grammar.hpp"
 
 std::optional<flang::semantic_error> validate_variation(const rfkt::flamedb::variation& v, std::span<std::string_view> common, const std::pair<flang::ast, std::optional<flang::ast>>& ast) {
 

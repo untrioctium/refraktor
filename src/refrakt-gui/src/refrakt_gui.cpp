@@ -1,26 +1,26 @@
-#include <roccu.h>
+#include <roccu.hpp>
 #include <concurrencpp/concurrencpp.h>
 #include <RtMidi.h>
 
-#include <imgui.h>
-#include <imftw/imftw.h>
-#include <imftw/gui.h>
+#include <imgui.hpp>
+#include <imftw/imftw.hpp>
+#include <imftw/gui.hpp>
 
-#include <librefrakt/flame_info.h>
-#include <librefrakt/flame_compiler.h>
-#include <librefrakt/image/tonemapper.h>
-#include <librefrakt/interface/denoiser.h>
-#include <librefrakt/image/converter.h>
-#include <librefrakt/util/cuda.h>
-#include <librefrakt/util/filesystem.h>
-#include <librefrakt/util/gpuinfo.h>
-#include <librefrakt/util/http.h>
+#include <librefrakt/flame_info.hpp>
+#include <librefrakt/flame_compiler.hpp>
+#include <librefrakt/image/tonemapper.hpp>
+#include <librefrakt/interface/denoiser.hpp>
+#include <librefrakt/image/converter.hpp>
+#include <librefrakt/util/cuda.hpp>
+#include <librefrakt/util/filesystem.hpp>
+#include <librefrakt/util/gpuinfo.hpp>
+#include <librefrakt/util/http.hpp>
 
-#include "gui/modals/render_modal.h"
-#include "gui/panels/preview_panel.h"
-#include "gui/panels/flame_editor.h"
-#include "gui/panels/timeline.h"
-#include "command_executor.h"
+#include "gui/modals/render_modal.hpp"
+#include "gui/panels/preview_panel.hpp"
+#include "gui/panels/flame_editor.hpp"
+#include "gui/panels/timeline.hpp"
+#include "command_executor.hpp"
 
 #include <IconsMaterialDesign.h>
 

@@ -1,7 +1,7 @@
 #ifndef EZNVE_HPP
 #define EZNVE_HPP
 
-#include <roccu.h>
+#include <roccu.hpp>
 
 #include <functional>
 #include <span>

@@ -21,8 +21,8 @@ set(CMAKE_INTERPROCEDURAL_OPTIMIZATION TRUE)
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED TRUE)
 
-if(MSVC)
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /Zc:__cplusplus")
+if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+    link_libraries(stdc++exp)  # Global, or use target_link_libraries per target
 endif()
 
 set(CMAKE_CXX_EXTENSIONS OFF)
@@ -91,7 +91,7 @@ foreach(target_name ${all_targets})
 		set_property(TARGET ${target_name} PROPERTY FOLDER "Dependencies")
 	else()
 		set_target_properties(${target_name} PROPERTIES
-    CXX_CLANG_TIDY "clang-tidy;--extra-arg=-Xclang;--extra-arg=-fcxx-exceptions;--extra-arg=-Xclang;--extra-arg=-std=c++23"
+    CXX_CLANG_TIDY "clang-tidy"
 		)
 	endif()
 endforeach()

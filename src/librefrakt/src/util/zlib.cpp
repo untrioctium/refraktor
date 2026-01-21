@@ -4,7 +4,7 @@
 
 using b64_codec = cppcodec::base64_url_unpadded;
 
-#include <librefrakt/util/zlib.h>
+#include <librefrakt/util/zlib.hpp>
 
 std::vector<char> rfkt::zlib::compress(const std::vector<char>& data, unsigned int level)
 {

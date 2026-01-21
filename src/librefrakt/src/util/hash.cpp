@@ -4,7 +4,7 @@
 #include <base32_crockford.hpp>
 #include <base64_url_unpadded.hpp>
 
-#include <librefrakt/util/hash.h>
+#include <librefrakt/util/hash.hpp>
 
 using b64_codec = cppcodec::base64_url_unpadded;
 

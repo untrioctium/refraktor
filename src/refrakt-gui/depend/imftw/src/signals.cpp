@@ -1,7 +1,7 @@
 #include <concurrentqueue.h>
 #include <blockingconcurrentqueue.h>
 
-#include "signals_internal.h"
+#include "signals_internal.hpp"
 
 // glfw signal implementations
 namespace ImFtw::Sig::glfw {

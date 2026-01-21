@@ -1,4 +1,4 @@
-#include "ezrtc.h"
+#include "ezrtc.hpp"
 
 #ifdef EZRTC_USE_FMTLIB
 #include <fmt/fmt.h>
@@ -13,6 +13,7 @@
 #endif
 
 #include <cstdio>
+#include <cstring>
 
 // NOLINTBEGIN(cppcoreguidelines-pro-type-vararg)
 #define EZRTC_CHECK_RURTC(expression)                              \

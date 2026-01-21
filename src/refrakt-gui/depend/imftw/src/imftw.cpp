@@ -1,7 +1,7 @@
-#include <imftw/imftw.h>
+#include <imftw/imftw.hpp>
 
-#include "signals_internal.h"
-#include "events.h"
+#include "signals_internal.hpp"
+#include "events.hpp"
 
 #include <imgui_impl_opengl3.h>
 #include <imgui_freetype.h>

@@ -1,4 +1,4 @@
-#include <librefrakt/anima.h>
+#include <librefrakt/anima.hpp>
 
 rfkt::function_table::function_table() {
 	vm.open_libraries(sol::lib::math);

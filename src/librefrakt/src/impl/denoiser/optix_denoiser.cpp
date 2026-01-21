@@ -2,7 +2,7 @@
 
 #include <spdlog/spdlog.h>
 
-#include <librefrakt/interface/denoiser.h>
+#include <librefrakt/interface/denoiser.hpp>
 
 #define OPTIX_DONT_INCLUDE_CUDA
 using CUcontext = RUcontext;

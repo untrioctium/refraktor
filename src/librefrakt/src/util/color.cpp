@@ -1,5 +1,5 @@
 #include <algorithm>
-#include <librefrakt/util/color.h>
+#include <librefrakt/util/color.hpp>
 #include <cmath>
 // convert a RGB triplet in [0,1] to a hsv triplet in [0,360] for H and [0,1] for SV
 auto rfkt::color::rgb_to_hsv(const double3& rgb) -> double3 {

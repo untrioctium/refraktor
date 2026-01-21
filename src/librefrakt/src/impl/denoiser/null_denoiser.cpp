@@ -1,4 +1,4 @@
-#include <librefrakt/interface/denoiser.h>
+#include <librefrakt/interface/denoiser.hpp>
 
 namespace rfkt {
 

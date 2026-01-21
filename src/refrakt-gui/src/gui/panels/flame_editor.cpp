@@ -1,11 +1,11 @@
-#include <imftw/imftw.h>
-#include <imftw/gui.h>
+#include <imftw/imftw.hpp>
+#include <imftw/gui.hpp>
 
 #include <IconsMaterialDesign.h>
 
-#include <librefrakt/flame_info.h>
+#include <librefrakt/flame_info.hpp>
 
-#include "gui/panels/flame_editor.h"
+#include "gui/panels/flame_editor.hpp"
 
 command_executor::command_t make_undoer(rfkt::flame& f, const rfkt::accessor& desc, rfkt::anima&& new_value, rfkt::anima&& old_value) {
 	return {

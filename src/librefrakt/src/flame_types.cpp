@@ -5,11 +5,11 @@
 #include <spdlog/spdlog.h>
 #include <sol/sol.hpp>
 
-#include "librefrakt/flame_info.h"
-#include "librefrakt/flame_types.h"
-#include "librefrakt/util/color.h"
-#include "librefrakt/anima.h"
-#include "librefrakt/util/zlib.h"
+#include "librefrakt/flame_info.hpp"
+#include "librefrakt/flame_types.hpp"
+#include "librefrakt/util/color.hpp"
+#include "librefrakt/anima.hpp"
+#include "librefrakt/util/zlib.hpp"
 
 std::vector<double> string_to_doubles(std::string_view s) {
 	std::vector<double> ret{};

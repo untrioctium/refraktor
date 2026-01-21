@@ -1,9 +1,9 @@
 #include <numbers>
 
-#include <imftw/imftw.h>
-#include <imftw/gui.h>
+#include <imftw/imftw.hpp>
+#include <imftw/gui.hpp>
 
-#include "gui/panels/preview_panel.h"
+#include "gui/panels/preview_panel.hpp"
 
 #include <IconsMaterialDesign.h>
 

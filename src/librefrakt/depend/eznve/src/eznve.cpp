@@ -6,6 +6,7 @@
 
 #include <eznve.hpp>
 #include <iostream>
+#include <cstring>
 
 
 #define CHECK_NVENC(expr) \
@@ -84,7 +85,7 @@ public:
 
 private:
 	dylib lib_{ is_posix() ? "libnvidia-encode.so" : "nvEncodeAPI64", false };
-	NV_ENCODE_API_FUNCTION_LIST funcs_;
+	NV_ENCODE_API_FUNCTION_LIST funcs_{};
 };
 
 inline static const auto api = api_t{};
@@ -253,7 +254,7 @@ void eznve::encoder::push_buffer()
 	input_res->height = dims.y;
 	input_res->pitch = dims.x * 4;
 	input_res->subResourceIndex = 0;
-	input_res->resourceToRegister = (void*)buf.ptr;
+	input_res->resourceToRegister = reinterpret_cast<void*>(buf.ptr); // NOLINT(cppcoreguidelines-pro-type-reinterpret-cast)
 	input_res->bufferFormat = NV_ENC_BUFFER_FORMAT_ABGR;
 	input_res->bufferUsage = NV_ENC_INPUT_IMAGE;
 	CHECK_NVENC(api.funcs().nvEncRegisterResource(session, input_res));

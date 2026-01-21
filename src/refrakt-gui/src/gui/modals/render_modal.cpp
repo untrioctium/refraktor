@@ -1,17 +1,17 @@
-#include <imftw/imftw.h>
-#include <imftw/gui.h>
+#include <imftw/imftw.hpp>
+#include <imftw/gui.hpp>
 
-#include <librefrakt/interface/denoiser.h>
-#include <librefrakt/interface/mp4_muxer.h>
-#include <librefrakt/image/converter.h>
-#include <librefrakt/image/tonemapper.h>
+#include <librefrakt/interface/denoiser.hpp>
+#include <librefrakt/interface/mp4_muxer.hpp>
+#include <librefrakt/image/converter.hpp>
+#include <librefrakt/image/tonemapper.hpp>
 
-#include <librefrakt/util/stb.h>
+#include <librefrakt/util/stb.hpp>
 
 #include <eznve.hpp>
 
-#include "gui/modals/render_modal.h"
-#include "gl.h"
+#include "gui/modals/render_modal.hpp"
+#include "gl.hpp"
 
 #include <iostream>
 

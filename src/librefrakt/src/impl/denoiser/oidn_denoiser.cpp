@@ -2,8 +2,8 @@
 
 #include <OpenImageDenoise/oidn.hpp>
 
-#include <librefrakt/interface/denoiser.h>
-#include <librefrakt/util/filesystem.h>
+#include <librefrakt/interface/denoiser.hpp>
+#include <librefrakt/util/filesystem.hpp>
 
 namespace rfkt {
 

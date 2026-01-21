@@ -1,6 +1,6 @@
 #include <stb_image_write.h>
 
-#include <librefrakt/interface/jpeg_encoder.h>
+#include <librefrakt/interface/jpeg_encoder.hpp>
 
 namespace rfkt {
 

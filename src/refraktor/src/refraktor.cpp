@@ -1,8 +1,8 @@
 #include <iostream>
-#include <librefrakt/flame_compiler.h>
-#include <librefrakt/util.h>
-#include <librefrakt/util/stb.h>
-#include <librefrakt/util/filesystem.h>
+#include <librefrakt/flame_compiler.hpp>
+#include <librefrakt/util.hpp>
+#include <librefrakt/util/stb.hpp>
+#include <librefrakt/util/filesystem.hpp>
 #include <signal.h>
 #include <fstream>
 #include <source_location>
@@ -12,18 +12,18 @@
 #include <eznve.hpp>
 
 #include <sol/sol.hpp>
-#include <librefrakt/interface/jpeg_encoder.h>
+#include <librefrakt/interface/jpeg_encoder.hpp>
 
-#include <librefrakt/util/gpuinfo.h>
-#include <librefrakt/interface/denoiser.h>
-#include <librefrakt/image/tonemapper.h>
-#include <librefrakt/image/converter.h>
-#include <librefrakt/util/zlib.h>
-#include <librefrakt/anima.h>
+#include <librefrakt/util/gpuinfo.hpp>
+#include <librefrakt/interface/denoiser.hpp>
+#include <librefrakt/image/tonemapper.hpp>
+#include <librefrakt/image/converter.hpp>
+#include <librefrakt/util/zlib.hpp>
+#include <librefrakt/anima.hpp>
 
-#include <flang/grammar.h>
+#include <flang/grammar.hpp>
 
-#include <roccu.h>
+#include <roccu.hpp>
 
 bool break_loop = false;
 

@@ -1,4 +1,4 @@
-#include <librefrakt/animators.h>
+#include <librefrakt/animators.hpp>
 #define _USE_MATH_DEFINES
 #include <math.h>
 

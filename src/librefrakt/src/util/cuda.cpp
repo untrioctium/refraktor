@@ -1,8 +1,8 @@
 #include <spdlog/spdlog.h>
 
-#include <librefrakt/util/cuda.h>
-#include <librefrakt/util/http.h>
-#include <librefrakt/util/zlib.h>
+#include <librefrakt/util/cuda.hpp>
+#include <librefrakt/util/http.hpp>
+#include <librefrakt/util/zlib.hpp>
 
 /*std::optional<rfkt::fs::path> rfkt::cuda::check_and_download_cudart()
 {

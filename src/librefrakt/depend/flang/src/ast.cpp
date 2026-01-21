@@ -1,7 +1,7 @@
-#include "flang/grammar.h"
-#include "flang/ast.h"
+#include "flang/grammar.hpp"
+#include "flang/ast.hpp"
 
-#include "grammar_defs.h"
+#include "grammar_defs.hpp"
 
 #include <tao/pegtl/contrib/parse_tree.hpp>
 
