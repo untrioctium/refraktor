@@ -116,7 +116,7 @@ ApplicationWindow {
                 anchors.fill: parent
                 source: ""
                 quality: 1000
-                denoise: true
+                denoise: false
                 
                 BusyIndicator {
                     anchors.centerIn: parent

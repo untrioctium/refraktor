@@ -1,6 +1,6 @@
 set(CMAKE_AUTOMOC ON)
 
-find_package(Qt6 REQUIRED COMPONENTS Quick)
+find_package(Qt6 REQUIRED COMPONENTS Quick Concurrent)
 
 qt_policy(SET QTP0001 NEW)
 qt_policy(SET QTP0004 NEW)
@@ -10,16 +10,32 @@ qt_standard_project_setup()
 qt_add_executable(refrakt-qt src/main.cpp)
 set_target_properties(refrakt-qt PROPERTIES AUTOMOC TRUE)
 
-qt_add_qml_module(refrakt-qt URI Refrakt VERSION 1.0 QML_FILES qml/main.qml)
+qt_add_qml_module(
+    refrakt-qt 
+    URI Refrakt 
+    VERSION 1.0 
+    QML_FILES 
+        qml/main.qml
+    SOURCES
+        src/components/flame_preview.cpp
+        src/components/flame_preview.hpp
 
-target_link_libraries(refrakt-qt PRIVATE Qt6::Quick librefrakt)  
+        src/services/animation_database.cpp
+        src/services/animation_database.hpp
 
-# readerwriterqueue
-FetchContent_Declare(
-    readerwriterqueue
-    GIT_REPOSITORY https://github.com/cameron314/readerwriterqueue.git
-    GIT_TAG 8e7627d18c2108aca178888d88514179899a044f
-    GIT_SHALLOW TRUE
+        src/services/variation_database.cpp
+        src/services/variation_database.hpp
+
+        src/services/kernel_compile_queue.cpp
+        src/services/kernel_compile_queue.hpp
+
+        src/services/flame_render_queue.cpp
+        src/services/flame_render_queue.hpp
+    )
+
+target_include_directories(refrakt-qt PRIVATE 
+    src 
+    src/components 
+    src/services
 )
-FetchContent_MakeAvailable(readerwriterqueue)
-target_link_libraries(refrakt-qt PRIVATE readerwriterqueue)
+target_link_libraries(refrakt-qt PRIVATE Qt6::Quick Qt6::Concurrent librefrakt)
