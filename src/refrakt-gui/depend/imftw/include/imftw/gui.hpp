@@ -1,6 +1,6 @@
 #pragma once
 
-#include <imgui.hpp>
+#include <imgui.h>
 #include <imgui_internal.h>
 
 #include <imftw/signals.hpp>

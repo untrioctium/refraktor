@@ -1,22 +1,22 @@
 add_executable(refrakt-gui 
   src/refrakt_gui.cpp 
   src/gl.cpp src/gui_styles.cpp 
-  include/gl.h 
-  include/gui.h 
-  include/pch.h 
-  include/gui/panels/preview_panel.h 
+  include/gl.hpp
+  include/gui.hpp
+  include/pch.hpp
+  include/gui/panels/preview_panel.hpp
   src/gui/panels/preview_panel.cpp
-  include/gui/modals/render_modal.h
+  include/gui/modals/render_modal.hpp
   src/gui/modals/render_modal.cpp
-  include/gui/panels/timeline.h
+  include/gui/panels/timeline.hpp
   src/gui/panels/timeline.cpp
-  include/gui/panels/flame_editor.h
+  include/gui/panels/flame_editor.hpp
   src/gui/panels/flame_editor.cpp
-  include/command_executor.h
+  include/command_executor.hpp
   src/command_executor.cpp
 )
 
-target_precompile_headers(refrakt-gui PRIVATE include/pch.h)
+target_precompile_headers(refrakt-gui PRIVATE include/pch.hpp)
 target_include_directories(refrakt-gui PRIVATE include/)
 
 set_target_properties(refrakt-gui PROPERTIES VS_DEBUGGER_WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})

@@ -1,7 +1,7 @@
 #pragma once
 
 #include <functional>
-#include <imgui.hpp>
+#include <imgui.h>
 #include <string>
 
 #include <filesystem>

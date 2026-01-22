@@ -6,15 +6,15 @@ project(imftw LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 23)
 
 add_library(imftw STATIC
-    include/imftw/gui.h
-    include/imftw/imftw.h
-    include/imftw/signals.h
-    include/imftw/kvstore.h
+    include/imftw/gui.hpp
+    include/imftw/imftw.hpp
+    include/imftw/signals.hpp
+    include/imftw/kvstore.hpp
     src/events.cpp
-    src/events.h
-    src/imftw_internal.h
+    src/events.hpp
+    src/imftw_internal.hpp
     src/imftw.cpp
-    src/signals_internal.h
+    src/signals_internal.hpp
     src/signals.cpp
     src/kvstore.cpp)
 

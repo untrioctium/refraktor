@@ -16,8 +16,13 @@ FlameRenderQueue::FlameRenderQueue(QObject* parent)
     , m_tonemapper(*KernelCompileQueue::kernelManagerInstance())
     , m_denoiser(rfkt::denoiser::make(
           "rfkt::optix_denoise",
-          uint2{3840, 2160},
-          rfkt::denoiser_flag::none,
+          uint2{512, 512},
+          rfkt::denoiser_flag::tiled,
+          m_stream))
+    , m_upscaleDenoiser(rfkt::denoiser::make(
+          "rfkt::optix_denoise",
+          uint2{512, 512},
+          rfkt::denoiser_flag::tiled | rfkt::denoiser_flag::upscale,
           m_stream))
     , m_converter(*KernelCompileQueue::kernelManagerInstance())
 {
@@ -65,10 +70,16 @@ QFuture<QImage> FlameRenderQueue::requestRenderToQImage(const rfkt::flame& f, co
 
     auto loops_per_frame = 1.0 / (params.fps * params.secondsPerLoop);
 
-    f.pack_sample(packer, invoker, params.t - 1.2 * loops_per_frame, params.dims.x, params.dims.y);
-    f.pack_sample(packer, invoker, params.t, params.dims.x, params.dims.y);
-    f.pack_sample(packer, invoker, params.t + 1.2 * loops_per_frame, params.dims.x, params.dims.y);
-    f.pack_sample(packer, invoker, params.t + 2.4 * loops_per_frame, params.dims.x, params.dims.y);
+    auto dims = params.dims;
+    if (params.upscale) {
+        dims.x /= 2;
+        dims.y /= 2;
+    }
+
+    f.pack_sample(packer, invoker, params.t - 1.2 * loops_per_frame, dims.x, dims.y);
+    f.pack_sample(packer, invoker, params.t, dims.x, dims.y);
+    f.pack_sample(packer, invoker, params.t + 1.2 * loops_per_frame, dims.x, dims.y);
+    f.pack_sample(packer, invoker, params.t + 2.4 * loops_per_frame, dims.x, dims.y);
 
     struct gbv_t {
         double gamma = 1.0;
@@ -87,7 +98,7 @@ QFuture<QImage> FlameRenderQueue::requestRenderToQImage(const rfkt::flame& f, co
          params = params,
          &stream = this->m_stream,
          &tm = this->m_tonemapper,
-         dn = this->m_denoiser.get(),
+         dn = params.upscale ? this->m_upscaleDenoiser.get() : this->m_denoiser.get(),
          &dn_event = this->m_dnEvent,
          &conv = this->m_converter](rfkt::flame_compiler::result&& kernel_result) mutable {
 
@@ -98,20 +109,26 @@ QFuture<QImage> FlameRenderQueue::requestRenderToQImage(const rfkt::flame& f, co
                 return QImage();
             }
 
-            auto tonemapped = roccu::gpu_image<half3>(params.dims, stream);
+            auto bin_dims = params.dims;
+            if (params.upscale) {
+                bin_dims.x /= 2;
+                bin_dims.y /= 2;
+            }
+
+            auto tonemapped = roccu::gpu_image<half3>(bin_dims, stream);
             auto denoised = roccu::gpu_image<half3>(params.dims, stream);
             auto converted = roccu::gpu_image<uchar4>(params.dims, stream);
 
             auto& kernel = kernel_result.kernel.value();
 
-            auto state = kernel.warmup(stream, samples, params.dims, 0xdeadbeef, 100);
+            auto state = kernel.warmup(stream, samples, bin_dims, 0xdeadbeef, 100);
             auto bin_result = kernel.bin(stream, state, {.millis = params.maxRenderMillis, .quality = params.targetQuality}).get();
 
             tm.run(state.bins, tonemapped, {bin_result.quality, gbv.gamma, gbv.brightness, gbv.vibrancy}, stream);
 
             if (params.denoise) {
-                dn->denoise(tonemapped, denoised, dn_event);
-                stream.wait_for(dn_event);
+                auto time = dn->denoise(tonemapped, denoised, dn_event).get();
+                qDebug() << "Denoising time: " << time * 1000.0 << "ms";
             } else {
                 denoised = std::move(tonemapped);
             }

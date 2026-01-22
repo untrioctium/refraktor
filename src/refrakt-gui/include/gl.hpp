@@ -1,7 +1,7 @@
 #pragma once
 
 #include <roccu.hpp>
-#include <glad/gl.hpp>
+#include <glad/gl.h>
 #include <cstdint>
 #include <atomic>
 #include <variant>

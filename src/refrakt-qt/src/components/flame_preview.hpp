@@ -24,6 +24,7 @@ class FlamePreview : public QQuickPaintedItem {
     Q_PROPERTY(bool denoise READ denoise WRITE setDenoise NOTIFY denoiseChanged)
     Q_PROPERTY(qreal secondsPerLoop READ secondsPerLoop WRITE setSecondsPerLoop NOTIFY secondsPerLoopChanged)
     Q_PROPERTY(quint32 maxRenderMillis READ maxRenderMillis WRITE setMaxRenderMillis NOTIFY maxRenderMillisChanged)
+    Q_PROPERTY(bool upscale READ upscale WRITE setUpscale NOTIFY upscaleChanged)
 
 public:
     enum Status { Null, Loading, Ready, Error };
@@ -61,6 +62,9 @@ public:
     quint32 maxRenderMillis() const;
     void setMaxRenderMillis(quint32 ms);
 
+    bool upscale() const;
+    void setUpscale(bool u);
+
     Q_INVOKABLE void reload();
 
 protected:
@@ -75,6 +79,7 @@ signals:
     void denoiseChanged();
     void secondsPerLoopChanged();
     void maxRenderMillisChanged();
+    void upscaleChanged();
 
     // Semantic signals for QML convenience
     void loadingStarted();
@@ -96,6 +101,7 @@ private:
     bool m_denoise = true;
     qreal m_secondsPerLoop = 5.0;
     quint32 m_maxRenderMillis = 100;
+    bool m_upscale = false;
 
     QImage m_image;
     QFutureWatcher<QImage>* m_watcher = nullptr;

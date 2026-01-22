@@ -20,8 +20,8 @@ do { \
 	} \
 } while(0) \
 
-using nv_create_api = NVENCSTATUS NVENCAPI(NV_ENCODE_API_FUNCTION_LIST*);
-using nv_check_version = NVENCSTATUS NVENCAPI(uint32_t*);
+using nv_create_api = NVENCSTATUS(NV_ENCODE_API_FUNCTION_LIST*);
+using nv_check_version = NVENCSTATUS(uint32_t*);
 
 consteval bool is_posix() {
 #ifdef _WIN32
@@ -132,6 +132,8 @@ eznve::encoder::encoder(uint2 dims, uint2 fps, codec c, RUcontext ctx) : dims(di
 	NV_ENC_PRESET_CONFIG preset_config = { NV_ENC_PRESET_CONFIG_VER, { NV_ENC_CONFIG_VER } };
 	CHECK_NVENC(funcs.nvEncGetEncodePresetConfigEx(session, init_params.encodeGUID, init_params.presetGUID, init_params.tuningInfo, &preset_config));
 	memcpy(init_params.encodeConfig, &preset_config.presetCfg, sizeof(NV_ENC_CONFIG));
+
+	encoder_config.rcParams.enableLookahead = 0;
 
 	//encoder_config.encodeCodecConfig.hevcConfig.pixelBitDepthMinus8 = 2;
 	//encoder_config.profileGUID = NV_ENC_HEVC_PROFILE_MAIN10_GUID;
@@ -284,6 +286,7 @@ void eznve::encoder::buffer_t::unmap(void* session)
 eznve::chunk eznve::encoder::buffer_t::lock_stream(void* session)
 {
 	NV_ENC_LOCK_BITSTREAM lock;
+	std::memset(&lock, 0, sizeof(lock));
 	lock.version = NV_ENC_LOCK_BITSTREAM_VER;
 	lock.outputBitstream = out_stream;
 	lock.doNotWait = 0;

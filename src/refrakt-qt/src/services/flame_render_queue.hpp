@@ -25,6 +25,7 @@ struct RenderParams {
     double targetQuality = 16;
     std::uint32_t maxRenderMillis = 100;
     bool denoise = true;
+    bool upscale = false;
 };
 
 class FlameRenderQueue : public QObject {
@@ -53,5 +54,6 @@ private:
 
     rfkt::tonemapper m_tonemapper;
     std::unique_ptr<rfkt::denoiser> m_denoiser;
+    std::unique_ptr<rfkt::denoiser> m_upscaleDenoiser;
     rfkt::converter m_converter;
 };

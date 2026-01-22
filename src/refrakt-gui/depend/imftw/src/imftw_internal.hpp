@@ -2,8 +2,9 @@
 #include <optional>
 #include <unordered_map>
 #include <atomic>
+#include <functional>
 
-#include <imgui.hpp>
+#include <imgui.h>
 #include <imgui_internal.h>
 #include <concurrentqueue.h>
 
@@ -15,7 +16,7 @@
 #include <dwmapi.h>
 #endif
 
-#include <glad/gl.hpp>
+#include <glad/gl.h>
 
 #include <GLFW/glfw3.h>
 #include <GLFW/glfw3native.h>

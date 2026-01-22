@@ -119,7 +119,7 @@ namespace rfkt {
 	public:
 		postprocessor(ezrtc::compiler& kc, uint2 dims, roccu::gpu_stream& stream, rfkt::denoiser_flag::flags dn_opts = rfkt::denoiser_flag::none) :
 			tm(kc),
-			dn(denoiser::make("rfkt::oidn_denoiser", dims, dn_opts, stream)),
+			dn(denoiser::make("rfkt::oidn_denoise", dims, dn_opts, stream)),
 			conv(kc),
 			tonemapped(dn_opts& rfkt::denoiser_flag::upscale ? dims.x / 2 : dims.x, dn_opts& rfkt::denoiser_flag::upscale ? dims.y / 2 : dims.y),
 			denoised(dims.x, dims.y),
@@ -244,7 +244,7 @@ void rfkt::gui::render_modal::launch_worker(const rfkt::flame& flame)
 		//auto chunkfile_name = std::format("{}.h265", render_params.output_file.string());
 		//auto chunkfile = std::ofstream{ chunkfile_name, std::ios::binary };
 
-		auto muxer = rfkt::mp4_muxer::make("rfkt::ffmpeg_muxer", render_params.output_file.string(), render_params.fps);
+		auto muxer = rfkt::mp4_muxer::make("rfkt::ffmpeg_muxe", render_params.output_file.string(), render_params.fps);
 
 
 		auto kernel_result = fc.get_flame_kernel(fdb, rfkt::precision::f32, flame);

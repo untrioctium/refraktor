@@ -144,7 +144,7 @@ public:
 			auto& seg = self.segments[i];
 			if (seg.span.start() > time) return nullptr;
 			if (seg.span.contains(time)) {
-				adjust_barriers(i);
+				self.adjust_barriers(i);
 				return &seg;
 			}
 

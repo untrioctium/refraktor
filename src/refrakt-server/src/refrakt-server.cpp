@@ -431,7 +431,7 @@ namespace rfkt {
 			auto frame_quality = 0.0;
 			auto subpasses = 0;
 
-			while (frame_quality < (.95 * self->target_quality.value_or(1000)) && subpasses < 2) {
+			while (frame_quality < (.95 * self->target_quality.value_or(100)) && subpasses < 2) {
 				if (subpasses > 0) {
 					SPDLOG_INFO("repairing frame ({}/10 buffered, wanted {:.4}, got {:.4})", self->chunks.size_approx(), self->target_quality.value(), frame_quality);
 				}
@@ -486,7 +486,7 @@ namespace rfkt {
 					}
 
 					if (not self->chunks.try_enqueue(chunks_agg)) {
-						if (total_time < 1000.0 / self->fps && subpasses == 1) self->target_quality.value() *= 1.01;
+						if (total_time < 1000.0 / self->fps && subpasses == 1 && self->target_quality.value() < 200) self->target_quality.value() *= 1.01;
 						while (not self->chunks.wait_enqueue_timed(chunks_agg, 1000)) {
 							if (self->closed()) return;
 						};

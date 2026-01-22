@@ -82,6 +82,17 @@ qreal FlamePreview::time() const {
     return m_time;
 }
 
+bool FlamePreview::upscale() const {
+    return m_upscale;
+}
+
+void FlamePreview::setUpscale(bool u) {
+    if (m_upscale == u) return;
+    m_upscale = u;
+    emit upscaleChanged();
+    scheduleRender();
+}
+
 void FlamePreview::setTime(qreal t) {
     if (qFuzzyCompare(m_time, t)) return;
     m_time = t;
@@ -216,7 +227,7 @@ void FlamePreview::startRender() {
     params.targetQuality = m_quality;
     params.maxRenderMillis = m_maxRenderMillis;
     params.denoise = m_denoise;
-
+    params.upscale = m_upscale;
     // Store DPR to apply when image arrives
     m_pendingDpr = dpr;
 

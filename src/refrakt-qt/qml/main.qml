@@ -82,6 +82,7 @@ ApplicationWindow {
                             source: model.filePath
                             quality: 50
                             denoise: true
+                            upscale: true
                             maxRenderMillis: 50
 
                             BusyIndicator {
@@ -130,6 +131,7 @@ ApplicationWindow {
                 source: ""
                 quality: 1000
                 denoise: true
+                upscale: true
                 
                 BusyIndicator {
                     anchors.centerIn: parent
