@@ -71,6 +71,12 @@ rfkt::xform from_flam3_xml(const rfkt::flamedb& fdb, const pugi::xml_node& node)
 		else if (aname == "color") xf.color = attr.as_double();
 		else if (aname == "color_speed") xf.color_speed = attr.as_double();
 		else if (aname == "opacity") xf.opacity = attr.as_double();
+		else if (aname == "symmetry") {
+			xf.color_speed = (1.0 - attr.as_double()) / 2.0;
+			if(attr.as_double() <= 0) {
+				vlinks[1].mod_rotate.call_info = { "increase", {{"per_loop", 360.0}} };
+			}
+		}
 		else if (aname == "coefs" || aname == "post") {
 			if (aname == "post") has_post_affine = true;
 

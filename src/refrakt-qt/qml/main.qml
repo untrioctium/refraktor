@@ -90,6 +90,19 @@ ApplicationWindow {
                             }
                         }
 
+                        Text {
+                            anchors.bottom: parent.bottom
+                            anchors.left: parent.left
+                            anchors.right: parent.right
+                            anchors.margins: 6
+                            text: model.fileName
+                            color: "white"
+                            style: Text.Outline
+                            styleColor: "black"
+                            font.pixelSize: 11
+                            elide: Text.ElideMiddle
+                        }
+
                         MouseArea {
                             anchors.fill: parent
                             onClicked: {
@@ -116,7 +129,7 @@ ApplicationWindow {
                 anchors.fill: parent
                 source: ""
                 quality: 1000
-                denoise: false
+                denoise: true
                 
                 BusyIndicator {
                     anchors.centerIn: parent

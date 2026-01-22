@@ -119,11 +119,11 @@ namespace rfkt {
 			layer.input.data = in.ptr();
 			layer.output.data = out.ptr();
 
-			auto timer = std::make_shared<rfkt::timer>();
+			auto timer = std::make_unique<rfkt::timer>();
 			auto promise = std::promise<double>{};
 			auto future = promise.get_future();
 
-			stream.host_func([timer]() {
+			stream.host_func([timer = timer.get()]() {
 				timer->reset();
 			});
 

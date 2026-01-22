@@ -16,8 +16,8 @@ FlameRenderQueue::FlameRenderQueue(QObject* parent)
     , m_tonemapper(*KernelCompileQueue::kernelManagerInstance())
     , m_denoiser(rfkt::denoiser::make(
           "rfkt::optix_denoise",
-          uint2{512, 512},
-          rfkt::denoiser_flag::tiled,
+          uint2{3840, 2160},
+          rfkt::denoiser_flag::none,
           m_stream))
     , m_converter(*KernelCompileQueue::kernelManagerInstance())
 {
