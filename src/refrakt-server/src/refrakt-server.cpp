@@ -398,7 +398,7 @@ namespace rfkt {
 				sender(std::move(self), std::move(data));
 			}
 			else {
-				SPDLOG_INFO("buffer miss");
+				//SPDLOG_INFO("buffer miss");
 			}
 		}
 

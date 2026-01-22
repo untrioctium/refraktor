@@ -7,6 +7,7 @@
 #include <span>
 #include <array>
 #include <memory>
+#include <queue>
 
 #include <assert.h>
 
@@ -44,7 +45,8 @@ namespace eznve {
 
 		encoder& operator=(encoder&& o) noexcept {
 			std::swap(buffers, o.buffers);
-			std::swap(current_buffer, o.current_buffer);
+			std::swap(free_buffers, o.free_buffers);
+			std::swap(used_buffers, o.used_buffers);
 			std::swap(dims, o.dims);
 			std::swap(fps_, o.fps_);
 			std::swap(bytes_encoded, o.bytes_encoded);
@@ -57,7 +59,7 @@ namespace eznve {
 		std::vector<chunk> flush();
 
 		RUdeviceptr buffer() const noexcept {
-			return buffers[current_buffer].ptr;
+			return buffers[free_buffers.front()].ptr;
 		}
 
 		auto buffer_size() const noexcept {
@@ -120,7 +122,8 @@ namespace eznve {
 		};
 
 		std::vector<buffer_t> buffers;
-		std::size_t current_buffer = 0;
+		std::queue<std::size_t> free_buffers;
+		std::queue<std::size_t> used_buffers;
 
 		using param_buffer_t = std::array<std::byte, 16384>;
 		std::unique_ptr<param_buffer_t> pbuf = std::make_unique<param_buffer_t>();
