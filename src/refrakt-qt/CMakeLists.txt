@@ -31,11 +31,15 @@ qt_add_qml_module(
 
         src/services/flame_render_queue.cpp
         src/services/flame_render_queue.hpp
+
+        src/models/flame_handle.cpp
+        src/models/flame_handle.hpp
     )
 
 target_include_directories(refrakt-qt PRIVATE 
     src 
     src/components 
     src/services
+    src/models
 )
 target_link_libraries(refrakt-qt PRIVATE Qt6::Quick Qt6::Concurrent librefrakt)

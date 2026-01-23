@@ -90,7 +90,93 @@ private:
 
 inline static const auto api = api_t{};
 
-eznve::encoder::encoder(uint2 dims, uint2 fps, codec c, RUcontext ctx) : dims(dims) {
+namespace eznve {
+	void apply_config(void* session, const api_t& api, const config& cfg, NV_ENC_INITIALIZE_PARAMS& init_params, NV_ENC_CONFIG& encoder_config) {
+    
+		// Quality preset -> NVENC preset GUID
+		switch (cfg.preset) {
+			case config::quality_preset::fastest:
+				init_params.presetGUID = NV_ENC_PRESET_P1_GUID;
+				break;
+			case config::quality_preset::fast:
+				init_params.presetGUID = NV_ENC_PRESET_P3_GUID;
+				break;
+			case config::quality_preset::balanced:
+				init_params.presetGUID = NV_ENC_PRESET_P4_GUID;
+				break;
+			case config::quality_preset::quality:
+				init_params.presetGUID = NV_ENC_PRESET_P5_GUID;
+				break;
+			case config::quality_preset::high_quality:
+				init_params.presetGUID = NV_ENC_PRESET_P7_GUID;
+				break;
+		}
+		
+		// Tuning -> NVENC tuning info
+		switch (cfg.tune) {
+			case config::tuning::high_quality:
+				init_params.tuningInfo = NV_ENC_TUNING_INFO_HIGH_QUALITY;
+				break;
+			case config::tuning::low_latency:
+				init_params.tuningInfo = NV_ENC_TUNING_INFO_LOW_LATENCY;
+				break;
+			case config::tuning::ultra_low_latency:
+				init_params.tuningInfo = NV_ENC_TUNING_INFO_ULTRA_LOW_LATENCY;
+				break;
+		}
+		
+		// Load preset defaults first (after setting presetGUID and tuningInfo)
+		NV_ENC_PRESET_CONFIG preset_config = { NV_ENC_PRESET_CONFIG_VER, { NV_ENC_CONFIG_VER } };
+		api.funcs().nvEncGetEncodePresetConfigEx(session, init_params.encodeGUID, 
+									  init_params.presetGUID, init_params.tuningInfo, 
+									  &preset_config);
+		memcpy(&encoder_config, &preset_config.presetCfg, sizeof(NV_ENC_CONFIG));
+		
+		// Rate control mode
+		switch (cfg.rc) {
+			case config::rate_control::cqp:
+				encoder_config.rcParams.rateControlMode = NV_ENC_PARAMS_RC_CONSTQP;
+				encoder_config.rcParams.constQP.qpInterP = cfg.cqp;
+				encoder_config.rcParams.constQP.qpInterB = cfg.cqp;
+				encoder_config.rcParams.constQP.qpIntra = cfg.cqp;
+				break;
+			case config::rate_control::vbr:
+				encoder_config.rcParams.rateControlMode = NV_ENC_PARAMS_RC_VBR;
+				encoder_config.rcParams.averageBitRate = cfg.bitrate_kbps * 1000;
+				encoder_config.rcParams.maxBitRate = cfg.bitrate_kbps * 1500; // 1.5x headroom
+				break;
+			case config::rate_control::cbr:
+				encoder_config.rcParams.rateControlMode = NV_ENC_PARAMS_RC_CBR;
+				encoder_config.rcParams.averageBitRate = cfg.bitrate_kbps * 1000;
+				encoder_config.rcParams.maxBitRate = cfg.bitrate_kbps * 1000;
+				break;
+		}
+		
+		// B-frames
+		if (cfg.enable_bframes) {
+			// Keep preset default (usually 2-3 B-frames for high quality)
+		} else {
+			encoder_config.frameIntervalP = 1; // 1 = no B-frames (I and P only)
+		}
+		
+		// Lookahead
+		if (cfg.enable_lookahead) {
+			encoder_config.rcParams.enableLookahead = 1;
+			encoder_config.rcParams.lookaheadDepth = cfg.lookahead_depth;
+		} else {
+			encoder_config.rcParams.enableLookahead = 0;
+			encoder_config.rcParams.lookaheadDepth = 0;
+		}
+		
+		// GOP length (keyframe interval)
+		if (cfg.gop_length > 0) {
+			encoder_config.gopLength = cfg.gop_length;
+		}
+		// else keep preset default (often NVENC_INFINITE_GOPLENGTH or fps-based)
+	}
+}
+
+eznve::encoder::encoder(config cfg, RUcontext ctx, std::function<void(std::string_view)> logger) : dims(cfg.dims), fps_(cfg.fps), logger(logger) {
 	const auto& funcs = api.funcs();
 
 	auto session_params = pbuf_as<NV_ENC_OPEN_ENCODE_SESSION_EX_PARAMS>();
@@ -117,23 +203,19 @@ eznve::encoder::encoder(uint2 dims, uint2 fps, codec c, RUcontext ctx) : dims(di
 	encoder_config.version = NV_ENC_CONFIG_VER;
 	init_params.version = NV_ENC_INITIALIZE_PARAMS_VER;
 
-	init_params.encodeGUID = (c == codec::h264)? NV_ENC_CODEC_H264_GUID : (c == codec::hevc) ? NV_ENC_CODEC_HEVC_GUID : NV_ENC_CODEC_AV1_GUID;
-	init_params.presetGUID = NV_ENC_PRESET_P7_GUID;
+	init_params.encodeGUID = (cfg.codec == codec::h264)? NV_ENC_CODEC_H264_GUID : (cfg.codec == codec::hevc) ? NV_ENC_CODEC_HEVC_GUID : NV_ENC_CODEC_AV1_GUID;
 	init_params.encodeWidth = dims.x;
 	init_params.encodeHeight = dims.y;
 	init_params.darWidth = dims.x;
 	init_params.darHeight = dims.y;
-	init_params.frameRateNum = fps.x;
-	init_params.frameRateDen = fps.y;
+	init_params.frameRateNum = fps_.x;
+	init_params.frameRateDen = fps_.y;
 	init_params.enableEncodeAsync = 0;
 	init_params.enablePTD = 1;
-	init_params.tuningInfo = NV_ENC_TUNING_INFO_ULTRA_LOW_LATENCY;
 
-	NV_ENC_PRESET_CONFIG preset_config = { NV_ENC_PRESET_CONFIG_VER, { NV_ENC_CONFIG_VER } };
-	CHECK_NVENC(funcs.nvEncGetEncodePresetConfigEx(session, init_params.encodeGUID, init_params.presetGUID, init_params.tuningInfo, &preset_config));
-	memcpy(init_params.encodeConfig, &preset_config.presetCfg, sizeof(NV_ENC_CONFIG));
+	apply_config(session, api, cfg, init_params, encoder_config);
 
-	int buffer_count = 8;
+	int buffer_count = encoder_config.frameIntervalP + 8;
 
 	if(encoder_config.rcParams.enableLookahead) {
 		buffer_count += encoder_config.rcParams.lookaheadDepth;
@@ -149,7 +231,13 @@ eznve::encoder::encoder(uint2 dims, uint2 fps, codec c, RUcontext ctx) : dims(di
 		free_buffers.push(buffers.size() - 1);
 	}
 
-	std::cout << "encoder initialized with " << buffer_count << " buffers" << std::endl;
+	auto out_buf = pbuf_as<NV_ENC_CREATE_BITSTREAM_BUFFER>();
+	out_buf->version = NV_ENC_CREATE_BITSTREAM_BUFFER_VER;
+	CHECK_NVENC(api.funcs().nvEncCreateBitstreamBuffer(session, out_buf));
+
+	max_in_flight = buffer_count - 4;
+
+	logger(std::format("encoder initialized with {} buffers", buffer_count));
 }
 
 eznve::encoder::~encoder() {
@@ -160,8 +248,9 @@ eznve::encoder::~encoder() {
 			flush();
 		} catch (...) {}
 
+
 	for (auto& buf : buffers) {
-		funcs.nvEncDestroyBitstreamBuffer(session, buf.out_stream);
+		funcs.nvEncDestroyBitstreamBuffer(session, buf.output_stream);
 		funcs.nvEncUnregisterResource(session, buf.registration);
 		ruMemFree(buf.ptr);
 	}
@@ -170,10 +259,13 @@ eznve::encoder::~encoder() {
 }
 
 std::vector<eznve::chunk> eznve::encoder::submit_frame(frame_flag flag) {
+
+	logger(std::format("submitting frame {} ({} free, {} used)", frames_encoded, free_buffers.size(), used_buffers.size()));
+
 	const auto& funcs = api.funcs();
 
-	std::cout << "yielding buffer " << free_buffers.front() << std::endl;
 	auto buffer_index = free_buffers.front();
+	logger(std::format("using buffer {}", buffer_index));
 	auto& buf = buffers[buffer_index];
 	free_buffers.pop();
 	used_buffers.push(buffer_index);
@@ -185,8 +277,9 @@ std::vector<eznve::chunk> eznve::encoder::submit_frame(frame_flag flag) {
 	pic_params->bufferFmt = NV_ENC_BUFFER_FORMAT_ABGR;
 	pic_params->pictureStruct = NV_ENC_PIC_STRUCT_FRAME;
 	pic_params->inputBuffer = buf.mapped;
-	pic_params->outputBitstream = buf.out_stream;
+	pic_params->outputBitstream = buf.output_stream;
 	pic_params->inputPitch = dims.x * 4;
+	pic_params->inputTimeStamp = frames_encoded;
 
 	if(flag == frame_flag::idr || frames_encoded == 0) {
 		pic_params->encodePicFlags = NV_ENC_PIC_FLAG_FORCEIDR;
@@ -201,64 +294,62 @@ std::vector<eznve::chunk> eznve::encoder::submit_frame(frame_flag flag) {
 
 	std::vector<chunk> chunks;
 
-	std::cout << "used buffers: " << used_buffers.size() << std::endl;
+	logger(std::format("frame status: {}", get_error(frame_status)));
 
-	if (frame_status == NV_ENC_ERR_NEED_MORE_INPUT) {
-		return chunks;
-	}
-	CHECK_NVENC(frame_status);
-	
-	while(used_buffers.size() > 0) {
-		auto buffer_index = used_buffers.front();
+	if(frame_status != NV_ENC_ERR_NEED_MORE_INPUT) {
+		CHECK_NVENC(frame_status);
+	} 
 
-		auto& proc_buf = buffers[buffer_index];
-		auto chunk = proc_buf.lock_stream(session);
+	if(used_buffers.size() >= max_in_flight) {
+
+		auto& oldest_buffer = buffers[used_buffers.front()];
+		auto chunk = oldest_buffer.lock(session);
 		if(chunk.data.size() == 0) {
-			proc_buf.unlock_stream(session);
-			break;
+			return chunks;
 		}
+		logger(std::format("submitted frame {} and got {} bytes of output", frames_encoded, chunk.data.size()));
 
-		std::cout << "locked buffer " << buffer_index << " with " << chunk.data.size() << " bytes" << std::endl;
-
-		bytes_encoded += chunk.data.size();
 		chunks.emplace_back(std::move(chunk));
-		proc_buf.unlock_stream(session);
-		proc_buf.unmap(session);
-		free_buffers.push(buffer_index);
+		oldest_buffer.unlock(session);
+		oldest_buffer.unmap(session);
+		free_buffers.push(used_buffers.front());
 		used_buffers.pop();
+
 	}
 
 	return chunks;
 }
 
 std::vector<eznve::chunk> eznve::encoder::flush() {
+
+
+	logger(std::format("processed {} frames before flushing", frames_encoded));
+
 	bytes_encoded = 0;
 	frames_encoded = 0;
+
+	std::vector<chunk> chunks;
 
 	auto pic_params = pbuf_as<NV_ENC_PIC_PARAMS>();
 	pic_params->version = NV_ENC_PIC_PARAMS_VER;
 	pic_params->encodePicFlags = NV_ENC_PIC_FLAG_EOS;
-	pic_params->outputBitstream = buffers[free_buffers.front()].out_stream;
+	//pic_params->outputBitstream = out_stream;
 
 	auto frame_status = api.funcs().nvEncEncodePicture(session, pic_params);
 
-	std::vector<chunk> chunks;
-	if (frame_status == NV_ENC_ERR_NEED_MORE_INPUT) return chunks;
 	CHECK_NVENC(frame_status);
-
+	
 	while(used_buffers.size() > 0) {
 		auto buffer_index = used_buffers.front();
-
-		std::cout << "locking buffer " << buffer_index << std::endl;
-		auto& proc_buf = buffers[buffer_index];
-		auto chunk = proc_buf.lock_stream(session);
-		std::cout << "locked buffer " << buffer_index << " with " << chunk.data.size() << " bytes" << std::endl;
-		bytes_encoded += chunk.data.size();
+		auto& buf = buffers[buffer_index];
+		auto chunk = buf.lock(session);
 		chunks.emplace_back(std::move(chunk));
-		proc_buf.unlock_stream(session);
-		proc_buf.unmap(session);
+		buf.unlock(session);
+		buf.unmap(session);
 		free_buffers.push(buffer_index);
+		used_buffers.pop();
 	}
+
 	return chunks;
 }
 
@@ -267,11 +358,6 @@ void eznve::encoder::push_buffer()
 	auto buf = buffer_t{};
 
 	ruMemAlloc(&buf.ptr, dims.x * dims.y * 4);
-
-	auto out_buf = pbuf_as<NV_ENC_CREATE_BITSTREAM_BUFFER>();
-	out_buf->version = NV_ENC_CREATE_BITSTREAM_BUFFER_VER;
-	CHECK_NVENC(api.funcs().nvEncCreateBitstreamBuffer(session, out_buf));
-	buf.out_stream = out_buf->bitstreamBuffer;
 
 	auto input_res = pbuf_as<NV_ENC_REGISTER_RESOURCE>();
 	input_res->version = NV_ENC_REGISTER_RESOURCE_VER;
@@ -285,6 +371,11 @@ void eznve::encoder::push_buffer()
 	input_res->bufferUsage = NV_ENC_INPUT_IMAGE;
 	CHECK_NVENC(api.funcs().nvEncRegisterResource(session, input_res));
 	buf.registration = input_res->registeredResource;
+
+	auto out_buf = pbuf_as<NV_ENC_CREATE_BITSTREAM_BUFFER>();
+	out_buf->version = NV_ENC_CREATE_BITSTREAM_BUFFER_VER;
+	CHECK_NVENC(api.funcs().nvEncCreateBitstreamBuffer(session, out_buf));
+	buf.output_stream = out_buf->bitstreamBuffer;
 
 	buffers.emplace_back(std::move(buf));
 }
@@ -307,15 +398,17 @@ void eznve::encoder::buffer_t::unmap(void* session)
 	mapped = nullptr;
 }
 
-eznve::chunk eznve::encoder::buffer_t::lock_stream(void* session)
+eznve::chunk eznve::encoder::buffer_t::lock(void* session)
 {
 	NV_ENC_LOCK_BITSTREAM lock;
 	std::memset(&lock, 0, sizeof(lock));
 	lock.version = NV_ENC_LOCK_BITSTREAM_VER;
-	lock.outputBitstream = out_stream;
-	lock.doNotWait = 1;
+	lock.outputBitstream = output_stream;
+	lock.doNotWait = 0;
 
-	CHECK_NVENC(api.funcs().nvEncLockBitstream(session, &lock));
+	auto result = api.funcs().nvEncLockBitstream(session, &lock);
+
+	CHECK_NVENC(result);
 
 	auto chunk_span = std::span<const char>{ (const char*)lock.bitstreamBufferPtr, lock.bitstreamSizeInBytes };
 
@@ -327,7 +420,7 @@ eznve::chunk eznve::encoder::buffer_t::lock_stream(void* session)
 	};
 }
 
-void eznve::encoder::buffer_t::unlock_stream(void* session)
+void eznve::encoder::buffer_t::unlock(void* session)
 {
-	CHECK_NVENC(api.funcs().nvEncUnlockBitstream(session, out_stream));
+	CHECK_NVENC(api.funcs().nvEncUnlockBitstream(session, output_stream));
 }

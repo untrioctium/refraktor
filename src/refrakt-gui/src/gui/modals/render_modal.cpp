@@ -239,10 +239,8 @@ void rfkt::gui::render_modal::launch_worker(const rfkt::flame& flame)
 
 		auto post_stream = roccu::gpu_stream{};
 		auto pp = rfkt::postprocessor{ km, dims, post_stream, rfkt::denoiser_flag::none };
-		auto encoder = eznve::encoder{ dims, {static_cast<unsigned int>(render_params.fps), 1}, eznve::codec::hevc, ctx };
-
-		//auto chunkfile_name = std::format("{}.h265", render_params.output_file.string());
-		//auto chunkfile = std::ofstream{ chunkfile_name, std::ios::binary };
+		auto logger = [](std::string_view msg) { SPDLOG_INFO("NVENC: {}", msg); };
+		auto encoder = eznve::encoder{ eznve::config::for_offline_rendering(dims, {static_cast<unsigned int>(render_params.fps), 1}, eznve::codec::h264), ctx, logger };
 
 		auto muxer = rfkt::mp4_muxer::make("rfkt::ffmpeg_muxe", render_params.output_file.string(), render_params.fps);
 
@@ -283,7 +281,7 @@ void rfkt::gui::render_modal::launch_worker(const rfkt::flame& flame)
 
 			auto encoder_input = roccu::gpu_image_view<uchar4>{ encoder.buffer(), dims, dims.x };
 			pp.post_process(binfo.bins, encoder_input, binfo.quality, binfo.gbv.x, binfo.gbv.y, binfo.gbv.z, post_stream).get();
-			auto chunks = encoder.submit_frame((i % render_params.fps == 0 || i + 1 == total_frames) ? eznve::frame_flag::idr : eznve::frame_flag::none);
+			auto chunks = encoder.submit_frame();
 
 			for (auto& chunk : chunks) {
 				muxer->write_chunk(chunk.data);
@@ -302,7 +300,6 @@ void rfkt::gui::render_modal::launch_worker(const rfkt::flame& flame)
 
 		muxer->finish();
 
-		//chunkfile.close();
 		//int res = std::system(make_mux_command(chunkfile_name, render_params.output_file.string().c_str(), render_params.fps).c_str());
 		//std::filesystem::remove(chunkfile_name);
 

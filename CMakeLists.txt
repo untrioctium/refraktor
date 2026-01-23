@@ -62,8 +62,8 @@ FetchContent_MakeAvailable(zlib-ng)
 
 add_subdirectory(src/librefrakt)
 #add_subdirectory(src/refraktor)
-#add_subdirectory(src/refrakt-server)
-#add_subdirectory(src/refrakt-gui)
+add_subdirectory(src/refrakt-server)
+add_subdirectory(src/refrakt-gui)
 #add_subdirectory(src/thumbnail-provider-win)
 add_subdirectory(src/refrakt-qt)
 

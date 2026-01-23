@@ -8,6 +8,7 @@
 //#include <librefrakt/util/nvjpeg.h>
 #include <librefrakt/util/filesystem.hpp>
 #include <librefrakt/util.hpp>
+#include <librefrakt/util/stb.hpp>
 
 #include <librefrakt/image/tonemapper.hpp>
 #include <librefrakt/image/denoiser.hpp>
@@ -375,18 +376,23 @@ namespace rfkt {
 			this->kernel = std::move(k_result.kernel);
 
 			this->pp = rfkt::postprocessor(km, { width, height }, upscale);
-			this->encoder = std::make_unique<eznve::encoder>( this->pp->output_dims(), uint2{this->fps, 1}, eznve::codec::h264, ctx );
 
 			this->render_queue->enqueue([self = shared_from_this()]() mutable {
+				self->encoder = std::make_unique<eznve::encoder>( 
+					eznve::config::for_streaming(self->pp->output_dims(), { self->fps, 1 }, eznve::codec::h264),
+					self->ctx, 
+					[](std::string_view msg) { SPDLOG_INFO("NVENC: {}", msg); }
+				);
+
+				self->send_timer = self->timer_queue->make_timer(std::chrono::milliseconds(0), std::chrono::milliseconds(static_cast<long long>(std::floor(1000.0 / self->fps))), self->work_queue, [self = self->shared_from_this()]() {
+					if (self->total_frames % self->fps == 0) {
+						SPDLOG_INFO("{} megabits/second", self->encoder->total_bytes() / self->secs_since_start() / (1'000'000) * 8);
+					}
+					self->send_frame(self->shared_from_this());
+				});
+
 				self->start = std::chrono::high_resolution_clock::now();
 				render_frame(std::move(self), std::nullopt);
-			});
-
-			this->send_timer = this->timer_queue->make_timer(std::chrono::milliseconds(0), std::chrono::milliseconds(static_cast<long long>(std::floor(1000.0 / this->fps))), this->work_queue, [self = shared_from_this()]() {
-				if (self->total_frames % self->fps == 0) {
-					SPDLOG_INFO("{} megabits/second", self->encoder->total_bytes() / self->secs_since_start() / (1'000'000) * 8);
-				}
-				self->send_frame(self->shared_from_this());
 			});
 
 		}
@@ -408,7 +414,7 @@ namespace rfkt {
 				return;
 			}
 
-			if (lf) {
+			if (lf.has_value()) {
 				self->pp->post_process(lf->bins, { self->encoder->buffer(), uint2{static_cast<unsigned int>(self->encoder->width()), static_cast<unsigned int>(self->encoder->height())}, self->encoder->width() }, lf->quality, lf->gamma, lf->brightness, lf->vibrancy, lf->pp_stream);
 			}
 
@@ -473,15 +479,19 @@ namespace rfkt {
 
 			if (lf) {
 				lf->pp_stream.sync();
-				const auto flag = ((self->total_frames) % self->fps == 0) ? eznve::frame_flag::idr : eznve::frame_flag::none;
+
+				const auto flag = /*((self->total_frames) % self->fps == 0) ? eznve::frame_flag::idr : */eznve::frame_flag::none;
 				auto chunk = self->encoder->submit_frame(flag);
+				SPDLOG_INFO("got {} chunks", chunk.size());
 
 				auto total_time = frame_timer.count();
 
 				if (chunk.size()) {
 
+
 					std::vector<char> chunks_agg{};
 					for (auto& c : chunk) {
+						SPDLOG_INFO("got {} bytes", c.data.size());
 						chunks_agg.insert(chunks_agg.end(), c.data.begin(), c.data.end());
 					}
 

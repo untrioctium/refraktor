@@ -5,6 +5,7 @@
 
 #include <functional>
 #include <span>
+#include <format>
 #include <array>
 #include <memory>
 #include <queue>
@@ -31,9 +32,86 @@ namespace eznve {
 		uint64_t duration;
 	};
 
+	struct config {
+
+		uint2 dims = {0,0};
+		uint2 fps = {0,0};
+
+		codec codec = codec::h264;
+
+		enum class quality_preset {
+			fastest,
+			fast,
+			balanced,
+			quality,
+			high_quality
+		};
+
+		enum class rate_control {
+			cqp,
+			vbr,
+			cbr
+		};
+
+		enum class tuning {
+			high_quality,
+			low_latency,
+			ultra_low_latency
+		};
+
+		quality_preset preset = quality_preset::high_quality;
+		rate_control rc = rate_control::vbr;
+		tuning tune = tuning::high_quality;
+
+		uint32_t bitrate_kbps = 8000;
+		uint32_t cqp = 23;
+		uint32_t gop_length = 0;
+
+		bool enable_bframes = true;
+		bool enable_lookahead = true;
+		uint32_t lookahead_depth = 20;
+
+		static config default_config(uint2 dims, uint2 fps, enum codec c) {
+			return config{
+				.dims = dims,
+				.fps = fps,
+				.codec = c
+			};
+		}
+
+		static config for_offline_rendering(uint2 dims, uint2 fps, enum codec c) {
+			return config{
+				.dims = dims,
+				.fps = fps,
+				.codec = c,
+				.preset = quality_preset::high_quality,
+				.rc = rate_control::cqp,
+				.tune = tuning::high_quality,
+				.cqp = 18,
+				.enable_bframes = true,
+				.enable_lookahead = true
+			};
+		}
+
+		static config for_streaming(uint2 dims, uint2 fps, enum codec c) {
+			return config{
+				.dims = dims,
+				.fps = fps,
+				.codec = c,
+				.preset = quality_preset::fast,
+				.rc = rate_control::cbr,
+				.tune = tuning::low_latency,
+				.bitrate_kbps = 6000,
+				.enable_bframes = false,
+				.enable_lookahead = false,
+			};
+		}
+
+	};
+
 	class encoder {
 	public:
-		encoder(uint2 dims, uint2 fps, codec c, RUcontext ctx);
+		encoder(config cfg, RUcontext ctx, std::function<void(std::string_view)> logger = [](std::string_view) {});
 		~encoder();
 
 		encoder(const encoder&) = delete;
@@ -52,6 +130,9 @@ namespace eznve {
 			std::swap(bytes_encoded, o.bytes_encoded);
 			std::swap(frames_encoded, o.frames_encoded);
 			std::swap(session, o.session);
+			std::swap(logger, o.logger);
+			std::swap(max_in_flight, o.max_in_flight);
+			std::swap(pbuf, o.pbuf);
 			return *this;
 		}
 
@@ -59,6 +140,7 @@ namespace eznve {
 		std::vector<chunk> flush();
 
 		RUdeviceptr buffer() const noexcept {
+			logger(std::format("giving buffer {}", free_buffers.front()));
 			return buffers[free_buffers.front()].ptr;
 		}
 
@@ -111,19 +193,23 @@ namespace eznve {
 		struct buffer_t {
 			RUdeviceptr ptr;
 			void* registration;
-			void* out_stream;
 			void* mapped;
+			void* output_stream;
 
 			void map(void* session);
 			void unmap(void* session);
 
-			eznve::chunk lock_stream(void* session);
-			void unlock_stream(void* session);
+			chunk lock(void* session);
+			void unlock(void* session);
 		};
+
 
 		std::vector<buffer_t> buffers;
 		std::queue<std::size_t> free_buffers;
 		std::queue<std::size_t> used_buffers;
+		std::function<void(std::string_view)> logger;
+
+		std::size_t max_in_flight = 0;
 
 		using param_buffer_t = std::array<std::byte, 16384>;
 		std::unique_ptr<param_buffer_t> pbuf = std::make_unique<param_buffer_t>();
