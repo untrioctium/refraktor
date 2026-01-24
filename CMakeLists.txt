@@ -66,6 +66,7 @@ add_subdirectory(src/refrakt-server)
 add_subdirectory(src/refrakt-gui)
 #add_subdirectory(src/thumbnail-provider-win)
 add_subdirectory(src/refrakt-qt)
+add_subdirectory(src/refrakt-qt-server)
 
 function(get_all_targets var)
     set(targets)
