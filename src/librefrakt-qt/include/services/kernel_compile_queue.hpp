@@ -12,7 +12,6 @@
 
 class KernelCompileQueue : public QObject {
     Q_OBJECT
-    QML_SINGLETON
 
 public:
     explicit KernelCompileQueue(QObject* parent = nullptr);
@@ -26,10 +25,10 @@ public:
         const rfkt::flame& f,
         rfkt::precision prec);
 
-    static std::shared_ptr<ezrtc::compiler> kernelManagerInstance();
+    static ezrtc::compiler* kernelManagerInstance();
 
 private:
-    std::shared_ptr<ezrtc::compiler> m_kernelManager;
+    ezrtc::compiler m_kernelManager;
     QThreadPool m_compilePool;
     rfkt::flame_compiler m_flameCompiler;
 };

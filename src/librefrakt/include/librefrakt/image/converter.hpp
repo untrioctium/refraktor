@@ -1,7 +1,7 @@
 #include <ezrtc.hpp>
 #include <spdlog/spdlog.h>
-#include <librefrakt/util/cuda.hpp>
-#include <librefrakt/gpu_buffer.hpp>
+#include <roccu_cpp_types.hpp>
+#include <librefrakt/vector_types.hpp>
 
 namespace rfkt {
 
@@ -92,7 +92,7 @@ namespace rfkt {
 				nblocks++;
 			}
 
-			CUDA_SAFE_CALL(conv.kernel(name)
+			ROCCU_SAFE_CALL(conv.kernel(name)
 				.launch(nblocks, block_size, stream)
 				(
 					in,

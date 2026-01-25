@@ -1,4 +1,4 @@
-#include "flame_render_queue.hpp"
+#include "local_render_queue.hpp"
 #include "kernel_compile_queue.hpp"
 #include "variation_database.hpp"
 #include "animation_database.hpp"
@@ -10,18 +10,18 @@
 
 #include <chrono>
 
-FlameRenderQueue::FlameRenderQueue(QObject* parent)
+LocalRenderQueue::LocalRenderQueue(QObject* parent)
     : QObject(parent)
     , m_renderPool(this)
     , m_tonemapper(*KernelCompileQueue::kernelManagerInstance())
     , m_denoiser(rfkt::denoiser::make(
           "rfkt::optix_denoise",
-          uint2{512, 512},
+          rfkt::uint2{512, 512},
           rfkt::denoiser_flag::tiled,
           m_stream))
     , m_upscaleDenoiser(rfkt::denoiser::make(
           "rfkt::optix_denoise",
-          uint2{512, 512},
+          rfkt::uint2{512, 512},
           rfkt::denoiser_flag::tiled | rfkt::denoiser_flag::upscale,
           m_stream))
     , m_converter(*KernelCompileQueue::kernelManagerInstance())
@@ -35,23 +35,23 @@ FlameRenderQueue::FlameRenderQueue(QObject* parent)
     });
 }
 
-FlameRenderQueue::~FlameRenderQueue() {
+LocalRenderQueue::~LocalRenderQueue() {
     m_renderPool.waitForDone();
 }
 
-FlameRenderQueue* FlameRenderQueue::instance() {
-    static FlameRenderQueue* s_instance = nullptr;
+LocalRenderQueue* LocalRenderQueue::instance() {
+    static LocalRenderQueue* s_instance = nullptr;
     if (!s_instance) {
-        s_instance = new FlameRenderQueue();
+        s_instance = new LocalRenderQueue();
     }
     return s_instance;
 }
 
-FlameRenderQueue* FlameRenderQueue::create(QQmlEngine*, QJSEngine*) {
+LocalRenderQueue* LocalRenderQueue::create(QQmlEngine*, QJSEngine*) {
     return instance();
 }
 
-QFuture<QImage> FlameRenderQueue::requestRenderToQImage(const rfkt::flame& f, const RenderParams& params) {
+QFuture<QImage> LocalRenderQueue::requestRenderToQImage(const rfkt::flame& f, const RenderParams& params) {
     qDebug() << "Requesting render to QImage. Params:";
     qDebug() << "FPS: " << params.fps;
     qDebug() << "Seconds per loop: " << params.secondsPerLoop;
@@ -115,9 +115,9 @@ QFuture<QImage> FlameRenderQueue::requestRenderToQImage(const rfkt::flame& f, co
                 bin_dims.y /= 2;
             }
 
-            auto tonemapped = roccu::gpu_image<half3>(bin_dims, stream);
-            auto denoised = roccu::gpu_image<half3>(params.dims, stream);
-            auto converted = roccu::gpu_image<uchar4>(params.dims, stream);
+            auto tonemapped = roccu::gpu_image<rfkt::half3>(bin_dims.x, bin_dims.y, stream);
+            auto denoised = roccu::gpu_image<rfkt::half3>(params.dims.x, params.dims.y, stream);
+            auto converted = roccu::gpu_image<rfkt::uchar4>(params.dims.x, params.dims.y, stream);
 
             auto& kernel = kernel_result.kernel.value();
 

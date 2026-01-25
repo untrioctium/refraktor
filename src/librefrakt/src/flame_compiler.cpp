@@ -15,7 +15,7 @@
 
 #include <librefrakt/flame_info.hpp>
 #include <librefrakt/flame_compiler.hpp>
-#include <librefrakt/util/cuda.hpp>
+#include <librefrakt/vector_types.hpp>
 #include <librefrakt/util/gpuinfo.hpp>
 #include <librefrakt/util/filesystem.hpp>
 
@@ -634,7 +634,7 @@ roccu::gpu_buffer<Contained> make_shuffle_buffers(std::size_t ppts, std::size_t 
     return buf;
 }
 
-rfkt::flame_compiler::flame_compiler(std::shared_ptr<ezrtc::compiler> k_manager): km(k_manager)
+rfkt::flame_compiler::flame_compiler(ezrtc::compiler* k_manager): km(k_manager)
 {
 
     num_shufs = 512;
@@ -858,7 +858,7 @@ auto rfkt::flame_kernel::bin(roccu::gpu_stream& stream, flame_kernel::saved_stat
     {
         roccu::l2_persister persister{ state.bins.ptr(), state.bins.size_bytes(), 1.0f, stream};
 
-        CUDA_SAFE_CALL(klauncher(
+        ROCCU_SAFE_CALL(klauncher(
             state.shared.ptr(),
             (std::size_t)(bo.quality * stream_state->total_bins * 255.0),
             bo.iters,
@@ -906,6 +906,8 @@ auto rfkt::flame_kernel::bin(roccu::gpu_stream& stream, flame_kernel::saved_stat
 }
 
 void fix_rotation(std::span<double> samples, std::size_t sample_size, std::size_t flame_size, std::span<const std::size_t> indices) {
+
+    using namespace rfkt;
 
     constexpr static auto pi = 3.14159265358979323846;
     constexpr static auto eps = 1e-10;
@@ -1008,7 +1010,7 @@ auto rfkt::flame_kernel::warmup(roccu::gpu_stream& stream, std::span<double> sam
     const auto [grid, block] = srt->catmull.kernel().suggested_dims();
     auto nblocks = (nseg * sample_size) / block;
     if ((nseg * samples.size()) % block > 0) nblocks++;
-    CUDA_SAFE_CALL(
+    ROCCU_SAFE_CALL(
         srt->catmull.kernel().launch(nblocks, block, stream, false)
         (
             samples_dev.ptr(),
@@ -1031,7 +1033,7 @@ auto rfkt::flame_kernel::warmup(roccu::gpu_stream& stream, std::span<double> sam
 		stream_state->start = std::chrono::high_resolution_clock::now();
 	});
 
-    CUDA_SAFE_CALL(
+    ROCCU_SAFE_CALL(
         this->mod.kernel("warmup")
         .launch(this->exec.first, this->exec.second, stream, true)
         (
@@ -1053,7 +1055,7 @@ auto rfkt::flame_kernel::warmup(roccu::gpu_stream& stream, std::span<double> sam
 
 auto rfkt::flame_kernel::warmup(roccu::gpu_stream& stream, std::span<double> samples, uint2 dims, std::uint32_t seed, std::uint32_t count, int temporal_multiplier) const->flame_kernel::saved_state
 {
-    auto bins = roccu::gpu_image<float4>{ dims, stream };
+    auto bins = roccu::gpu_image<float4>{ dims.x, dims.y, stream };
     bins.clear(stream);
     return warmup(stream, samples, std::move(bins), seed, count, temporal_multiplier);
 }

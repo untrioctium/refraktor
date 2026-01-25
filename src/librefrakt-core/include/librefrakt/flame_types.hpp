@@ -14,7 +14,7 @@
 
 #include <librefrakt/traits/hashable.hpp>
 
-#include <roccu_vector_types.hpp>
+#include <librefrakt/vector_types.hpp>
 
 #include <glm/mat4x4.hpp>
 #include <glm/gtc/matrix_transform.hpp>

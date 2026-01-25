@@ -3,8 +3,7 @@
 #include <QUrl>
 #include <QDebug>
 
-#include <librefrakt/util/cuda.hpp>
-#include <librefrakt/interface/denoiser.hpp>
+//#include <librefrakt/util/cuda.hpp>
 
 #include "services/variation_database.hpp"
 #include "services/animation_database.hpp"
@@ -12,13 +11,10 @@
 
 int main(int argc, char* argv[])
 {
-    for (auto& dn_info : rfkt::denoiser::names()) {
-        qDebug() << "Denoiser: " << dn_info;
-    }
 
-    auto ctx = rfkt::cuda::init();
-    auto dev = ctx.device();
-    qDebug() << "Using device: " << dev.name();
+    //auto ctx = rfkt::cuda::init();
+    //auto dev = ctx.device();
+    //qDebug() << "Using device: " << dev.name();
 
     try {
         VariationDatabase::initialize("config");

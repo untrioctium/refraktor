@@ -1,12 +1,16 @@
 #include <zlib.h>
-#include <zip.h>
 #include <base64_url_unpadded.hpp>
 
 using b64_codec = cppcodec::base64_url_unpadded;
 
 #include <librefrakt/util/zlib.hpp>
 
-std::vector<char> rfkt::zlib::compress(const std::vector<char>& data, unsigned int level)
+std::vector<char> rfkt::zlib::compress(std::span<const char> data, unsigned int level)
+{
+    return compress(data.data(), data.size(), level);
+}
+
+std::vector<char> rfkt::zlib::compress(std::span<const unsigned char> data, unsigned int level)
 {
     return compress(data.data(), data.size(), level);
 }
@@ -24,7 +28,11 @@ std::vector<char> rfkt::zlib::compress(const void* data, std::size_t len, unsign
     return ret;
 }
 
-std::string rfkt::zlib::compress_b64(const std::vector<char>& data, unsigned int level) {
+std::string rfkt::zlib::compress_b64(std::span<const char> data, unsigned int level) {
+    return compress_b64(data.data(), data.size(), level);
+}
+
+std::string rfkt::zlib::compress_b64(std::span<const unsigned char> data, unsigned int level) {
     return compress_b64(data.data(), data.size(), level);
 }
 
@@ -33,7 +41,12 @@ std::string rfkt::zlib::compress_b64(const void* data, std::size_t len, unsigned
     return b64_codec::encode((const unsigned char*)binary.data(), binary.size());
 }
 
-std::vector<char> rfkt::zlib::uncompress(const std::vector<char>& data)
+std::vector<char> rfkt::zlib::uncompress(std::span<const char> data)
+{
+    return uncompress(data.data(), data.size());
+}
+
+std::vector<char> rfkt::zlib::uncompress(std::span<const unsigned char> data)
 {
     return uncompress(data.data(), data.size());
 }
@@ -50,13 +63,4 @@ std::vector<char> rfkt::zlib::uncompress(const void* data, std::size_t len)
 std::vector<char> rfkt::zlib::uncompress_b64(std::string_view data) {
     auto binary = b64_codec::decode(data);
 	return uncompress(binary.data(), binary.size());
-}
-
-bool rfkt::zlib::extract_zip(const rfkt::fs::path& zip_path, const rfkt::fs::path& out_path)
-{
-    if (!fs::exists(zip_path) || !fs::exists(out_path) || !fs::is_directory(out_path)) return false;
-
-    int error = zip_extract(zip_path.string().c_str(), out_path.string().c_str(), nullptr, nullptr);
-
-    return error == 0;
 }

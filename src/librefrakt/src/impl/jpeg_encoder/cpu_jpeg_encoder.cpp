@@ -1,5 +1,5 @@
-#include <stb_image_write.h>
 
+#include <librefrakt/util/stb.hpp>
 #include <librefrakt/interface/jpeg_encoder.hpp>
 
 namespace rfkt {
@@ -22,18 +22,9 @@ namespace rfkt {
 
 			image.to_host(*local_data, stream);
 
-			stream.host_func([ld = std::move(local_data), promise = std::move(promise), quality, dims = image.dims()]() mutable {
-				auto thunk = [ld = std::move(ld), quality, dims]() {
-					std::vector<std::byte> ret;
-
-					stbi_write_jpg_to_func(
-						[](void* context, void* data, int size) {
-							auto& ret = *static_cast<std::vector<std::byte>*>(context);
-							ret.insert(ret.end(), static_cast<std::byte*>(data), static_cast<std::byte*>(data) + size);
-						}, 
-						&ret, dims.x, dims.y, 3, ld->data(), quality);
-
-					return ret;
+			stream.host_func([ld = std::move(local_data), promise = std::move(promise), quality, width = image.width(), height = image.height()]() mutable {
+				auto thunk = [ld = std::move(ld), quality, width, height]() {
+					return rfkt::stbi::write_memory(ld->data(), width, height, rfkt::stbi::format::jpg);
 				};
 
 				promise.set_value(std::move(thunk));

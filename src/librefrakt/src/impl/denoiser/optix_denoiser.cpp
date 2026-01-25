@@ -3,6 +3,7 @@
 #include <spdlog/spdlog.h>
 
 #include <librefrakt/interface/denoiser.hpp>
+#include <librefrakt/util.hpp>
 
 #define OPTIX_DONT_INCLUDE_CUDA
 using CUcontext = RUcontext;
@@ -10,7 +11,7 @@ using CUstream = RUstream;
 
 #include <optix.h>
 #include <optix_stubs.h>
-//#include <optix_function_table_definition.h>
+#include <optix_function_table_definition.h>
 #include <optix_denoiser_tiling.h>
 
 #define CHECK_OPTIX(expr) \
@@ -89,8 +90,8 @@ namespace rfkt {
 		std::future<double> denoise_impl(image_type<PixelType> in, image_type<PixelType> out, roccu::gpu_event& event) {
 			memset(&layer, 0, sizeof(layer));
 
-			layer.input.width = in.dims().x;
-			layer.input.height = in.dims().y;
+			layer.input.width = in.width();
+			layer.input.height = in.height();
 			layer.input.rowStrideInBytes = in.pitch() * sizeof(PixelType);
 			layer.input.pixelStrideInBytes = sizeof(PixelType);
 			
@@ -112,8 +113,8 @@ namespace rfkt {
 
 			layer.output = layer.input;
 
-			layer.output.width = out.dims().x;
-			layer.output.height = out.dims().y;
+			layer.output.width = out.width();
+			layer.output.height = out.height();
 			layer.output.rowStrideInBytes = out.pitch() * sizeof(PixelType);
 
 			layer.input.data = in.ptr();

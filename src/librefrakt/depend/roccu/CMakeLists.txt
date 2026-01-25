@@ -6,7 +6,6 @@ set(CMAKE_CXX_STANDARD 23)
 
 add_library(roccu OBJECT
   include/roccu.hpp
-  include/roccu_vector_types.hpp
   include/roccu_cpp_types.hpp
   src/roccu.cpp)
 

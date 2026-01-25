@@ -6,12 +6,12 @@
 
 KernelCompileQueue::KernelCompileQueue(QObject* parent)
     : QObject(parent)
-    , m_kernelManager(std::make_shared<ezrtc::compiler>(
+    , m_kernelManager(ezrtc::compiler(
           std::make_shared<ezrtc::cache_adaptors::zlib>(
               std::make_shared<ezrtc::cache_adaptors::guarded>(
                   std::make_shared<ezrtc::sqlite_cache>(
                       (rfkt::fs::user_local_directory() / "kernel.sqlite3").string().c_str())))))
-    , m_flameCompiler(m_kernelManager)
+    , m_flameCompiler(&m_kernelManager)
 {
     m_compilePool.setMaxThreadCount(1);
     m_compilePool.setExpiryTimeout(-1);
@@ -32,7 +32,7 @@ KernelCompileQueue* KernelCompileQueue::instance() {
 
 QFuture<ezrtc::compiler::result> KernelCompileQueue::requestCompile(ezrtc::spec&& spec) {
     return QtConcurrent::run(&m_compilePool, [this, spec = std::move(spec)]() mutable {
-        return m_kernelManager->compile(std::move(spec));
+        return m_kernelManager.compile(std::move(spec));
     });
 }
 
@@ -47,6 +47,6 @@ QFuture<rfkt::flame_compiler::result> KernelCompileQueue::requestCompile(
     });
 }
 
-std::shared_ptr<ezrtc::compiler> KernelCompileQueue::kernelManagerInstance() {
-    return instance()->m_kernelManager;
+ezrtc::compiler* KernelCompileQueue::kernelManagerInstance() {
+    return &instance()->m_kernelManager;
 }

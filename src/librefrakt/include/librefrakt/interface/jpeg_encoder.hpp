@@ -1,9 +1,11 @@
 #pragma once
 
 #include <future>
+
 #include <set>
-#include <librefrakt/util/cuda.hpp>
-#include <librefrakt/gpu_buffer.hpp>
+#include <roccu_cpp_types.hpp>
+
+#include <librefrakt/vector_types.hpp>
 #include <librefrakt/factory.hpp>
 
 namespace rfkt {

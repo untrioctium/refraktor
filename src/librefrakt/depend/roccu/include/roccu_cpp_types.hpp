@@ -448,23 +448,15 @@ namespace roccu {
 
         constexpr gpu_image_base() noexcept = default;
 
-        explicit gpu_image_base(uint2 dims) requires (is_owner) : dims_(dims), pitch_(dims_.x) {
+        gpu_image_base(std::size_t width, std::size_t height) requires (is_owner) : width_(width), height_(height), pitch_(width) {
 			ROCCU_SAFE_CALL(ruMemAlloc(&ptr_, size_bytes()));
 		}
 
-        gpu_image_base(uint2 dims, RUstream stream) requires (is_owner) : dims_(dims), pitch_(dims_.x) {
-			ROCCU_SAFE_CALL(ruMemAllocAsync(&ptr_, size_bytes(), stream));
-		}
-
-        gpu_image_base(std::size_t width, std::size_t height) requires (is_owner) : dims_(width, height), pitch_(dims_.x) {
-			ROCCU_SAFE_CALL(ruMemAlloc(&ptr_, size_bytes()));
-		}
-
-        gpu_image_base(std::size_t width, std::size_t height, RUstream stream) requires (is_owner) : dims_(width, height), pitch_(dims_.x) {
+        gpu_image_base(std::size_t width, std::size_t height, RUstream stream) requires (is_owner) : width_(width), height_(height), pitch_(width) {
             ROCCU_SAFE_CALL(ruMemAllocAsync(&ptr_, size_bytes(), stream));
         }
 
-        gpu_image_base(RUdeviceptr ptr, uint2 dims, std::size_t pitch) requires (!is_owner) : ptr_(ptr), dims_(dims), pitch_(pitch) {}
+        gpu_image_base(RUdeviceptr ptr, std::size_t width, std::size_t height) requires (!is_owner) : ptr_(ptr), width_(width), height_(height), pitch_(width) {}
 
         ~gpu_image_base() {
 			if constexpr (!is_owner) return;
@@ -481,26 +473,27 @@ namespace roccu {
 
         gpu_image_base(gpu_image_base&& o) noexcept {
             std::swap(ptr_, o.ptr_);
-            std::swap(dims_, o.dims_);
+            std::swap(width_, o.width_);
+            std::swap(height_, o.height_);
             std::swap(pitch_, o.pitch_);
         }
 
         gpu_image_base& operator=(gpu_image_base&& o) noexcept {
 			std::swap(ptr_, o.ptr_);
-            std::swap(dims_, o.dims_);
+            std::swap(width_, o.width_);
+            std::swap(height_, o.height_);
 			std::swap(pitch_, o.pitch_);
 			return *this;
 		}
 
         explicit(false) operator gpu_image_base<PixelType, buffer_ownership::view>() requires (is_owner) {
-            return { ptr_, dims_, pitch_ };
+            return { ptr_, width_, height_ };
         }
 
         constexpr auto ptr() const noexcept { return ptr_; }
-        constexpr auto width() const noexcept { return dims_.x; }
-        constexpr auto height() const noexcept { return dims_.y; }
-        constexpr auto dims() const noexcept { return dims_; }
-        constexpr auto area() const noexcept { return dims_.x * dims_.y; }
+        constexpr auto width() const noexcept { return width_; }
+        constexpr auto height() const noexcept { return height_; }
+        constexpr auto area() const noexcept { return width_ * height_; }
         constexpr auto pitch() const noexcept { return pitch_; }
         constexpr auto size_bytes() const noexcept { return area() * element_size; }
 
@@ -561,14 +554,15 @@ namespace roccu {
 			}
 
 			ptr_ = 0;
-            dims_ = { 0, 0 };
+            width_ = 0;
+            height_ = 0;
 			pitch_ = 0;
 		}
 
-        auto sub_image(uint2 offset, uint2 dims) -> gpu_image_base<PixelType, buffer_ownership::view> {
+        /*auto sub_image(uint2 offset, uint2 dims) -> gpu_image_base<PixelType, buffer_ownership::view> {
             auto new_ptr = ptr_ + element_size * (offset.y * pitch_ + offset.x);
 			return { new_ptr, dims, pitch_ };
-		}
+		}*/
 
     private:
 
@@ -582,12 +576,12 @@ namespace roccu {
 
             copy.dstMemoryType = RU_MEMORYTYPE_HOST;
             copy.dstHost = dest_host.data();
-            copy.dstPitch = dims_.x * element_size;
+            copy.dstPitch = width_ * element_size;
             copy.dstXInBytes = 0;
             copy.dstY = 0;
 
-            copy.WidthInBytes = dims_.x * element_size;
-            copy.Height = dims_.y;
+            copy.WidthInBytes = width_ * element_size;
+            copy.Height = height_;
 
             return copy;
 		}
@@ -596,7 +590,7 @@ namespace roccu {
 			RU_MEMCPY2D copy;
 			copy.srcMemoryType = RU_MEMORYTYPE_HOST;
 			copy.srcHost = src_host.data();
-			copy.srcPitch = dims_.x * element_size;
+			copy.srcPitch = width_ * element_size;
 			copy.srcXInBytes = 0;
 			copy.srcY = 0;
 
@@ -606,14 +600,15 @@ namespace roccu {
 			copy.dstXInBytes = 0;
 			copy.dstY = 0;
 
-			copy.WidthInBytes = dims_.x * element_size;
-			copy.Height = dims_.y;
+			copy.WidthInBytes = width_ * element_size;
+			copy.Height = height_;
 
 			return copy;
 		}
 
         RUdeviceptr ptr_ = 0;
-        uint2 dims_ = { 0, 0 };
+        std::size_t width_ = 0;
+        std::size_t height_ = 0;
         std::size_t pitch_ = 0;
     };
 

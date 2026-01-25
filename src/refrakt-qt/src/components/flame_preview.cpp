@@ -1,7 +1,8 @@
 #include "flame_preview.hpp"
 
 #include "services/variation_database.hpp"
-#include "flame_render_queue.hpp"
+#include "services/local_render_queue.hpp"
+#include "services/remote_render_service.hpp"
 
 #include <QFileSystemWatcher>
 #include <QTimer>
@@ -232,7 +233,7 @@ void FlamePreview::startRender() {
     m_pendingDpr = dpr;
 
     // Request render
-    auto future = FlameRenderQueue::instance()->requestRenderToQImage(
+    auto future = RemoteRenderService::instance()->requestRenderToQImage(
         flameOpt.value(), params);
 
     m_watcher = new QFutureWatcher<QImage>(this);

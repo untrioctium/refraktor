@@ -13,27 +13,13 @@ set_target_properties(refrakt-qt PROPERTIES AUTOMOC TRUE)
 qt_add_qml_module(
     refrakt-qt 
     URI Refrakt 
-    VERSION 1.0 
+    VERSION 1.0
+    OUTPUT_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/Refrakt
     QML_FILES 
         qml/main.qml
     SOURCES
         src/components/flame_preview.cpp
         src/components/flame_preview.hpp
-
-        src/services/animation_database.cpp
-        src/services/animation_database.hpp
-
-        src/services/variation_database.cpp
-        src/services/variation_database.hpp
-
-        src/services/kernel_compile_queue.cpp
-        src/services/kernel_compile_queue.hpp
-
-        src/services/flame_render_queue.cpp
-        src/services/flame_render_queue.hpp
-
-        src/models/flame_handle.cpp
-        src/models/flame_handle.hpp
     )
 
 target_include_directories(refrakt-qt PRIVATE 
@@ -42,4 +28,4 @@ target_include_directories(refrakt-qt PRIVATE
     src/services
     src/models
 )
-target_link_libraries(refrakt-qt PRIVATE Qt6::Quick Qt6::Concurrent librefrakt)
+target_link_libraries(refrakt-qt PRIVATE Qt6::Quick Qt6::Concurrent librefrakt-qt librefrakt-impl)

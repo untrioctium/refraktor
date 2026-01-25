@@ -4,6 +4,7 @@
 
 #include <librefrakt/interface/denoiser.hpp>
 #include <librefrakt/util/filesystem.hpp>
+#include <librefrakt/util.hpp>
 
 namespace rfkt {
 
@@ -53,8 +54,8 @@ namespace rfkt {
 
 			constexpr static auto format = std::is_same_v<PixelType, half3> ? oidn::Format::Half3 : oidn::Format::Float3;
 
-			filter.setImage("color", in_buf, format, in.dims().x, in.dims().y);
-			filter.setImage("output", out_buf, format, out.dims().x, out.dims().y);
+			filter.setImage("color", in_buf, format, in.width(), in.height());
+			filter.setImage("output", out_buf, format, out.width(), out.height());
 			filter.commit();
 			check_error();
 
@@ -85,13 +86,13 @@ namespace rfkt {
 			constexpr static auto pixel_size = sizeof(PixelType);
 			constexpr static auto channel_size = sizeof(PixelType::x);
 
-			filter.setImage("color", in_buf, format, in.dims().x, in.dims().y, 0, pixel_size, pixel_size * in.dims().x);
-			filter.setImage("output", out_buf, format, out.dims().x, out.dims().y, 0, pixel_size, pixel_size * out.dims().x);
+			filter.setImage("color", in_buf, format, in.width(), in.height(), 0, pixel_size, pixel_size * in.width());
+			filter.setImage("output", out_buf, format, out.width(), out.height(), 0, pixel_size, pixel_size * out.width());
 			filter.commit();
 			check_error();
 
-			alpha_filter.setImage("color", in_buf, alpha_format, in.dims().x, in.dims().y, channel_size * 3, pixel_size, pixel_size * in.dims().x);
-			alpha_filter.setImage("output", out_buf, alpha_format, out.dims().x, out.dims().y, channel_size * 3, pixel_size, pixel_size * out.dims().x);
+			alpha_filter.setImage("color", in_buf, alpha_format, in.width(), in.height(), channel_size * 3, pixel_size, pixel_size * in.width());
+			alpha_filter.setImage("output", out_buf, alpha_format, out.width(), out.height(), channel_size * 3, pixel_size, pixel_size * out.width());
 			alpha_filter.commit();
 
 			auto timer = std::make_shared<rfkt::timer>();

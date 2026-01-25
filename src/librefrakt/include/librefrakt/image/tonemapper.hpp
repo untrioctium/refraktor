@@ -1,6 +1,7 @@
 #include <ezrtc.hpp>
-#include <librefrakt/gpu_buffer.hpp>
-#include <librefrakt/util/cuda.hpp>
+#include <roccu_cpp_types.hpp>
+
+#include <librefrakt/vector_types.hpp>
 
 namespace rfkt {
 	class tonemapper {

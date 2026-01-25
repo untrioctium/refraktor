@@ -38,7 +38,7 @@ namespace rfkt {
 			nblocks++;
 		}
 
-		CUDA_SAFE_CALL(tm.kernel(kernel).launch(nblocks, block_size, stream)(
+		ROCCU_SAFE_CALL(tm.kernel(kernel).launch(nblocks, block_size, stream)(
 			bins,
 			out,
 			size,

@@ -27,6 +27,12 @@
 // public api
 namespace ezrtc {
 
+	struct dim3 {
+		unsigned int x;
+		unsigned int y;
+		unsigned int z;
+	};
+
 	class kernel {
 	private:
 		template<RUfunction_attribute a>

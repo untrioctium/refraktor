@@ -460,7 +460,7 @@ std::optional<rfkt::flame> rfkt::flame::deserialize(const json& js, const functi
 	CHECK_AND_DESERIALIZE_ANIMA(ret, mod_sat);
 	CHECK_AND_DESERIALIZE_ANIMA(ret, mod_val);
 
-	if (!js.contains("xforms") || !js.is_array()) return std::nullopt;
+	if (!js.contains("xforms") || !js["xforms"].is_array()) return std::nullopt;
 
 	for (const auto& xf : js["xforms"]) {
 		auto xf_opt = xform::deserialize(xf, ft, fdb);

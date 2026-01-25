@@ -15,5 +15,7 @@ set_target_properties(refrakt-qt-server PROPERTIES
 target_link_libraries(refrakt-qt-server PRIVATE 
     Qt6::Core 
     Qt6::HttpServer
+    librefrakt-qt
+    librefrakt-impl
     spdlog
 )

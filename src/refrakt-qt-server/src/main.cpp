@@ -5,17 +5,80 @@
 #include <QHttpServerResponse>
 #include <QHostAddress>
 #include <QJsonObject>
+#include <QBuffer>
 
 #include <spdlog/spdlog.h>
 
+#include <librefrakt/util/cuda.hpp>
+
+#include <services/local_render_queue.hpp>
+#include <services/variation_database.hpp>
+#include <services/animation_database.hpp>
+
 int main(int argc, char* argv[])
 {
+
+    auto ctx = rfkt::cuda::init();
+    auto dev = ctx.device();
+    qDebug() << "Using device: " << dev.name();
+
+    try {
+        VariationDatabase::initialize("config");
+    } catch (const std::exception& e) {
+        qDebug() << "Failed to initialize flame system: " << e.what();
+        return 1;
+    } catch (const flang::parse_error& e) {
+        qDebug() << "Failed to parse variations file: " << e.what();
+        return 1;
+    }
+
+    AnimationDatabase::instance()->table().add_or_update("increase", {
+        {{"per_loop", {rfkt::func_info::arg_t::decimal, 360.0}}},
+        "return iv + t * per_loop"
+    });
+
+
     QCoreApplication app(argc, argv);
 
     QHttpServer server;
 
-    server.route("/", []() {
-        return "Hello, World!";
+    server.route("/render", QHttpServerRequest::Method::Post, [](const QHttpServerRequest& request) {
+
+        auto paramsJson = QJsonDocument::fromJson(request.body()).object();
+
+        auto paramsObj = paramsJson["params"].toObject();
+
+        auto renderParams = RenderParams {
+            .dims = {static_cast<unsigned int>(paramsObj["width"].toInt()), static_cast<unsigned int>(paramsObj["height"].toInt())},
+            .fps = paramsObj["fps"].toInt(),
+            .t = paramsObj["time"].toDouble(),
+            .secondsPerLoop = paramsObj["loop_speed"].toDouble(),
+            .targetQuality = paramsObj["quality"].toDouble(),
+            .maxRenderMillis = static_cast<std::uint32_t>(paramsObj["bin_time"].toInt()),
+            .denoise = paramsObj["denoise"].toBool(),
+            .upscale = paramsObj["upscale"].toBool(),
+        };
+
+        auto flame = rfkt::flame::deserialize(
+            nlohmann::json::parse(paramsJson["flame"].toString().toStdString()), 
+            AnimationDatabase::instance()->table(), 
+            VariationDatabase::instance()->db());
+
+        if (!flame) {
+            return QHttpServerResponse(QJsonObject{
+                {"error", "Failed to deserialize flame"}
+            });
+        }
+
+        auto image = LocalRenderQueue::instance()->requestRenderToQImage(*flame, renderParams).result();
+
+        QByteArray jpegData{};
+        QBuffer buffer(&jpegData);
+        buffer.open(QBuffer::WriteOnly);
+        image.save(&buffer, "JPEG");
+        buffer.close();
+
+        return QHttpServerResponse(jpegData);
     });
 
     server.route("/health", []() {

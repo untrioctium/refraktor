@@ -14,6 +14,11 @@
 
 namespace eznve {
 
+	struct uint2 {
+		unsigned int x;
+		unsigned int y;
+	};
+
 	enum class codec {
 		h264,
 		hevc,

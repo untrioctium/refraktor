@@ -1,6 +1,5 @@
 #pragma once
 
-#include <roccu_vector_types.hpp>
 #include <cstddef>
 
 using RUdevice = int;

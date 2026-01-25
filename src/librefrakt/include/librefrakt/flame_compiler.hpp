@@ -1,14 +1,13 @@
 #pragma once
 
-#include <typeinfo>
 #include <future>
 
 #include <ezrtc.hpp>
 
+#include <roccu_cpp_types.hpp>
+
 #include <librefrakt/flame_info.hpp>
 #include <librefrakt/flame_types.hpp>
-#include <librefrakt/gpu_buffer.hpp>
-#include <librefrakt/util/cuda.hpp>
 #include <librefrakt/util/hash.hpp>
 
 #include <librefrakt/allocators.hpp>
@@ -61,7 +60,7 @@ namespace rfkt {
 			}
 
 			saved_state(uint2 dims, std::size_t nbytes, int temporal_multiplier, std::future<double>&& warmup_time, RUstream stream) :
-				bins(dims, stream),
+				bins(dims.x, dims.y, stream),
 				temporal_multiplier(temporal_multiplier),
 				shared(nbytes * temporal_multiplier, stream),
 				warmup_hits(1, stream),
@@ -183,14 +182,14 @@ namespace rfkt {
 		auto prepare_flame_kernel(const flamedb& fdb, precision prec, const flame& f)-> std::move_only_function<result()>;
 		std::string make_source(const flamedb& fdb, const rfkt::flame& f);
 
-		explicit flame_compiler(std::shared_ptr<ezrtc::compiler> k_manager);
+		explicit flame_compiler(ezrtc::compiler* k_manager);
 
 		flame_compiler& operator=(flame_compiler&& o) noexcept {
 			*this = std::move(o);
 			return *this;
 		}
 
-		flame_compiler(flame_compiler&& o) noexcept : km(o.km) {
+		flame_compiler(flame_compiler&& o) noexcept {
 			std::swap(shuf_bufs, o.shuf_bufs);
 			std::swap(exec_configs, o.exec_configs);
 			std::swap(num_shufs, o.num_shufs);
@@ -211,7 +210,7 @@ namespace rfkt {
 
 		std::pair<roccu::execution_config, ezrtc::spec> make_opts(precision prec, const flame& f);
 
-		std::shared_ptr<ezrtc::compiler> km;
+		ezrtc::compiler* km = nullptr;
 		std::map<std::size_t, roccu::gpu_buffer<unsigned short>> shuf_bufs;
 
 		decltype(std::declval<roccu::device_t>().concurrent_block_configurations()) exec_configs;

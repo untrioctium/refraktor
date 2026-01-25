@@ -4,6 +4,7 @@
 #include <random>
 #include <format>
 #include <span>
+#include <array>
 
 #include <stacktrace>
 

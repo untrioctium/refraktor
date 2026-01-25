@@ -59,12 +59,11 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(zlib-ng)
 
-
+add_subdirectory(src/librefrakt-core)
 add_subdirectory(src/librefrakt)
-#add_subdirectory(src/refraktor)
-add_subdirectory(src/refrakt-server)
-add_subdirectory(src/refrakt-gui)
-#add_subdirectory(src/thumbnail-provider-win)
+add_subdirectory(src/librefrakt-qt-core)
+add_subdirectory(src/librefrakt-qt)
+#add_subdirectory(src/librefrakt-qt-server)
 add_subdirectory(src/refrakt-qt)
 add_subdirectory(src/refrakt-qt-server)
 

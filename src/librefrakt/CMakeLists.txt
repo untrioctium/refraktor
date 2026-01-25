@@ -1,56 +1,27 @@
 project(librefrakt LANGUAGES CXX)
 
 set(HEADER_LIST 
-	"include/librefrakt/traits/hashable.hpp"
-	"include/librefrakt/traits/noncopyable.hpp"
-	"include/librefrakt/util/hash.hpp"
-	"include/librefrakt/util/cuda.hpp"
 	"include/librefrakt/util/gpuinfo.hpp"
 	"include/librefrakt/util/filesystem.hpp"
-	"include/librefrakt/util/stb.hpp"
-	"include/librefrakt/util/zlib.hpp"
-	"include/librefrakt/util/color.hpp"
-	"include/librefrakt/util/http.hpp"
-	"include/librefrakt/util.hpp"
 	"include/librefrakt/interface/jpeg_encoder.hpp"
 	"include/librefrakt/interface/mp4_muxer.hpp"
 	"include/librefrakt/interface/denoiser.hpp"
-	"include/librefrakt/flame_types.hpp"
-	"include/librefrakt/flame_info.hpp"
 	"include/librefrakt/flame_compiler.hpp"
-	"include/librefrakt/gpu_buffer.hpp"
 	"include/librefrakt/image/tonemapper.hpp"
-	"include/librefrakt/image/denoiser.hpp"
 	"include/librefrakt/image/converter.hpp"
-	"include/librefrakt/anima.hpp"
 	"include/librefrakt/allocators.hpp"
-	"include/librefrakt/factory.hpp"
 	"include/librefrakt/constants.hpp"
+	"include/librefrakt/util/cuda.hpp"
 )
 
-add_library(librefrakt OBJECT
-	"src/util/hash.cpp"
-	"src/util/cuda.cpp"
+add_library(librefrakt STATIC
 	"src/util/filesystem.cpp"
 	"src/util/gpuinfo.cpp"
-	"src/util/zlib.cpp"
-	"src/util/color.cpp"
-	"src/util/stb.cpp"
-	"src/impl/jpeg_encoder/nvjpeg.cpp"
-	"src/impl/jpeg_encoder/cpu_jpeg_encoder.cpp"
-	"src/impl/mp4_muxer/ffmpeg_muxer.cpp"
-	"src/impl/denoiser/optix_denoiser.cpp"
-	"src/impl/denoiser/oidn_denoiser.cpp"
-	"src/impl/denoiser/null_denoiser.cpp"
-	"src/util/http.cpp"
-	"src/flame_types.cpp"
-	"src/flame_info.cpp"
 	"src/flame_compiler.cpp"
 	"src/image/tonemapper.cpp"
-	"src/image/denoiser.cpp"
 	"src/image/converter.cpp"
-	"src/anima.cpp"
 	"src/allocators.cpp"
+	"src/util/cuda.cpp"
 	${HEADER_LIST}
 )
 
@@ -58,151 +29,6 @@ add_library(librefrakt OBJECT
 
 target_include_directories(librefrakt PUBLIC include)
 set_target_properties(librefrakt PROPERTIES FIRST_PARTY true)
-
-# yaml-cpp
-set(YAML_CPP_BUILD_TESTS OFF)
-set(YAML_CPP_BUILD_TOOLS OFF)
-FetchContent_Declare(
-  yaml_cpp
-  GIT_REPOSITORY https://github.com/jbeder/yaml-cpp.git
-  GIT_TAG master
-  GIT_SHALLOW TRUE
-  EXCLUDE_FROM_ALL
-)
-FetchContent_MakeAvailable(yaml_cpp)
-
-# xxhash
-FetchContent_Declare(
-  xxhash
-  GIT_REPOSITORY https://github.com/Cyan4973/xxHash.git
-  GIT_TAG v0.8.2
-  GIT_SHALLOW TRUE
-)
-FetchContent_MakeAvailable(xxhash)
-file(GLOB XXHASH_SOURCES ${xxhash_SOURCE_DIR}/*.c)
-list(REMOVE_ITEM XXHASH_SOURCES ${xxhash_SOURCE_DIR}/xxhsum.c)
-list(REMOVE_ITEM XXHASH_SOURCES ${xxhash_SOURCE_DIR}/xxh_x86dispatch.c)
-add_library(xxhash STATIC ${XXHASH_SOURCES})
-target_include_directories(xxhash PUBLIC ${xxhash_SOURCE_DIR})
-
-# sqlite
-set(ENABLE_SHARED OFF CACHE BOOL "" FORCE)
-set(BUILD_SHELL OFF CACHE BOOL "" FORCE)
-FetchContent_Declare(
-  sqlite3
-  GIT_REPOSITORY https://github.com/rhuijben/sqlite-amalgamation
-  GIT_TAG 3.45.2
-  GIT_SHALLOW TRUE
-)
-FetchContent_MakeAvailable(sqlite3)
-target_include_directories(librefrakt PUBLIC ${sqlite3_SOURCE_DIR})
-
-# glm
-FetchContent_Declare(
-  glm
-  GIT_REPOSITORY https://github.com/g-truc/glm
-  GIT_TAG 1.0.1
-  GIT_SHALLOW TRUE
-)
-FetchContent_MakeAvailable(glm)
-target_link_libraries(librefrakt PUBLIC glm)
-
-# concurrencpp
-FetchContent_Declare(
-  concurrencpp
-  GIT_REPOSITORY https://github.com/David-Haim/concurrencpp.git
-  GIT_TAG v.0.1.7
-  GIT_SHALLOW TRUE
-  PATCH_COMMAND git restore . && git apply ${CMAKE_CURRENT_SOURCE_DIR}/cmake/concurrencpp.patch
-)
-FetchContent_MakeAvailable(concurrencpp)
-
-# stb
-FetchContent_Declare(
-  stb
-  GIT_REPOSITORY https://github.com/nothings/stb.git
-  GIT_SHALLOW TRUE
-)
-FetchContent_MakeAvailable(stb)
-file(GLOB STB_SOURCES ${stb_SOURCE_DIR}/*.c)
-add_library(stb STATIC ${STB_SOURCES})
-target_include_directories(stb PUBLIC ${stb_SOURCE_DIR})
-
-#cppcodec
-FetchContent_Declare(
- cppcodec
- GIT_REPOSITORY https://github.com/tplgy/cppcodec.git
- GIT_TAG 8019b8b580f8573c33c50372baec7039dfe5a8ce
- GIT_SHALLOW TRUE
-)
-FetchContent_Populate(cppcodec)
-target_include_directories(librefrakt PRIVATE ${cppcodec_SOURCE_DIR}/cppcodec)
-
-# inja, note that this also includes nlohmann::json
-FetchContent_Declare(
- inja
- GIT_REPOSITORY https://github.com/pantor/inja.git
- GIT_TAG v3.4.0
-)
-FetchContent_MakeAvailable(inja)
-
-# pugixml
-FetchContent_Declare(
-  pugixml
-  GIT_REPOSITORY https://github.com/zeux/pugixml.git
-  GIT_TAG v1.14
-  GIT_SHALLOW TRUE
-)
-FetchContent_MakeAvailable(pugixml)
-
-set(LUA_BUILD_COMPILER OFF CACHE BOOL "" FORCE)
-set(LUA_ENABLE_SHARED OFF CACHE BOOL "" FORCE)
-set(LUA_ENABLE_TESTING OFF CACHE BOOL "" FORCE)
-FetchContent_Declare(
-  lua
-  GIT_REPOSITORY https://github.com/walterschell/Lua.git
-  GIT_SHALLOW TRUE
-)
-FetchContent_MakeAvailable(lua)
-
-# sol3
-FetchContent_Declare(
-  sol2
-  GIT_REPOSITORY https://github.com/ThePhD/sol2.git
-  GIT_TAG main
-  GIT_SHALLOW TRUE
-)
-
-FetchContent_MakeAvailable(sol2)
-
-# dylib
-FetchContent_Declare(
-    dylib
-    GIT_REPOSITORY "https://github.com/martin-olivier/dylib"
-	GIT_TAG v2.2.1
-	GIT_SHALLOW TRUE
-)
-FetchContent_MakeAvailable(dylib)
-
-set(REPROC++ ON)
-# reproc
-FetchContent_Declare(
-  reproc
-  GIT_REPOSITORY https://github.com/DaanDeMeyer/reproc.git
-  GIT_TAG main
-  GIT_SHALLOW TRUE
-  EXCLUDE_FROM_ALL
-)
-FetchContent_MakeAvailable(reproc)
-
-# intel open image denoise
-FetchContent_Declare(
-  oidn
-  URL https://github.com/OpenImageDenoise/oidn/releases/download/v2.2.2/oidn-2.2.2.x64.windows.zip
-  URL_HASH SHA256=5cc8bcc2a3321ef32547c3be70d43878a41324718cabdfb151b332a2a4928297
-)
-FetchContent_MakeAvailable(oidn)
-include("${oidn_SOURCE_DIR}/lib/cmake/OpenImageDenoise-2.2.2/OpenImageDenoiseConfig.cmake")
 
 # imath
 #FetchContent_Declare(
@@ -248,54 +74,76 @@ include("${oidn_SOURCE_DIR}/lib/cmake/OpenImageDenoise-2.2.2/OpenImageDenoiseCon
 #)
 #FetchContent_MakeAvailable(curl)
 
-FetchContent_Declare(
-  zip
-  GIT_REPOSITORY https://github.com/kuba--/zip
-  GIT_SHALLOW TRUE
-)
-FetchContent_Populate(zip)
-add_library(zip ${zip_SOURCE_DIR}/src/zip.c ${zip_SOURCE_DIR}/src/zip.h ${zip_SOURCE_DIR}/src/miniz.h)
-target_include_directories(zip PUBLIC ${zip_SOURCE_DIR}/src)
+#FetchContent_Declare(
+#  zip
+#  GIT_REPOSITORY https://github.com/kuba--/zip
+#  GIT_SHALLOW TRUE
+#)
+#FetchContent_Populate(zip)
+#add_library(zip ${zip_SOURCE_DIR}/src/zip.c ${zip_SOURCE_DIR}/src/zip.h ${zip_SOURCE_DIR}/src/miniz.h)
+#target_include_directories(zip PUBLIC ${zip_SOURCE_DIR}/src)
 
 
 target_compile_definitions(librefrakt PUBLIC EZRTC_USE_ZLIB EZRTC_USE_SQLITE)
 
-add_subdirectory(depend/flang)
 add_subdirectory(depend/ezrtc)
 add_subdirectory(depend/eznve)
 add_subdirectory(depend/optix_downloader)
 add_subdirectory(depend/roccu)
 
-message(STATUS "Found Optix: $ENV{OPTIX_INCLUDE_DIRECTORY}")
-target_include_directories(librefrakt PRIVATE $ENV{OPTIX_INCLUDE_DIRECTORY})
-
-target_link_libraries(librefrakt PRIVATE 
-	xxhash 
-	#CUDA::nvjpeg
-	stb
-	zip
-	#CURL::libcurl_static
-	OpenImageDenoise
-	#OpenEXR::OpenEXR
+target_link_libraries(librefrakt PUBLIC
+	librefrakt-core
+	roccu
+ 	ezrtc
+	eznve
+	Rpcrt4.lib
 )
 
-target_link_libraries(librefrakt PUBLIC
-	roccu
-	flang
-	ezrtc
-	eznve
-	spdlog 
+add_library(librefrakt-impl OBJECT
+	"src/impl/jpeg_encoder/nvjpeg.cpp"
+	"src/impl/jpeg_encoder/cpu_jpeg_encoder.cpp"
+	"src/impl/mp4_muxer/ffmpeg_muxer.cpp"
+	"src/impl/denoiser/optix_denoiser.cpp"
+	"src/impl/denoiser/oidn_denoiser.cpp"
+	"src/impl/denoiser/null_denoiser.cpp"
+)
+
+# dylib
+FetchContent_Declare(
+    dylib
+    GIT_REPOSITORY "https://github.com/martin-olivier/dylib"
+	GIT_TAG v2.2.1
+	GIT_SHALLOW TRUE
+)
+FetchContent_MakeAvailable(dylib)
+
+set(REPROC++ ON)
+# reproc
+FetchContent_Declare(
+  reproc
+  GIT_REPOSITORY https://github.com/DaanDeMeyer/reproc.git
+  GIT_TAG main
+  GIT_SHALLOW TRUE
+  EXCLUDE_FROM_ALL
+)
+FetchContent_MakeAvailable(reproc)
+
+# intel open image denoise
+FetchContent_Declare(
+  oidn
+  URL https://github.com/OpenImageDenoise/oidn/releases/download/v2.2.2/oidn-2.2.2.x64.windows.zip
+  URL_HASH SHA256=5cc8bcc2a3321ef32547c3be70d43878a41324718cabdfb151b332a2a4928297
+)
+FetchContent_MakeAvailable(oidn)
+include("${oidn_SOURCE_DIR}/lib/cmake/OpenImageDenoise-2.2.2/OpenImageDenoiseConfig.cmake")
+
+target_link_libraries(librefrakt-impl PRIVATE 
+	OpenImageDenoise
 	reproc++
-	concurrencpp
-	#CUDA::nvml
-	#CUDA::cuda_driver
-	inja
-	lua_static
-	sol2
-	yaml-cpp
-	Rpcrt4.lib
-	sqlite3-static
-	zlib
-	pugixml
 	dylib
 )
+
+message(STATUS "Found Optix: $ENV{OPTIX_INCLUDE_DIRECTORY}")
+target_include_directories(librefrakt-impl PRIVATE $ENV{OPTIX_INCLUDE_DIRECTORY})
+
+target_link_libraries(librefrakt-impl PUBLIC librefrakt)
