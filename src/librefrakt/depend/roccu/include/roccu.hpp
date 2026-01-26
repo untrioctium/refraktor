@@ -407,6 +407,7 @@ ROCCU_DEFINE_DIRECT_FUNC(MemsetD32Async, RU_DRIVER, RUresult, (RUdeviceptr dstDe
 ROCCU_DEFINE_DIRECT_FUNC(ModuleGetFunction, RU_DRIVER, RUresult, (RUfunction* hfunc, RUmodule hmod, const char* name));
 ROCCU_DEFINE_FUNC(ModuleGetGlobal, RU_DRIVER, cuModuleGetGlobal_v2, hipModuleGetGlobal, RUresult, (RUdeviceptr* dptr, size_t* bytes, RUmodule hmod, const char* name));
 ROCCU_DEFINE_FUNC(ModuleLoadDataEx, RU_DRIVER, cuModuleLoadDataEx, hipModuleLoadData, RUresult, (RUmodule* module, const void* image, unsigned int numOptions, const char** options, void** optionValues));
+ROCCU_DEFINE_FUNC(ModuleLoadData, RU_DRIVER, cuModuleLoadData, hipModuleLoadData, RUresult, (RUmodule* module, const void* image));
 ROCCU_DEFINE_DIRECT_FUNC(ModuleUnload, RU_DRIVER, RUresult, (RUmodule hmod));
 
 ROCCU_DEFINE_FUNC(OccupancyMaxActiveBlocksPerMultiprocessor, RU_DRIVER, cuOccupancyMaxActiveBlocksPerMultiprocessor, hipModuleOccupancyMaxActiveBlocksPerMultiprocessor, RUresult, (int* numBlocks, RUfunction func, int blockSize, size_t dynamicSMemSize));

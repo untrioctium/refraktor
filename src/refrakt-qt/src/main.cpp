@@ -9,9 +9,22 @@
 #include "services/animation_database.hpp"
 #include "components/flame_preview.hpp"
 
+void qtMessageHandler(QtMsgType type, const QMessageLogContext&, const QString& msg)
+{
+    auto str = msg.toStdString();
+    switch (type) {
+    case QtDebugMsg:    SPDLOG_DEBUG("[Qt] {}", str); break;
+    case QtInfoMsg:     SPDLOG_INFO("[Qt] {}", str); break;
+    case QtWarningMsg:  SPDLOG_WARN("[Qt] {}", str); break;
+    case QtCriticalMsg: SPDLOG_ERROR("[Qt] {}", str); break;
+    case QtFatalMsg:    SPDLOG_CRITICAL("[Qt] {}", str); std::abort();
+    }
+}
+
 int main(int argc, char* argv[])
 {
 
+    qInstallMessageHandler(qtMessageHandler);
     //auto ctx = rfkt::cuda::init();
     //auto dev = ctx.device();
     //qDebug() << "Using device: " << dev.name();

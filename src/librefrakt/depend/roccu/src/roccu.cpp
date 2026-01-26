@@ -30,7 +30,7 @@ struct roccu_load_info {
 
 #ifdef _WIN32
 inline const static auto roccu_load_info_list = std::array{
-    roccu_load_info{ROCCU_API_CUDA, "nvcuda.dll", "nvrtc64_120_0.dll"},
+    roccu_load_info{ROCCU_API_CUDA, "nvcuda.dll", "nvrtc64_130_0.dll"},
     roccu_load_info{ROCCU_API_ROCM, "amdhip64.dll", "hiprtc0507.dll"}
 };
 #endif

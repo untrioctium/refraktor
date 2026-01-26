@@ -639,7 +639,7 @@ std::optional<ezrtc::cuda_module> ezrtc::cuda_module::from_cubin(std::span<const
 	}
 
 	auto mod = cuda_module{};
-	if (const auto status = ruModuleLoadDataEx(&mod.handle, cubin.data(), 0, nullptr, nullptr);
+	if (const auto status = ruModuleLoadData(&mod.handle, cubin.data());
 		status != RU_SUCCESS) {
 		return std::nullopt;
 	}
@@ -948,6 +948,8 @@ ezrtc::compiler::result ezrtc::compiler::compile(const ezrtc::spec& s) {
 
 	const auto rapi = roccuGetApi();
 	compile_options.push_back("--std=c++20");
+	compile_options.push_back("--minimal");
+	compile_options.push_back("--split-compile=0");
 
 	if (rapi == ROCCU_API_CUDA) {
 
@@ -1049,7 +1051,7 @@ ezrtc::compiler::result ezrtc::compiler::compile(const ezrtc::spec& s) {
 
 	std::size_t ptx_size{};
 	EZRTC_CHECK_RURTC(rurtcGetAssemblySize(prog, &ptx_size));
-	auto ptx = std::string(ptx_size, '\0');
+	auto ptx = std::string(ptx_size + 1, '\0');
 	EZRTC_CHECK_RURTC(rurtcGetAssembly(prog, ptx.data()));
 
 	/*

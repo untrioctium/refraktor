@@ -15,8 +15,23 @@
 #include <services/variation_database.hpp>
 #include <services/animation_database.hpp>
 
+void qtMessageHandler(QtMsgType type, const QMessageLogContext&, const QString& msg)
+{
+    auto str = msg.toStdString();
+    switch (type) {
+    case QtDebugMsg:    SPDLOG_DEBUG("[Qt] {}", str); break;
+    case QtInfoMsg:     SPDLOG_INFO("[Qt] {}", str); break;
+    case QtWarningMsg:  SPDLOG_WARN("[Qt] {}", str); break;
+    case QtCriticalMsg: SPDLOG_ERROR("[Qt] {}", str); break;
+    case QtFatalMsg:    SPDLOG_CRITICAL("[Qt] {}", str); std::abort();
+    }
+}
+
+
 int main(int argc, char* argv[])
 {
+
+    qInstallMessageHandler(qtMessageHandler);
 
     auto ctx = rfkt::cuda::init();
     auto dev = ctx.device();
@@ -65,20 +80,23 @@ int main(int argc, char* argv[])
             VariationDatabase::instance()->db());
 
         if (!flame) {
-            return QHttpServerResponse(QJsonObject{
+            return QtFuture::makeReadyValueFuture<QHttpServerResponse>(QJsonObject{
                 {"error", "Failed to deserialize flame"}
             });
         }
 
-        auto image = LocalRenderQueue::instance()->requestRenderToQImage(*flame, renderParams).result();
+        return LocalRenderQueue::instance()->requestRenderToQImage(*flame, renderParams)
+            .then([](QImage image) {
+                QByteArray jpegData{};
+                QBuffer buffer(&jpegData);
+                buffer.open(QBuffer::WriteOnly);
+                image.save(&buffer, "JPEG");
+                buffer.close();
+        
+                return QHttpServerResponse(jpegData);
+            });
 
-        QByteArray jpegData{};
-        QBuffer buffer(&jpegData);
-        buffer.open(QBuffer::WriteOnly);
-        image.save(&buffer, "JPEG");
-        buffer.close();
 
-        return QHttpServerResponse(jpegData);
     });
 
     server.route("/health", []() {

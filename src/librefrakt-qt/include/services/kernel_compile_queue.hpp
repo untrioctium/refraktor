@@ -31,4 +31,5 @@ private:
     ezrtc::compiler m_kernelManager;
     QThreadPool m_compilePool;
     rfkt::flame_compiler m_flameCompiler;
+
 };

@@ -88,7 +88,7 @@ namespace rfkt {
 			.supported_apis = { ROCCU_API_CUDA }
 		};
 
-		explicit nvjpeg_encoder(roccu::gpu_stream& stream) : api(dylib{ "nvjpeg64_12" }) {
+		explicit nvjpeg_encoder(roccu::gpu_stream& stream) : api(dylib{ "nvjpeg64_13" }) {
 
 			dev_allocator.dev_malloc = ruMemAlloc;
 			dev_allocator.dev_free = ruMemFree;

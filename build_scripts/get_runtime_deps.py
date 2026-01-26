@@ -44,17 +44,17 @@ windows_dependencies = [
 
     # nvrtc
     zip_dependency(
-        "https://developer.download.nvidia.com/compute/cuda/redist/cuda_nvrtc/windows-x86_64/cuda_nvrtc-windows-x86_64-12.4.99-archive.zip", 
-        ["cuda_nvrtc-windows-x86_64-12.4.99-archive/bin/nvrtc64_120_0.dll", "./"],
-        ["cuda_nvrtc-windows-x86_64-12.4.99-archive/bin/nvrtc-builtins64_124.dll", "./"],
-        ["cuda_nvrtc-windows-x86_64-12.4.99-archive/LICENSE", "licenses/NVRTC-LICENSE.txt"]
+        "https://developer.download.nvidia.com/compute/cuda/redist/cuda_nvrtc/windows-x86_64/cuda_nvrtc-windows-x86_64-13.1.115-archive.zip", 
+        ["cuda_nvrtc-windows-x86_64-13.1.115-archive/bin/x64/nvrtc64_130_0.dll", "./"],
+        ["cuda_nvrtc-windows-x86_64-13.1.115-archive/bin/x64/nvrtc-builtins64_131.dll", "./"],
+        ["cuda_nvrtc-windows-x86_64-13.1.115-archive/LICENSE", "licenses/NVRTC-LICENSE.txt"]
     ),
 
     # nvjpeg
     zip_dependency(
-        "https://developer.download.nvidia.com/compute/cuda/redist/libnvjpeg/windows-x86_64/libnvjpeg-windows-x86_64-12.3.1.89-archive.zip",
-        ["libnvjpeg-windows-x86_64-12.3.1.89-archive/bin/nvjpeg64_12.dll", "./"],
-        ["libnvjpeg-windows-x86_64-12.3.1.89-archive/LICENSE", "licenses/NVJPEG-LICENSE.txt"]
+        "https://developer.download.nvidia.com/compute/cuda/redist/libnvjpeg/windows-x86_64/libnvjpeg-windows-x86_64-13.0.3.75-archive.zip",
+        ["libnvjpeg-windows-x86_64-13.0.3.75-archive/bin/x64/nvjpeg64_13.dll", "./"],
+        ["libnvjpeg-windows-x86_64-13.0.3.75-archive/LICENSE", "licenses/NVJPEG-LICENSE.txt"]
     ),
 
     # open image denoise
