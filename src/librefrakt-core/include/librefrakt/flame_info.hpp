@@ -7,6 +7,8 @@
 
 #include <ranges>
 
+#include <nlohmann/json.hpp>
+
 #include <flang/ast.hpp>
 #include <librefrakt/traits/hashable.hpp>
 
@@ -136,6 +138,17 @@ namespace rfkt {
 
 		auto make_padder(const vlink& xf) const -> vlink;
 
+		std::string serialize() const noexcept;
+
+		flamedb(flamedb&&) noexcept = default;
+		flamedb& operator=(flamedb&&) noexcept = default;
+
+		flamedb(const flamedb&) = delete;
+		flamedb& operator=(const flamedb&) = delete;
+
+		flamedb() = default;
+		~flamedb() = default;
+
 	private:
 
 		void recalc_hash() noexcept;
@@ -157,5 +170,6 @@ namespace rfkt {
 	};
 
 	void initialize(rfkt::flamedb& fdb, std::string_view config_path);
+	void initialize(rfkt::flamedb& fdb, const nlohmann::json& variations_data, const nlohmann::json& common_data);
 
 }

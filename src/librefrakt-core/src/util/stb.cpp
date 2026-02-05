@@ -10,7 +10,7 @@ bool write_file_impl(const void* data, int w, int h, int comp, const std::string
 		return stbi_write_png(path.c_str(), w, h, comp, data, comp * w);
 
 	if (path.ends_with("jpg") || path.ends_with("jpeg"))
-		return stbi_write_jpg(path.c_str(), w, h, comp, data, 90);
+		return stbi_write_jpg(path.c_str(), w, h, comp, data, 100);
 
 	if (path.ends_with("tga"))
 		return stbi_write_tga(path.c_str(), w, h, comp, data);

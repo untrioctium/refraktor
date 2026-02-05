@@ -2,6 +2,7 @@
 #include <spdlog/spdlog.h>
 #include <roccu_cpp_types.hpp>
 #include <librefrakt/vector_types.hpp>
+#include <librefrakt/util/filesystem.hpp>
 
 namespace rfkt {
 
@@ -15,7 +16,7 @@ namespace rfkt {
 	public:
 		explicit converter(ezrtc::compiler& c) {
 			auto conv_result = c.compile(
-				ezrtc::spec::source_file("convert", "assets/kernels/convert.cu")
+				ezrtc::spec::source_file("convert", (rfkt::fs::assets_directory() / "kernels/convert.cu").string())
 				.kernel("convert_to<half3, uchar3>")
 				.kernel("convert_to<half3, uchar4>")
 				.kernel("convert_to<half3, float4>")

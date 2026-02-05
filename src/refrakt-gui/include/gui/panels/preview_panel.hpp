@@ -2,6 +2,7 @@
 
 #include <librefrakt/flame_compiler.hpp>
 #include <librefrakt/anima.hpp>
+#include <librefrakt/vector_types.hpp>
 
 #include "gl.hpp"
 #include "command_executor.hpp"

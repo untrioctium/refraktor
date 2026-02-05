@@ -42,9 +42,9 @@ public:
     static std::optional<dynamic_library> load(const char* name) {
 
 #ifdef _WIN32
-        auto handle = LoadLibraryA(name);
-        if (!handle) return std::nullopt;
-        return dynamic_library{handle};
+        if(auto handle = LoadLibraryA(name); handle) return dynamic_library{handle};
+        if(auto handle = LoadLibraryExA(name, nullptr, LOAD_LIBRARY_SEARCH_USER_DIRS | LOAD_LIBRARY_SEARCH_DEFAULT_DIRS); handle) return dynamic_library{handle};
+        return std::nullopt;
 #else
         auto handle = dlopen(name, RTLD_NOW | RTLD_LOCAL);
 		if (!handle) return std::nullopt;

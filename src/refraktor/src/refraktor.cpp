@@ -92,15 +92,15 @@ public:
 
 	template<typename Invoker>
 	double interp_anima(const rfkt::accessor& at, Invoker& i, double t, double mix) const {
-		const auto* left = at.access(left.flame);
-		const auto* right = at.access(right.flame);
+		const auto* left_a = at.access(left.flame);
+		const auto* right_a = at.access(right.flame);
 
-		if (!left || !right) {
+		if (!left_a || !right_a) {
 			SPDLOG_ERROR("interp_anima: left or right flame field not found: {}", at.to_string());
 			return 0.0;
 		}
 
-		return left->sample(t, i) * (1 - mix) + right->sample(t, i) * mix;
+		return left_a->sample(t, i) * (1 - mix) + right_a->sample(t, i) * mix;
 	}
 
 	template<typename Invoker>

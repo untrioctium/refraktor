@@ -9,6 +9,8 @@
 #include <vector>
 #include <string_view>
 #include <variant>
+#include <set>
+#include <expected>
 
 #include <nlohmann/json.hpp>
 
@@ -26,6 +28,7 @@ namespace rfkt {
 
 	class function_table;
 	class flamedb;
+	class interpolator;
 
 	enum class precision { f32, f64 };
 
@@ -232,6 +235,17 @@ namespace rfkt {
 			return nullptr;
 		}
 
+		double distance(const rfkt::affine& o) const noexcept {
+			double dist = 0.0;
+			dist += std::pow(a.t0 - o.a.t0, 2);
+			dist += std::pow(b.t0 - o.b.t0, 2);
+			dist += std::pow(c.t0 - o.c.t0, 2);
+			dist += std::pow(d.t0 - o.d.t0, 2);
+			dist += std::pow(e.t0 - o.e.t0, 2);
+			dist += std::pow(f.t0 - o.f.t0, 2);
+			return std::sqrt(dist);
+		}
+
 	};
 
 	class vardata {
@@ -279,6 +293,10 @@ namespace rfkt {
 
 		auto size_reals() const noexcept {
 			return parameters_.size() + precalc_count_ + 1;
+		}
+
+		auto size_parameters() const noexcept {
+			return parameters_.size();
 		}
 
 		bool has_parameter(std::string_view pname) const noexcept {
@@ -495,6 +513,47 @@ namespace rfkt {
 				return iter->second.lookup(tail);
 			}
 			return nullptr;
+		}
+
+		double similarity(const rfkt::vlink* o) const noexcept {
+			std::set<std::string_view> vars_a{};
+			std::set<std::string_view> vars_b{};
+
+			for(const auto& [name, data] : variations_) {
+				vars_a.insert(name);
+			}
+
+			for(const auto& [name, data] : o->variations_) {
+				vars_b.insert(name);
+			}
+
+			std::set<std::string_view> intersection {};
+			std::set_intersection(vars_a.begin(), vars_a.end(), vars_b.begin(), vars_b.end(), std::inserter(intersection, intersection.begin()));
+
+			auto union_size = vars_a.size() + vars_b.size() - intersection.size();
+			double jaccard_index = intersection.size() / static_cast<double>(union_size);
+
+			auto sum_weights = [](const rfkt::vlink& v) {
+				double total = 0.0;
+				for(const auto& [name, data] : v.variations_) {
+					total += std::abs(data.weight.t0);
+				}
+				return total;
+			};
+
+			auto total_weight_a = sum_weights(*this);
+			auto total_weight_b = sum_weights(*o);
+
+			double weight_sim = 0;
+			for(const auto name : intersection) {
+				double wa = variations_.find(name)->second.weight.t0 / total_weight_a;
+				double wb = o->variations_.find(name)->second.weight.t0 / total_weight_b;
+
+				weight_sim += 1.0 - std::abs(wa - wb) / std::max({wa, wb, 1e-6});
+			}
+			if(!intersection.empty()) weight_sim /= intersection.size();
+
+			return 0.5 * jaccard_index + 0.5 * weight_sim;
 		}
 
 	private:
@@ -1093,6 +1152,12 @@ namespace rfkt {
 				}, *this);
 		}
 
+		const anima* access(const rfkt::flame& flame) const noexcept {
+			return std::visit([&flame](const auto& arg) -> const anima* {
+				return arg.access(const_cast<rfkt::flame&>(flame));
+				}, *this);
+		}
+
 		void add_to_hash(rfkt::hash::state_t& hs) const {
 			std::visit([&hs](const auto& arg) {
 				arg.add_to_hash(hs);
@@ -1119,7 +1184,7 @@ namespace rfkt {
 
 	class flamedb;
 
-	auto import_flam3(const flamedb&, std::string_view content) noexcept -> std::optional<flame>;
+	auto import_flam3(const flamedb&, std::string_view content) noexcept -> std::expected<flame, std::string>;
 }
 
 namespace sol {

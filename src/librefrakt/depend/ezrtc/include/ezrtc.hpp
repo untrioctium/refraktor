@@ -9,6 +9,14 @@
 #include <sqlite3.h>
 #endif
 
+#ifdef EZRTC_USE_FMTLIB
+#include <fmt/fmt.h>
+#define EZRTC_FMT_IMPL fmt::format
+#else
+#include <format>
+#define EZRTC_FMT_IMPL std::format
+#endif
+
 #include <string_view>
 #include <optional>
 #include <array>
@@ -16,6 +24,7 @@
 #include <map>
 #include <set>
 #include <unordered_map>
+#include <unordered_set>
 #include <functional>
 #include <span>
 #include <fstream>
@@ -23,9 +32,236 @@
 #include <filesystem>
 #include <format>
 #include <roccu.hpp>
+#include <nameof.hpp>
+#include <boost/pfr.hpp>
 
 // public api
 namespace ezrtc {
+
+	template<typename T>
+	struct device_span {
+		RUdeviceptr _ptr;
+		std::size_t _size;
+
+		constexpr auto ptr() const { return _ptr; }
+		constexpr auto size() const { return _size; }
+		constexpr auto size_bytes() const { return _size * sizeof(T); }
+
+		constexpr device_span(RUdeviceptr ptr, std::size_t size) noexcept : _ptr(ptr), _size(size) {}
+
+		
+	};
+
+	namespace detail {
+		template<typename T>
+		struct array_traits {
+			constexpr static bool is_std_array = false;
+			using element_type = T;
+		
+			static std::string device_type_name() {
+				return std::string(NAMEOF_TYPE(T));
+			}
+		};
+		
+		template<typename T, std::size_t N>
+		struct array_traits<std::array<T, N>> {
+			constexpr static bool is_std_array = true;
+			using element_type = typename array_traits<T>::element_type;
+			
+			static std::string device_type_name() {
+				return EZRTC_FMT_IMPL("device_array<{}, {}>", array_traits<T>::device_type_name(), N);
+			}
+		};
+
+		template<typename T>
+		struct device_span_traits {
+			constexpr static bool is_device_span = false;
+		};
+
+		template<typename T>
+		struct device_span_traits<device_span<T>> {
+			constexpr static bool is_device_span = true;
+			using pointee_type = T;
+
+			static std::string device_type_name() {
+				return EZRTC_FMT_IMPL("device_span<{}>", NAMEOF_TYPE(T));
+			}
+		};
+
+		struct struct_emitter {
+
+			std::string type_definitions{};
+			std::unordered_set<std::string_view> defined_types{};
+
+			bool needs_device_span = false;
+			bool needs_device_array = false;
+
+			constexpr static std::string_view device_span_def = R"EZRTC(
+				template<typename T>
+				struct device_span {
+					T* _data;
+					unsigned long long _size;
+					
+					__device__ constexpr T* data() { return _data; }
+					__device__ constexpr const T* data() const { return _data; }
+					__device__ constexpr unsigned long long size() const { return _size; }
+					__device__ constexpr T& operator[](unsigned long long i) { return _data[i]; }
+					__device__ constexpr const T& operator[](unsigned long long i) const { return _data[i]; }
+				};
+			)EZRTC";
+
+			constexpr static std::string_view device_array_def = R"EZRTC(
+				template<typename T, unsigned int N>
+				struct device_array {
+					T _data[N];
+					
+					__device__ constexpr T& operator[](unsigned int i) { return _data[i]; }
+					__device__ constexpr const T& operator[](unsigned int i) const { return _data[i]; }
+					__device__ constexpr unsigned int size() const { return N; }
+					__device__ constexpr T* data() { return _data; }
+					__device__ constexpr const T* data() const { return _data; }
+				};
+			)EZRTC";
+		
+			enum class nesting_kind {
+				direct,
+				indirect,
+				none
+			};
+		
+			template<typename FieldType, typename ParentType>
+			static consteval nesting_kind nesting_kind_of() {
+				if constexpr(!std::is_class_v<FieldType>) {
+					return nesting_kind::none;
+				}
+		
+				constexpr auto parent_name = NAMEOF_TYPE(ParentType);
+				constexpr auto field_type_name = NAMEOF_TYPE(FieldType);
+				if constexpr (field_type_name.starts_with(parent_name) && field_type_name.length() > parent_name.length() && field_type_name[parent_name.length()] == ':') {
+					constexpr auto nested_type_name = field_type_name.substr(parent_name.length() + 2);
+					return nested_type_name.find("::") == std::string::npos ? nesting_kind::direct : nesting_kind::indirect;
+				} else {
+					return nesting_kind::none;
+				}
+			}
+		
+			template<typename NestedType, std::size_t Depth>
+			void emit_nested_type(std::string& nested_definitions, std::unordered_set<std::string_view>& nested_defined_types) {
+				constexpr auto type_name = NAMEOF_TYPE(NestedType);
+				if(nested_defined_types.contains(type_name)) {
+					return;
+				}
+		
+				auto depth_string = std::string(Depth, ' ');
+		
+				nested_definitions += EZRTC_FMT_IMPL("{}struct {} {{\n", depth_string, type_name.substr(type_name.find_last_of(":") + 1));
+				nested_definitions += build_struct_body<NestedType, Depth + 4>();
+				nested_definitions += EZRTC_FMT_IMPL("{}}};\n\n", depth_string);
+				nested_defined_types.insert(type_name);
+			}
+		
+			template<typename DepType, typename ParentType, std::size_t Depth>
+			void handle_struct_dependency(std::string& nested_definitions, std::unordered_set<std::string_view>& nested_defined_types) {
+				switch(nesting_kind_of<DepType, ParentType>()) {
+					case nesting_kind::direct:
+						emit_nested_type<DepType, Depth>(nested_definitions, nested_defined_types);
+						break;
+					case nesting_kind::indirect:
+						break;
+					case nesting_kind::none:
+						emit_external<DepType>();
+						break;
+				}
+			}
+		
+			template<typename T, std::size_t Depth = 0>
+			std::string build_struct_body() {
+				std::string nested_definitions{};
+				std::unordered_set<std::string_view> nested_defined_types{};
+				std::string fields;
+				auto depth_string = std::string(Depth, ' ');
+		
+				boost::pfr::for_each_field_with_name(T{}, [&, this](std::string_view name, const auto& value) {
+					using FieldType = std::remove_cvref_t<decltype(value)>;
+					constexpr auto field_type_name = NAMEOF_TYPE(FieldType);
+		
+					if constexpr(array_traits<FieldType>::is_std_array) {
+						using element_type = typename array_traits<FieldType>::element_type;
+						static_assert(!std::is_pointer_v<element_type>, "Pointers are not supported, use a device_span<T> instead.");
+						if constexpr(std::is_class_v<element_type>) {
+							handle_struct_dependency<element_type, T, Depth>(nested_definitions, nested_defined_types);
+						}
+						needs_device_array = true;
+						auto type_name = array_traits<FieldType>::device_type_name();
+						fields += EZRTC_FMT_IMPL("{}{} {};\n", depth_string, type_name, name);
+					}
+					else if constexpr(device_span_traits<FieldType>::is_device_span) {
+						using pointee_type = typename device_span_traits<FieldType>::pointee_type;
+						static_assert(!std::is_pointer_v<pointee_type>, "Pointers are not supported, use a device_span<T> instead.");
+						if constexpr(std::is_class_v<pointee_type>) {
+							handle_struct_dependency<pointee_type, T, Depth>(nested_definitions, nested_defined_types);
+						}
+						needs_device_span = true;
+						auto type_name = device_span_traits<FieldType>::device_type_name();
+						fields += EZRTC_FMT_IMPL("{}{} {};\n", depth_string, type_name, name);
+					}
+					else if constexpr(std::is_class_v<FieldType>) {
+						handle_struct_dependency<FieldType, T, Depth>(nested_definitions, nested_defined_types);
+						fields += EZRTC_FMT_IMPL("{}{} {};\n", depth_string, field_type_name, name);
+		
+					}
+					else {
+						static_assert(!std::is_pointer_v<FieldType>, "Pointers are not supported, use a device_span<T> instead.");
+						fields += EZRTC_FMT_IMPL("{}{} {};\n", depth_string, field_type_name, name);
+					}
+				});
+		
+				return nested_definitions + fields;
+			}
+		
+			static std::string mangle_name(std::string_view name) {
+				auto result = std::string(name);
+				std::replace(result.begin(), result.end(), ':', '_');
+				return result;
+			}
+		
+			template<typename T>
+			void emit_external() {
+				constexpr auto type_name = NAMEOF_TYPE(T);
+				if (defined_types.contains(type_name)) {
+					return;
+				}
+		
+				defined_types.insert(type_name);
+		
+				constexpr auto has_prefix = type_name.find(":") != std::string::npos;
+				constexpr auto prefix = has_prefix ? type_name.substr(0, type_name.find_last_of(":") - 1) : std::string_view{""};
+				constexpr auto unqualified_name = has_prefix ? type_name.substr(type_name.find_last_of(":") + 1) : type_name;
+		
+				auto body = build_struct_body<T, has_prefix ? 8: 4>();
+				auto depth_string = std::string(has_prefix ? 4: 0, ' ');
+		
+				auto guard_name = EZRTC_FMT_IMPL("TYPE_GUARD_{}",mangle_name(type_name));
+		
+				type_definitions += EZRTC_FMT_IMPL("#ifndef {}\n", guard_name);
+				type_definitions += EZRTC_FMT_IMPL("#define {}\n", guard_name);
+				if constexpr(has_prefix) {
+					type_definitions += EZRTC_FMT_IMPL("namespace {} {{\n", prefix);
+				}
+		
+				type_definitions += EZRTC_FMT_IMPL("{}struct {} {{\n", depth_string,unqualified_name);
+				type_definitions += body;
+				type_definitions += EZRTC_FMT_IMPL("{}}};\n", depth_string);
+				if constexpr(has_prefix) {
+					type_definitions += EZRTC_FMT_IMPL("}}\n");
+				}
+				type_definitions += EZRTC_FMT_IMPL("#endif // {}\n\n", guard_name);
+		
+		
+			}
+		
+		};
+	}
 
 	struct dim3 {
 		unsigned int x;
@@ -41,6 +277,9 @@ namespace ezrtc {
 			ruFuncGetAttribute(&ret, a, f);
 			return static_cast<std::size_t>(ret);
 		}
+
+		static RUresult launch_impl(RUfunction f, dim3 grid, dim3 block, RUstream stream, bool cooperative, void** args) noexcept;
+		RUfunction f;
 	public:
 
 		explicit kernel(RUfunction f) noexcept : f(f) {}
@@ -78,9 +317,6 @@ namespace ezrtc {
 		auto local_bytes() const noexcept { return attribute<RU_FUNC_ATTRIBUTE_LOCAL_SIZE_BYTES>(); }
 		auto register_count() const noexcept { return attribute<RU_FUNC_ATTRIBUTE_NUM_REGS>(); }
 
-
-		static RUresult launch_impl(RUfunction f, dim3 grid, dim3 block, RUstream stream, bool cooperative, void** args) noexcept;
-		RUfunction f;
 	};
 
 	class variable {
@@ -215,6 +451,13 @@ namespace ezrtc {
 		}
 		spec& dependency(const std::filesystem::path& path) { return emplace_and_chain(dependencies, std::filesystem::absolute(path).u8string()); }
 
+		template<typename T>
+		spec& struct_type() {
+			structs.emit_external<T>();
+			cached_signature.reset();
+			return *this;
+		}
+
 		std::string_view name() const noexcept { return name_; }
 
 	private:
@@ -238,6 +481,8 @@ namespace ezrtc {
 		std::map<std::string, std::string, std::less<>> defines;
 		std::map<std::string, std::string, std::less<>> variables;
 		std::map<std::string, std::string, std::less<>> headers;
+
+		detail::struct_emitter structs;
 
 		std::string name_;
 		std::string source;

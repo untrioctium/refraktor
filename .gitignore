@@ -70,3 +70,6 @@ licenses/
 .clangd
 .qmlls.ini
 .cache/
+*.pyd
+*.pdb
+__pycache__/

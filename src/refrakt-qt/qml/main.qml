@@ -3,7 +3,6 @@ import QtQuick.Controls.Fusion
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
-import Qt.labs.folderlistmodel
 
 import Refrakt
 
@@ -57,12 +56,26 @@ ApplicationWindow {
                     }
                 }
 
-                model: FolderListModel {
-                    id: folderModel
-                    folder: "file:./assets/flames_test"
-                    nameFilters: ["*.flam3"]
-                    showDirs: false
-                    sortField: FolderListModel.Name
+                model: ListModel {
+                    id: flamesModel
+                }
+
+                property var requestId: null
+                Component.onCompleted: {
+                    flameList.requestId = FlameDirectoryService.listFlames()
+                }
+
+                Connections {
+                    target: FlameDirectoryService
+                    function onFlamesListed(id, flames) {
+                        if (flameList.requestId === id) {
+                            flamesModel.clear()
+                            for (const flame of flames) {
+                                flamesModel.append({ flameName: flame })
+                            }
+                            flameList.requestId = null
+                        }
+                    }
                 }
 
                 delegate: Item {
@@ -73,13 +86,13 @@ ApplicationWindow {
                         anchors.fill: parent
                         anchors.margins: 2
                         color: "black"
-                        border.color: flamePreview.source === model.filePath ? "#0078d4" : "transparent"
+                        border.color: flamePreview.source === model.flameName ? "#0078d4" : "transparent"
                         border.width: 2
 
                         FlamePreview {
                             anchors.fill: parent
                             anchors.margins: 2
-                            source: model.filePath
+                            source: model.flameName
                             quality: 50
                             denoise: true
                             upscale: true
@@ -96,7 +109,7 @@ ApplicationWindow {
                             anchors.left: parent.left
                             anchors.right: parent.right
                             anchors.margins: 6
-                            text: model.fileName
+                            text: model.flameName
                             color: "white"
                             style: Text.Outline
                             styleColor: "black"
@@ -107,7 +120,7 @@ ApplicationWindow {
                         MouseArea {
                             anchors.fill: parent
                             onClicked: {
-                                flamePreview.source = model.filePath
+                                flamePreview.source = model.flameName
                             }
 
                             onPressed: {

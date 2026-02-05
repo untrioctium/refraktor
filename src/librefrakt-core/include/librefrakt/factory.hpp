@@ -5,6 +5,7 @@
 #include <unordered_map>
 #include <ranges>
 #include <memory>
+#include <stdexcept>
 
 namespace rfkt {
 
@@ -51,7 +52,7 @@ namespace rfkt {
 
 		static std::unique_ptr<Base> make(std::string_view name, Args... args) {
 			auto it = factories().find(name);
-			if (it == factories().end()) return nullptr;
+			if (it == factories().end()) throw std::runtime_error("Factory not found: " + std::string(name));
 
 			auto ptr = [name, &it](auto&&... args_inner) {
 				if constexpr (detail::has_meta_type<Base>) {

@@ -517,7 +517,7 @@ std::string rfkt::flame_compiler::make_source(const flamedb& fdb, const rfkt::fl
         return env;
     }();
 
-    return environment.render_file("./assets/templates/flame.tpl", info);
+    return environment.render_file((rfkt::fs::assets_directory() / "templates/flame.tpl").string(), info);
 
 }
 
@@ -535,9 +535,9 @@ std::string annotate_source(std::string src) {
 
 void rfkt::flame_compiler::add_to_hash(rfkt::hash::state_t& state)
 {
-    state.update(rfkt::fs::last_modified("assets/kernels/refactor.cu"));
-    state.update(rfkt::fs::last_modified("assets/kernels/include/refrakt/random.h"));
-    state.update(rfkt::fs::last_modified("assets/kernels/include/refrakt/flamelib.h"));
+    state.update(rfkt::fs::last_modified(rfkt::fs::assets_directory() / "kernels/refactor.cu"));
+    state.update(rfkt::fs::last_modified(rfkt::fs::assets_directory() / "kernels/include/refrakt/random.h"));
+    state.update(rfkt::fs::last_modified(rfkt::fs::assets_directory() / "kernels/include/refrakt/flamelib.h"));
 }
 
 auto rfkt::flame_compiler::prepare_flame_kernel(const flamedb& fdb, precision prec, const flame& f) -> std::move_only_function<result()>
@@ -552,8 +552,8 @@ auto rfkt::flame_compiler::prepare_flame_kernel(const flamedb& fdb, precision pr
     auto [most_blocks, opts] = make_opts(prec, f);
     opts.header("flame_generated.h", src);
 
-    auto rand_src = rfkt::fs::read_string("assets/kernels/include/refrakt/random.h");
-    auto flamelib_src = rfkt::fs::read_string("assets/kernels/include/refrakt/flamelib.h");
+    auto rand_src = rfkt::fs::read_string(rfkt::fs::assets_directory() / "kernels/include/refrakt/random.h");
+    auto flamelib_src = rfkt::fs::read_string(rfkt::fs::assets_directory() / "kernels/include/refrakt/flamelib.h");
 
     opts.header("refrakt/random.h", rand_src);
     opts.header("refrakt/flamelib.h", flamelib_src);
@@ -642,7 +642,7 @@ rfkt::flame_compiler::flame_compiler(ezrtc::compiler* k_manager): km(k_manager)
     exec_configs = roccu::context::current().device().concurrent_block_configurations();
 
     std::string check_kernel_name = "get_sizes";
-    auto base_src = rfkt::fs::read_string("assets/kernels/size_info.cu");
+    auto base_src = rfkt::fs::read_string(rfkt::fs::assets_directory() / "kernels/size_info.cu");
     std::size_t idx = 1;
     for(auto& c: exec_configs) {
 		check_kernel_name += std::format("_{}", c.block);
@@ -661,8 +661,8 @@ rfkt::flame_compiler::flame_compiler(ezrtc::compiler* k_manager): km(k_manager)
 
     SPDLOG_INFO("Checking kernel sizes for {}", check_kernel_name);
 
-    auto rand_src = rfkt::fs::read_string("assets/kernels/include/refrakt/random.h");
-    auto flamelib_src = rfkt::fs::read_string("assets/kernels/include/refrakt/flamelib.h");
+    auto rand_src = rfkt::fs::read_string(rfkt::fs::assets_directory() / "kernels/include/refrakt/random.h");
+    auto flamelib_src = rfkt::fs::read_string(rfkt::fs::assets_directory() / "kernels/include/refrakt/flamelib.h");
 
     auto check_result = km->compile(
         ezrtc::spec::source_string(check_kernel_name, base_src)
@@ -710,7 +710,7 @@ rfkt::flame_compiler::flame_compiler(ezrtc::compiler* k_manager): km(k_manager)
 
     auto result = km->compile(
         ezrtc::spec::
-         source_file("catmull", "assets/kernels/catmull.cu")
+         source_file("catmull", (rfkt::fs::assets_directory() / "kernels/catmull.cu").string())
         .kernel("generate_sample_coefficients")
         .flag(ezrtc::compile_flag::default_device)
         .flag(ezrtc::compile_flag::extra_device_vectorization)
@@ -724,7 +724,7 @@ rfkt::flame_compiler::flame_compiler(ezrtc::compiler* k_manager): km(k_manager)
     std::string histogram_name = std::format("calculate_histogram<{}>", histogram_granularity);
 
     auto histogram_result = km->compile(
-        ezrtc::spec::source_file("histogram", "assets/kernels/density_histo.cu")
+        ezrtc::spec::source_file("histogram", (rfkt::fs::assets_directory() / "kernels/density_histo.cu").string())
         .kernel(histogram_name)
         .flag(ezrtc::compile_flag::default_device)
         .flag(ezrtc::compile_flag::extra_device_vectorization)
@@ -786,7 +786,7 @@ auto rfkt::flame_compiler::make_opts(precision prec, const flame& f)->std::pair<
 
     auto name = std::format("flame_{}_f{}_t{}_s{}", flame_hash.str64(), (prec == precision::f32) ? "32" : "64", most_blocks.grid, flame_real_count);
 
-    auto opts = ezrtc::spec::source_file(name, "assets/kernels/refactor.cu");
+    auto opts = ezrtc::spec::source_file(name, (rfkt::fs::assets_directory() / "kernels/refactor.cu").string());
 
     opts
         .flag(ezrtc::compile_flag::extra_device_vectorization)

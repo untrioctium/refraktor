@@ -5,15 +5,18 @@
 #include <QHttpServerResponse>
 #include <QHostAddress>
 #include <QJsonObject>
+#include <QJsonArray>
 #include <QBuffer>
 
 #include <spdlog/spdlog.h>
 
 #include <librefrakt/util/cuda.hpp>
+#include <librefrakt/util/filesystem.hpp>
 
 #include <services/local_render_queue.hpp>
 #include <services/variation_database.hpp>
 #include <services/animation_database.hpp>
+#include <services/local_flame_directory.hpp>
 
 void qtMessageHandler(QtMsgType type, const QMessageLogContext&, const QString& msg)
 {
@@ -30,7 +33,8 @@ void qtMessageHandler(QtMsgType type, const QMessageLogContext&, const QString& 
 
 int main(int argc, char* argv[])
 {
-
+    // print working directory
+    qDebug() << "Working directory: " << rfkt::fs::working_directory().string();
     qInstallMessageHandler(qtMessageHandler);
 
     auto ctx = rfkt::cuda::init();
@@ -58,6 +62,8 @@ int main(int argc, char* argv[])
     QHttpServer server;
 
     server.route("/render", QHttpServerRequest::Method::Post, [](const QHttpServerRequest& request) {
+
+        qInfo() << "GET /render";
 
         auto paramsJson = QJsonDocument::fromJson(request.body()).object();
 
@@ -98,6 +104,45 @@ int main(int argc, char* argv[])
 
 
     });
+
+    server.route("/variations", QHttpServerRequest::Method::Get, [](const QHttpServerRequest& request) {
+
+        qInfo() << "GET /variations";
+
+        return QHttpServerResponse(QString::fromStdString(VariationDatabase::instance()->db().serialize()));
+    });
+
+    auto flameDirectory = LocalFlameDirectory::instance();
+    server.route("/flames", QHttpServerRequest::Method::Get, [flameDirectory](const QHttpServerRequest& request) {
+        qInfo() << "GET /flames";
+        return flameDirectory->listFlamesAsync().then([](QStringList flames) {
+            auto response = QHttpServerResponse(QJsonArray::fromStringList(flames));
+            QHttpHeaders headers;
+            headers.append("Content-Type", "application/json");
+            response.setHeaders(headers);
+            return response;
+        });
+    });
+
+    server.route("/flames/<arg>", QHttpServerRequest::Method::Get, [flameDirectory](const QString& name, const QHttpServerRequest& request) {
+        qInfo() << "GET /flames/" << name;
+        
+        return flameDirectory->getFlameAsync(name)
+            .then([](FlameInfo flame) {
+                auto response = QHttpServerResponse(flame.data);
+                QHttpHeaders headers;
+
+                if (flame.format == FlameDirectoryService::Format::XML) {
+                    headers.append("Content-Type", "application/xml");
+                } else {
+                    headers.append("Content-Type", "application/json");
+                }
+
+                response.setHeaders(headers);
+                return response;
+            });
+        });
+
 
     server.route("/health", []() {
         return QHttpServerResponse(QJsonObject{

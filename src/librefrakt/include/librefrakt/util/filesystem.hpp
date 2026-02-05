@@ -9,6 +9,9 @@ namespace rfkt::fs {
 	void set_working_directory(const path& path);
 	const path& working_directory();
 
+	void set_assets_directory(const path& path);
+	const path& assets_directory();
+
 	const path& user_local_directory();
 	const path& user_home_directory();
 

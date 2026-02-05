@@ -31,7 +31,7 @@ namespace rfkt {
 			filter = device.newFilter("RT");
 			alpha_filter = device.newFilter("RT");
 
-			auto weights_list = rfkt::fs::list(rfkt::fs::working_directory() / "assets/denoise_weights/", rfkt::fs::filter::has_extension(".tza"));
+			auto weights_list = rfkt::fs::list(rfkt::fs::assets_directory() / "denoise_weights/", rfkt::fs::filter::has_extension(".tza"));
 			std::ranges::sort(weights_list, std::less{});
 
 			SPDLOG_INFO("Using OIDN weights: {}", weights_list.back().string());

@@ -51,6 +51,10 @@ struct xoroshiro64 : public rand_engine<xoroshiro64<FloatT>, FloatT> {
 	__device__ void init(u4 seed) {
 		a = 0xf1ea5eed;
 		b = seed;
+		rand(); rand(); rand(); rand();
+		rand(); rand(); rand(); rand();
+		rand(); rand(); rand(); rand();
+		rand(); rand(); rand(); rand();
 	}
 };
 

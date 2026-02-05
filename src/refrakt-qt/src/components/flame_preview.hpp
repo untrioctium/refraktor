@@ -105,7 +105,6 @@ private:
 
     QImage m_image;
     QFutureWatcher<QImage>* m_watcher = nullptr;
-    QFileSystemWatcher* m_fileWatcher = nullptr;
     QTimer* m_debounceTimer = nullptr;
     qreal m_pendingDpr = 1.0;
 };

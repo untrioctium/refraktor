@@ -2,6 +2,7 @@
 
 #include <librefrakt/image/tonemapper.hpp>
 #include <librefrakt/constants.hpp>
+#include <librefrakt/util/filesystem.hpp>
 
 #define RFKT_ASSERT(x) 
 
@@ -9,7 +10,7 @@ namespace rfkt {
 
 	tonemapper::tonemapper(ezrtc::compiler& km) {
 		auto tm_result = km.compile(
-			ezrtc::spec::source_file("tonemap", "assets/kernels/tonemap.cu")
+			ezrtc::spec::source_file("tonemap", (rfkt::fs::assets_directory() / "kernels/tonemap.cu").string())
 			.kernel("tonemap<half3>")
 			.kernel("tonemap<half4>")
 			.kernel("tonemap<float3>")

@@ -24,6 +24,19 @@ const path& rfkt::fs::working_directory() {
 	return working_directory_global();
 }
 
+path& assets_directory_global() {
+	static path assets_directory = rfkt::fs::working_directory() / "assets";
+	return assets_directory;
+}
+
+void rfkt::fs::set_assets_directory(const path& path) {
+	assets_directory_global() = path;
+}
+
+const path& rfkt::fs::assets_directory() {
+	return assets_directory_global();
+}
+
 const path& rfkt::fs::user_local_directory() {
 	const static path local_dir = []() -> path {
 		path local_path{};

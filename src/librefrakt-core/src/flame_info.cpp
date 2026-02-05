@@ -1,5 +1,7 @@
 #include <map>
 #include <yaml-cpp/yaml.h>
+#include <fstream>
+#include <iterator>
 
 #include <spdlog/spdlog.h>
 
@@ -7,6 +9,54 @@
 #include "librefrakt/flame_info.hpp"
 
 #include "flang/grammar.hpp"
+
+nlohmann::json yaml_to_json(const YAML::Node& node) {
+
+	switch(node.Type()) {
+		case YAML::NodeType::Null:
+			return nullptr;
+
+		case YAML::NodeType::Sequence: {
+			auto arr = nlohmann::json::array();
+			for(const auto& elem: node) {
+				arr.push_back(yaml_to_json(elem));
+			}
+			return arr;
+		}
+
+		case YAML::NodeType::Map: {
+			auto obj = nlohmann::json::object();
+			for(auto it = node.begin(); it != node.end(); it++) {
+				obj[it->first.as<std::string>()] = yaml_to_json(it->second);
+			}
+			return obj;
+		}
+
+		case YAML::NodeType::Scalar: {
+			const auto& scalar = node.Scalar();
+
+			try {
+				std::size_t pos;
+				auto i = std::stoll(scalar, &pos);
+				if (pos == scalar.size()) return i;
+			} catch(...) {}
+
+			try {
+				std::size_t pos;
+				auto d = std::stod(scalar, &pos);
+				if (pos == scalar.size()) return d;
+			} catch(...) {}
+
+			if(scalar == "true" || scalar == "True" || scalar == "TRUE") return true;
+			if(scalar == "false" || scalar == "False" || scalar == "FALSE") return false;
+
+			return scalar;
+		}
+
+		default:
+			throw std::runtime_error("unsupported YAML node type");
+	}
+}
 
 std::optional<flang::semantic_error> validate_variation(const rfkt::flamedb::variation& v, std::span<std::string_view> common, const std::pair<flang::ast, std::optional<flang::ast>>& ast) {
 
@@ -57,7 +107,7 @@ std::optional<flang::semantic_error> validate_variation(const rfkt::flamedb::var
 	return std::nullopt;
 }
 
-void rfkt::initialize(rfkt::flamedb& fdb, std::string_view config_path)
+void rfkt::initialize(rfkt::flamedb& fdb, const nlohmann::json& vdefs, const nlohmann::json& cdefs)
 {
 	auto find_xcommon_calls = [](const flang::ast& src) -> std::set<std::string> {
 		using namespace flang::matchers;
@@ -75,18 +125,15 @@ void rfkt::initialize(rfkt::flamedb& fdb, std::string_view config_path)
 		return deps;
 	};
 
-	auto vdefs = YAML::LoadFile(std::string{ config_path } + "/variations_new.yml");
-	auto cdefs = YAML::LoadFile(std::string{ config_path } + "/common.yml");
-
 	std::vector<std::string> names;
 	for (auto it = vdefs.begin(); it != vdefs.end(); it++) {
-		names.push_back(it->first.as<std::string>());
+		names.push_back(it.key());
 	}
 	std::ranges::sort(names);
 
 	for (auto it = cdefs.begin(); it != cdefs.end(); it++) {
-		auto name = it->first.as<std::string>();
-		fdb.add_or_update_common(name, it->second.as<std::string>());
+		auto name = it.key();
+		fdb.add_or_update_common(name, it.value().get<std::string>());
 	}
 
 	for (const auto& name : names) {
@@ -94,21 +141,20 @@ void rfkt::initialize(rfkt::flamedb& fdb, std::string_view config_path)
 
 		def.name = name;
 
-		if (auto yml = vdefs[name]; yml.IsScalar()) {
-			def.source = yml.as<std::string>();
+		if (auto node = vdefs[name]; node.is_string()) {
+			def.source = node.get<std::string>();
 		}
 		else {
-			auto node = yml.as<YAML::Node>();
 
-			def.source = node["src"].as<std::string>();
+			def.source = node["src"].get<std::string>();
 
-			if (node["precalc"].IsScalar()) {
-				def.precalc_source = node["precalc"].as<std::string>();
+			if (node.contains("precalc") &&node["precalc"].is_string()) {
+				def.precalc_source = node["precalc"].get<std::string>();
 			}
 
-			if (node["tags"].IsSequence()) {
+			if (node.contains("tags") && node["tags"].is_array()) {
 				for (const auto& tag : node["tags"]) {
-					auto tag_str = tag.as<std::string>();
+					auto tag_str = tag.get<std::string>();
 
 					if (tag_str == "pad_affine") {
 						def.pad = rfkt::flamedb::pad_type::affine;
@@ -122,29 +168,46 @@ void rfkt::initialize(rfkt::flamedb& fdb, std::string_view config_path)
 				}
 			}
 
-			auto param = node["param"];
+			if (node.contains("param") && node["param"].is_object()) {
+				auto param = node["param"];
 
 
-			for (auto it = param.begin(); it != param.end(); it++) {
-				auto pdef = rfkt::flamedb::parameter{};
-				pdef.name = it->first.as<std::string>();
+				for (auto it = param.begin(); it != param.end(); it++) {
+					auto pdef = rfkt::flamedb::parameter{};
+					pdef.name = it.key();
+					auto& value = it.value();
 
-				if (it->second["default"].IsScalar()) pdef.default_value = it->second["default"].as<double>();
-				if (it->second["identity"].IsScalar()) pdef.identity_value = it->second["identity"].as<double>();
+					if (value.contains("default") && value["default"].is_number()) pdef.default_value = value["default"].get<double>();
+					if (value.contains("identity") && value["identity"].is_number()) pdef.identity_value = value["identity"].get<double>();
 
-				if (it->second["tags"].IsSequence()) {
-					for (const auto& tag : it->second["tags"]) {
-						pdef.tags.insert(tag.as<std::string>());
+					if (value.contains("tags") && value["tags"].is_array()) {
+						for (const auto& tag : value["tags"]) {
+							pdef.tags.insert(tag.get<std::string>());
+						}
 					}
-				}
 
-				def.parameters.emplace(pdef.name, std::move(pdef));
+					def.parameters.emplace(pdef.name, std::move(pdef));
+				}
 			}
 		}
 
 		fdb.add_or_update_variation(def);
 	}
 
+}
+
+void rfkt::initialize(rfkt::flamedb& fdb, std::string_view config_path)
+{
+	auto variations_stream = std::ifstream{ std::string{ config_path } + "/variations_new.yml" };
+	auto common_stream = std::ifstream{ std::string{ config_path } + "/common.yml" };
+
+	auto variations_data = std::string{ std::istreambuf_iterator<char>{variations_stream}, std::istreambuf_iterator<char>{} };
+	auto common_data = std::string{ std::istreambuf_iterator<char>{common_stream}, std::istreambuf_iterator<char>{} };
+
+	auto vdefs = YAML::Load(variations_data);
+	auto cdefs = YAML::Load(common_data);
+
+	initialize(fdb, yaml_to_json(vdefs), yaml_to_json(cdefs));
 }
 
 namespace rfkt {
@@ -317,5 +380,61 @@ namespace rfkt {
 		ret["linear"].weight = 1.0;
 
 		return ret;
+	}
+
+	std::string flamedb::serialize() const noexcept {
+		nlohmann::json js;
+
+		auto variations_js = nlohmann::json::object();
+		for (const auto& [vname, var] : variations_) {
+			auto var_js = nlohmann::json::object();
+			var_js["src"] = var.source;
+			if (var.precalc_source) {
+				var_js["precalc"] = var.precalc_source.value();
+			}
+
+			if(var.parameters.size() > 0) {
+				auto parameters_js = nlohmann::json::object();
+
+				for (const auto& [pname, pdef] : var.parameters) {
+					auto pdef_js = nlohmann::json::object();
+					if (pdef.default_value) {
+						pdef_js["default"] = pdef.default_value.value();
+					}
+					if (pdef.identity_value) {
+						pdef_js["identity"] = pdef.identity_value.value();
+					}
+					if (pdef.tags.size() > 0) {
+						pdef_js["tags"] = nlohmann::json::array();
+						for (const auto& tag : pdef.tags) {
+							pdef_js["tags"].push_back(tag);
+						}
+					}
+					parameters_js[pname] = std::move(pdef_js);
+				}
+				var_js["parameters"] = std::move(parameters_js);
+			}
+
+			if(var.tags.size() > 0) {
+				var_js["tags"] = nlohmann::json::array();
+				for (const auto& tag : var.tags) {
+					var_js["tags"].push_back(tag);
+				}
+			}
+
+			variations_js[vname] = std::move(var_js);
+
+		}
+
+		js["variations"] = std::move(variations_js);
+
+
+		auto common_js = nlohmann::json::object();
+		for (const auto& [cname, cdef] : common_) {
+			common_js[cname] = cdef;
+		}
+		js["common"] = std::move(common_js);
+
+		return js.dump(4);
 	}
 }

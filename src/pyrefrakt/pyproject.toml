@@ -1,0 +1,15 @@
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pyrefrakt"
+version = "0.1.0"
+description = "Python bindings for refrakt"
+
+[tool.setuptools]
+packages = ["pyrefrakt"]
+package-dir = {"" = "."}
+
+[tool.setuptools.package-data]
+pyrefrakt = ["*.pyd", "*.so"]

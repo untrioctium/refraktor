@@ -10,7 +10,7 @@
 #include <future>
 
 #include <librefrakt/traits/noncopyable.hpp>
-#include <librefrakt/gpu_buffer.hpp>
+#include <roccu_cpp_types.hpp>
 #include <librefrakt/util/cuda.hpp>
 
 namespace rfkt::gl {

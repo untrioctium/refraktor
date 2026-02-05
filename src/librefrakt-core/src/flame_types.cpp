@@ -30,7 +30,7 @@ std::vector<double> string_to_doubles(std::string_view s) {
 	return ret;
 }
 
-rfkt::xform from_flam3_xml(const rfkt::flamedb& fdb, const pugi::xml_node& node) noexcept
+std::expected<rfkt::xform, std::string> from_flam3_xml(const rfkt::flamedb& fdb, const pugi::xml_node& node) noexcept
 {
 	auto xf = rfkt::xform{};
 	auto vlinks = std::array<rfkt::vlink, 3>{};
@@ -95,13 +95,16 @@ rfkt::xform from_flam3_xml(const rfkt::flamedb& fdb, const pugi::xml_node& node)
 			if (!cur_vl.has_variation(vname)) {
 				cur_vl.add_variation(fdb.make_vardata(vname));
 			}
+			if(!fdb.is_parameter(vname, pname)) {
+				return std::unexpected(std::format("Unknown xform parameter: {}/{}", vname, pname));
+			}
 			cur_vl[vname][pname] = attr.as_double();
 		}
 		else if (aname == "animate") {
 			if (attr.as_double() == 1) vlinks[1].mod_rotate.call_info = { "increase", {{"per_loop", 360.0}} };
 		}
 		else if (aname != "chaos") {
-			SPDLOG_WARN("Unknown xform attribute: {}", aname);
+			return std::unexpected(std::format("Unknown xform attribute: {}", aname));
 		}
 	}
 
@@ -120,7 +123,7 @@ rfkt::xform from_flam3_xml(const rfkt::flamedb& fdb, const pugi::xml_node& node)
 		xf.vchain.emplace_back(std::move(vlinks[2]));
 	}
 
-	return xf;
+	return std::expected<rfkt::xform, std::string>{std::in_place, std::move(xf)};
 }
 
 constexpr bool is_hex(char value) {
@@ -134,12 +137,12 @@ constexpr unsigned char hex_to_int(char value) {
 	return 0;
 }
 
-auto rfkt::import_flam3(const flamedb& fdb, std::string_view content) noexcept -> std::optional<flame>
+auto rfkt::import_flam3(const flamedb& fdb, std::string_view content) noexcept -> std::expected<flame, std::string>
 {
 	auto doc = pugi::xml_document();
 
 	if (auto result = doc.load_string(content.data()); !result) {
-		return std::nullopt;
+		return std::unexpected(result.description());
 	}
 
 	auto ret = flame{};
@@ -177,11 +180,19 @@ auto rfkt::import_flam3(const flamedb& fdb, std::string_view content) noexcept -
 			chaos_table[xid] = chaos.as_string();
 		}
 		xid++;
-		ret.add_xform(from_flam3_xml(fdb, node));
+		if(auto xf = from_flam3_xml(fdb, node); !xf) {
+			return std::unexpected(std::format("Could not parse xform {}: {}", xid, xf.error()));
+		} else {
+			ret.add_xform(std::move(*xf));
+		}
 	}
 
 	if(auto fnode = flame_node.child("finalxform"); fnode) {
-		ret.final_xform = from_flam3_xml(fdb, fnode); 
+		if(auto xf = from_flam3_xml(fdb, fnode); !xf) {
+			return std::unexpected(std::format("Could not parse final xform: {}", xf.error()));
+		} else {
+			ret.final_xform = std::move(*xf);
+		}
 	}
 
 	if (auto pnode = flame_node.child("palette"); pnode) {
@@ -234,6 +245,10 @@ auto rfkt::import_flam3(const flamedb& fdb, std::string_view content) noexcept -
 		ret.add_chaos();
 		for (const auto& [idx, chaos] : chaos_table) {
 			auto vals = string_to_doubles(chaos);
+
+			if(vals.size() != ret.xforms().size()) {
+				return std::unexpected(std::format("Chaos table size mismatch: {} != {}", vals.size(), ret.xforms().size()));
+			}
 
 			for (int j = 0; j < ret.xforms().size(); j++) {
 				ret.chaos_table.value()[idx][j].t0 = vals[j];

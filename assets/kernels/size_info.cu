@@ -8,7 +8,6 @@ using sample_state_t = flamelib::sample_state_tmpl<void_t, Real, xoroshiro64<Rea
 
 template<unsigned long long ThreadsPerBlock, typename Real>
 __device__ unsigned long long calc_size() {
-    printf("sizeof(sample_state_t<Real, %llu>) = %llu\n", ThreadsPerBlock, sizeof(sample_state_t<Real, ThreadsPerBlock>));
     return sizeof(sample_state_t<Real, ThreadsPerBlock>);
 }
 

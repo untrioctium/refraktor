@@ -1,13 +1,5 @@
 #include "ezrtc.hpp"
 
-#ifdef EZRTC_USE_FMTLIB
-#include <fmt/fmt.h>
-#define EZRTC_FMT_IMPL fmt::format
-#else
-#include <format>
-#define EZRTC_FMT_IMPL std::format
-#endif
-
 #ifdef EZRTC_ENABLE_RTTI
 #define NVRTC_GET_TYPE_NAME 1
 #endif
@@ -722,6 +714,12 @@ std::string_view ezrtc::spec::signature() const {
 		sha1.process_bytes(hsource);
 	}
 
+	if (!structs.type_definitions.empty()) {
+		sha1.process_bytes(structs.type_definitions);
+		if (structs.needs_device_span) sha1.process_bytes(structs.device_span_def);
+		if (structs.needs_device_array) sha1.process_bytes(structs.device_array_def);
+	}
+
 	const auto digest = sha1.get_digest();
 
 	cached_signature = EZRTC_FMT_IMPL(
@@ -974,6 +972,22 @@ ezrtc::compiler::result ezrtc::compiler::compile(const ezrtc::spec& s) {
 
 	for (const auto& [_, value] : s.defines) {
 		compile_options.push_back(value.c_str());
+	}
+
+	auto struct_def = std::string{};
+	if (!s.structs.type_definitions.empty()) {
+		header_names.push_back("user_structs.hpp");
+
+		if (s.structs.needs_device_span) {
+			struct_def += s.structs.device_span_def;
+		}
+		if (s.structs.needs_device_array) {
+			struct_def += s.structs.device_array_def;
+		}
+		struct_def += s.structs.type_definitions;
+		header_contents.push_back(struct_def.c_str());
+
+		compile_options.push_back("--pre_include=<user_structs.hpp>");
 	}
 
 	using prog_scope = detail::scoped < rurtcProgram, [](rurtcProgram p) { rurtcDestroyProgram(&p); } > ;
