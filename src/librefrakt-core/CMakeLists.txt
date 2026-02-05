@@ -133,6 +133,18 @@ FetchContent_Declare(
   GIT_SHALLOW TRUE
 )
 
+# dlib
+FetchContent_Declare(
+    dlib
+    GIT_REPOSITORY https://github.com/davisking/dlib.git
+    GIT_TAG        v20.0
+    GIT_SHALLOW TRUE
+    DOWNLOAD_ONLY  YES   # Just fetch, don't add_subdirectory()
+)
+
+FetchContent_Populate(dlib)
+target_include_directories(librefrakt-core PRIVATE ${dlib_SOURCE_DIR})
+
 FetchContent_MakeAvailable(sol2)
 
 add_subdirectory(depend/flang)

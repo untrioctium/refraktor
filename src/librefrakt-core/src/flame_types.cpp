@@ -2,8 +2,13 @@
 #include <ranges>
 #include <array>
 #include <charconv>
+#include <cmath>
+#include <set>
+#include <algorithm>
 #include <spdlog/spdlog.h>
 #include <sol/sol.hpp>
+
+#include <glm/gtc/matrix_transform.hpp>
 
 #include "librefrakt/flame_info.hpp"
 #include "librefrakt/flame_types.hpp"
@@ -572,6 +577,476 @@ rfkt::hash_t rfkt::flame::value_hash() const noexcept
 	state.update(palette);
 
 	return state.digest();
+}
+
+rfkt::anima rfkt::anima::interpolate(anima o, double start_time, double length) const {
+	auto new_anima = anima{ t0 };
+	new_anima.call_info = call_info_value_t{};
+	auto& nargs = new_anima.call_info->args;
+
+	if (call_info) {
+		nargs["left.function"] = call_info->name;
+		for (const auto& [name, value] : call_info->args) {
+			nargs["left." + name] = value;
+		}
+	}
+
+	nargs["right.t0"] = o.t0;
+	if (o.call_info) {
+		nargs["right.function"] = o.call_info->name;
+		for (const auto& [name, value] : o.call_info->args) {
+			nargs["right." + name] = value;
+		}
+	}
+
+	nargs["start_time"] = start_time;
+	nargs["length"] = length;
+
+	return new_anima;
+}
+
+rfkt::affine rfkt::affine::rotated(double deg) const noexcept {
+	double rad = -glm::radians(deg);
+
+	glm::dmat4 m = {
+		a.t0, b.t0, 0, 0,
+		d.t0, e.t0, 0, 0,
+		0, 0, 1, 0,
+		0, 0, 0, 1
+	};
+
+	auto newmat = glm::rotate(m, rad, glm::dvec3(0, 0, 1));
+
+	return {
+		newmat[0][0], newmat[1][0], newmat[0][1], newmat[1][1], c.t0, f.t0
+	};
+}
+
+ordered_json rfkt::affine::serialize() const noexcept {
+	return ordered_json::array({ a.serialize(), d.serialize(), b.serialize(), e.serialize(), c.serialize(), f.serialize() });
+}
+
+std::optional<rfkt::affine> rfkt::affine::deserialize(const json& js, const function_table& ft) noexcept {
+	if (!js.is_array()) return std::nullopt;
+
+	auto arr = js.get<json::array_t>();
+	if (arr.size() != 6) return std::nullopt;
+
+	auto a = anima::deserialize(arr[0], ft);
+	auto d = anima::deserialize(arr[1], ft);
+	auto b = anima::deserialize(arr[2], ft);
+	auto e = anima::deserialize(arr[3], ft);
+	auto c = anima::deserialize(arr[4], ft);
+	auto f = anima::deserialize(arr[5], ft);
+
+	if (!a || !b || !c || !d || !e || !f) return std::nullopt;
+
+	return affine{ std::move(*a), std::move(*d), std::move(*b), std::move(*e), std::move(*c), std::move(*f) };
+}
+
+double rfkt::affine::distance(const rfkt::affine& o) const noexcept {
+	double dist = 0.0;
+	dist += std::pow(a.t0 - o.a.t0, 2);
+	dist += std::pow(b.t0 - o.b.t0, 2);
+	dist += std::pow(c.t0 - o.c.t0, 2);
+	dist += std::pow(d.t0 - o.d.t0, 2);
+	dist += std::pow(e.t0 - o.e.t0, 2);
+	dist += std::pow(f.t0 - o.f.t0, 2);
+	return std::sqrt(dist);
+}
+
+ordered_json rfkt::vardata::serialize() const noexcept {
+	if (parameters_.empty()) return weight.serialize();
+
+	ordered_json js;
+	js["weight"] = weight.serialize();
+	js["parameters"] = json::object();
+
+	for (const auto& [name, value] : parameters_) {
+		js["parameters"][name] = value.serialize();
+	}
+
+	return js;
+}
+
+rfkt::anima* rfkt::vardata::lookup(std::string_view path) {
+	auto [head, tail] = detail::split_path(path);
+	if (head == "weight") return &weight;
+	if (head == "parameter") {
+		auto [param_name, _] = detail::split_path(tail);
+		if(param_name.empty()) return nullptr;
+		auto iter = parameters_.find(param_name);
+		if(iter == parameters_.end()) return nullptr;
+		return &iter->second;
+	}
+	return nullptr;
+}
+
+void rfkt::vlink::add_to_hash(rfkt::hash::state_t& hs) const {
+	for (const auto& [name, _] : variations_) {
+		hs.update(name);
+	}
+}
+
+ordered_json rfkt::vlink::serialize() const noexcept {
+	ordered_json js;
+	js["transform"] = transform.serialize();
+	js["mod_x"] = mod_x.serialize();
+	js["mod_y"] = mod_y.serialize();
+	js["mod_scale"] = mod_scale.serialize();
+	js["mod_rotate"] = mod_rotate.serialize();
+	js["variations"] = ordered_json::object();
+
+	for (const auto& [name, value] : variations_) {
+		js["variations"][name] = value.serialize();
+	}
+
+	return js;
+}
+
+rfkt::vlink rfkt::vlink::identity() {
+	auto vl = vlink{};
+	vl.transform = affine::identity();
+	vl.add_variation(vardata::identity());
+	return vl;
+}
+
+rfkt::anima* rfkt::vlink::lookup(std::string_view path) {
+	auto [head, tail] = detail::split_path(path);
+	if (head == "transform") return transform.lookup(tail);
+	if (auto ptr = name_to_pointer(head); ptr) return &(this->*ptr);
+	if (head == "variation") {
+		auto [var_name, _] = detail::split_path(tail);
+		if(var_name.empty()) return nullptr;
+		auto iter = variations_.find(var_name);
+		if(iter == variations_.end()) return nullptr;
+		return iter->second.lookup(tail);
+	}
+	return nullptr;
+}
+
+double rfkt::vlink::similarity(const rfkt::vlink* o) const noexcept {
+	std::set<std::string_view> vars_a{};
+	std::set<std::string_view> vars_b{};
+
+	for(const auto& [name, data] : variations_) {
+		vars_a.insert(name);
+	}
+
+	for(const auto& [name, data] : o->variations_) {
+		vars_b.insert(name);
+	}
+
+	std::set<std::string_view> intersection {};
+	std::set_intersection(vars_a.begin(), vars_a.end(), vars_b.begin(), vars_b.end(), std::inserter(intersection, intersection.begin()));
+
+	auto union_size = vars_a.size() + vars_b.size() - intersection.size();
+	double jaccard_index = intersection.size() / static_cast<double>(union_size);
+
+	auto sum_weights = [](const rfkt::vlink& v) {
+		double total = 0.0;
+		for(const auto& [name, data] : v.variations_) {
+			total += std::abs(data.weight.t0);
+		}
+		return total;
+	};
+
+	auto total_weight_a = sum_weights(*this);
+	auto total_weight_b = sum_weights(*o);
+
+	double weight_sim = 0;
+	for(const auto name : intersection) {
+		double wa = variations_.find(name)->second.weight.t0 / total_weight_a;
+		double wb = o->variations_.find(name)->second.weight.t0 / total_weight_b;
+
+		weight_sim += 1.0 - std::abs(wa - wb) / std::max({wa, wb, 1e-6});
+	}
+	if(!intersection.empty()) weight_sim /= intersection.size();
+
+	return 0.5 * jaccard_index + 0.5 * weight_sim;
+}
+
+void rfkt::xform::add_to_hash(rfkt::hash::state_t& hs) const {
+	for (int i = 0; i < vchain.size(); i++) {
+		hs.update(0xBULL);
+		vchain[i].add_to_hash(hs);
+	}
+}
+
+ordered_json rfkt::xform::serialize() const noexcept {
+	ordered_json js;
+	js["weight"] = weight.serialize();
+	js["color"] = color.serialize();
+	js["color_speed"] = color_speed.serialize();
+	js["opacity"] = opacity.serialize();
+	js["vchain"] = ordered_json::array();
+
+	for (const auto& link : vchain) {
+		js["vchain"].emplace_back(link.serialize());
+	}
+
+	return js;
+}
+
+rfkt::xform rfkt::xform::identity() {
+	auto xf = xform{};
+	xf.weight = 0.0;
+	xf.color = 0.0;
+	xf.color_speed = 0.0;
+	xf.opacity = 1.0;
+	xf.vchain.emplace_back(vlink::identity());
+	return xf;
+}
+
+rfkt::anima* rfkt::xform::lookup(std::string_view path) {
+	auto [head, tail] = detail::split_path(path);
+	if (auto ptr = name_to_pointer(head); ptr) return &(this->*ptr);
+	if (head == "vlink") {
+		auto [vlink_idx, vlink_path] = detail::split_path(tail);
+		if(vlink_idx.empty()) return nullptr;
+		int idx = std::stoi(std::string(vlink_idx));
+		if(idx < 0 || idx >= vchain.size()) return nullptr;
+		return vchain[idx].lookup(vlink_path);
+	}
+	return nullptr;
+}
+
+void rfkt::flame::add_to_hash(rfkt::hash::state_t& hs) const {
+	auto order = canonical_xform_order();
+	for (auto idx : order) {
+		hs.update(0xDULL);
+		xforms_[idx].add_to_hash(hs);
+	}
+
+	if (final_xform.has_value()) {
+		hs.update(0xFULL);
+		final_xform->add_to_hash(hs);
+	}
+
+	if (chaos_table.has_value()) {
+		hs.update(0xCULL);
+	}
+}
+
+std::vector<std::size_t> rfkt::flame::canonical_xform_order() const {
+	auto indicies = std::vector<std::size_t>{};
+	indicies.resize(xforms_.size());
+
+	auto hashes = std::vector<rfkt::hash_t>{};
+	hashes.reserve(xforms_.size());
+	for (const auto& xf : xforms_) {
+		hashes.push_back(xf.hash());
+	}
+
+	std::iota(indicies.begin(), indicies.end(), 0);
+	std::sort(indicies.begin(), indicies.end(), [this, &hashes](std::size_t a, std::size_t b) {
+		return hashes[a] < hashes[b];
+	});
+
+	return indicies;
+}
+
+std::size_t rfkt::flame::size_reals() const noexcept {
+	auto size = final_xform ? final_xform->size_reals() : 0;
+
+	if (chaos_table.has_value()) {
+		size += xforms_.size() * (xforms_.size() + 1);
+	}
+
+	for (const auto& xf : xforms_) {
+		size += xf.size_reals();
+	}
+	return size + 13;
+}
+
+std::vector<std::size_t> rfkt::flame::affine_indices() const {
+
+	auto ret = std::vector<std::size_t>{};
+	ret.push_back(0);
+	ret.push_back(6);
+
+	constexpr static std::size_t flame_offset = 13;
+	constexpr static std::size_t xform_base_reals = 4;
+
+	std::size_t index = chaos_table.has_value() ? xforms_.size() * (xforms_.size() + 1): 0;
+	index += flame_offset;
+
+	auto order = canonical_xform_order();
+
+	for (auto idx : order) {
+		auto& xf = xforms_[idx];
+		index += xform_base_reals;
+
+		for (auto& vl : xf.vchain) {
+			ret.push_back(index);
+			index += vl.size_reals();
+		}
+	}
+
+	if (final_xform) {
+		index += xform_base_reals;
+
+		for (auto& vl : final_xform->vchain) {
+			ret.push_back(index);
+			index += vl.size_reals();
+		}
+	}
+
+	return ret;
+}
+
+rfkt::xform& rfkt::flame::add_xform(xform&& xf) noexcept {
+
+	if (chaos_table.has_value()) {
+		for(auto& row: chaos_table.value()) {
+			row.emplace_back(1.0);
+		}
+
+		chaos_table->emplace_back();
+		for(int i = 0; i < xforms_.size(); i++) {
+			chaos_table->back().emplace_back(1.0);
+		}
+	}
+
+	return xforms_.emplace_back(std::move(xf));
+}
+
+void rfkt::flame::add_chaos() noexcept {
+	if (chaos_table.has_value()) return;
+
+	chaos_table.emplace();
+	for(int i = 0; i < xforms_.size(); i++) {
+		chaos_table->emplace_back();
+		for(int j = 0; j < xforms_.size(); j++) {
+			chaos_table->back().emplace_back(1.0);
+		}
+	}
+}
+
+rfkt::anima* rfkt::flame::lookup(std::string_view path) {
+	auto [head, tail] = detail::split_path(path);
+	if (auto ptr = name_to_pointer(head); ptr) return &(this->*ptr);
+	if (head == "xform") {
+		auto [xform_idx, xform_path] = detail::split_path(tail);
+		if(xform_idx.empty()) return nullptr;
+		if(xform_idx == "final") return final_xform ? final_xform->lookup(xform_path) : nullptr;
+		int idx = std::stoi(std::string(xform_idx));
+		if(idx < 0 || idx >= xforms_.size()) return nullptr;
+		return xforms_[idx].lookup(xform_path);
+	}
+	return nullptr;
+}
+
+rfkt::interpolator::interpolator(const rfkt::flame& linit, const rfkt::flame& rinit, const rfkt::flamedb& fdb, bool interp_by_weight)
+{
+	left.flame = linit;
+	right.flame = rinit;
+
+	left.type_hash = linit.hash();
+	right.type_hash = rinit.hash();
+
+	left.value_hash = linit.value_hash();
+	right.value_hash = rinit.value_hash();
+
+	rebuild_sides(interp_by_weight, fdb);
+
+	for (int i = 0; i < left.flame.palette.size(); i++) {
+		auto diff = right.flame.palette[i][0] - left.flame.palette[i][0];
+
+		if (diff > 180) {
+			right.flame.palette[i][0] -= 360;
+		}
+		else if (diff < -180) {
+			right.flame.palette[i][0] += 360;
+		}
+	}
+}
+
+void rfkt::interpolator::interp_xforms(rfkt::xform& l, rfkt::xform& r, const rfkt::flamedb& fdb) {
+
+	const auto max_vlinks = std::max(l.vchain.size(), r.vchain.size());
+
+	while (l.vchain.size() < max_vlinks) {
+		l.vchain.emplace_back(fdb.make_padder(r.vchain[l.vchain.size()]));
+	}
+
+	while (r.vchain.size() < max_vlinks) {
+		r.vchain.emplace_back(fdb.make_padder(l.vchain[r.vchain.size()]));
+	}
+
+	for (int i = 0; i < max_vlinks; i++) {
+
+		auto& vll = l.vchain[i];
+		auto& vlr = r.vchain[i];
+
+		for (const auto& [name, vdata] : vll) {
+			if (!vlr.has_variation(name)) {
+				vlr.add_variation({ name, vdata });
+				vlr[name].weight = 0.0;
+			}
+		}
+
+		for (const auto& [name, vdata] : vlr) {
+			if (!vll.has_variation(name)) {
+				vll.add_variation({ name, vdata });
+				vll[name].weight = 0.0;
+			}
+		}
+	}
+}
+
+void rfkt::interpolator::rebuild_sides(bool interp_by_weight, const rfkt::flamedb& fdb) {
+	
+	const auto max_xforms = std::max(left.flame.xforms().size(), right.flame.xforms().size());
+
+	auto nleft = left.flame.xforms().size();
+	auto nright = right.flame.xforms().size();
+
+	if (interp_by_weight) {
+		for (int i = 0; i < right.flame.xforms().size(); i++) {
+			auto xfc = right.flame.xforms()[i];
+			left.flame.add_xform(std::move(xfc));
+		}
+
+		right.flame.clear_xforms();
+		for (int i = 0; i < left.flame.xforms().size(); i++) {
+			auto xfc = left.flame.xforms()[i];
+			right.flame.add_xform(std::move(xfc));
+		}
+
+		for (int i = nleft; i < left.flame.xforms().size(); i++) {
+			left.flame.xforms()[i].weight = 0.0;
+		}
+
+		for (int i = 0; i < nleft; i++) {
+			right.flame.xforms()[i].weight = 0.0;
+		}
+	}
+	else {
+		while (left.flame.xforms().size() < max_xforms) {
+			left.flame.add_xform({});
+		}
+
+		while (right.flame.xforms().size() < max_xforms) {
+			right.flame.add_xform({});
+		}
+
+		for (int i = 0; i < max_xforms; i++) {
+			interp_xforms(left.flame.xforms()[i], right.flame.xforms()[i], fdb);
+		}
+	}
+
+	if (left.flame.final_xform.has_value() && !right.flame.final_xform.has_value()) {
+		right.flame.final_xform = rfkt::xform{};
+	}
+
+	if (right.flame.final_xform.has_value() && !left.flame.final_xform.has_value()) {
+		left.flame.final_xform = rfkt::xform{};
+	}
+
+	if (left.flame.final_xform.has_value() && right.flame.final_xform.has_value()) {
+		interp_xforms(left.flame.final_xform.value(), right.flame.final_xform.value(), fdb);
+	}
 }
 
 void rfkt::flame_types::bind_to_lua(sol::state& state) {

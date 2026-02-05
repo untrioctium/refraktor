@@ -8,6 +8,7 @@
 #include <unordered_map>
 #include <thread>
 #include <random>
+#include <print>
 #include <span>
 #include <nlohmann/json.hpp>
 
@@ -469,9 +470,10 @@ std::string rfkt::flame_compiler::make_source(const flamedb& fdb, const rfkt::fl
         xfd[hash.str32()] = std::move(xf_def_js);
     }
 
+    auto order = f.canonical_xform_order();
     for (int i = 0; i <= f.xforms().size(); i++) {
         if (i == f.xforms().size() && !f.final_xform.has_value()) break;
-        auto& xf = (i == f.xforms().size()) ? f.final_xform.value() : f.xforms()[i];
+        auto& xf = (i == f.xforms().size()) ? f.final_xform.value() : f.xforms()[order[i]];
 
         xfs.push_back(json::object({
             {"hash", xf.hash().str32()},
@@ -572,6 +574,7 @@ auto rfkt::flame_compiler::prepare_flame_kernel(const flamedb& fdb, precision pr
             std::move(compile_result.log)
         );
         r.compile_ms = duration_ms;
+        std::print("{}\n", r.source);
     
         if (not compile_result.module.has_value()) {
             return r;

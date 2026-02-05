@@ -9,7 +9,6 @@
 #include <vector>
 #include <string_view>
 #include <variant>
-#include <set>
 #include <expected>
 
 #include <nlohmann/json.hpp>
@@ -90,31 +89,7 @@ namespace rfkt {
 
 		static std::optional<anima> deserialize(const json& js, const function_table& ft) noexcept;
 
-		anima interpolate(anima o, double start_time, double length) const {
-			auto new_anima = anima{ t0 };
-			new_anima.call_info = call_info_value_t{};
-			auto& nargs = new_anima.call_info->args;
-
-			if (call_info) {
-				nargs["left.function"] = call_info->name;
-				for (const auto& [name, value] : call_info->args) {
-					nargs["left." + name] = value;
-				}
-			}
-
-			nargs["right.t0"] = o.t0;
-			if (o.call_info) {
-				nargs["right.function"] = o.call_info->name;
-				for (const auto& [name, value] : o.call_info->args) {
-					nargs["right." + name] = value;
-				}
-			}
-
-			nargs["start_time"] = start_time;
-			nargs["length"] = length;
-
-			return new_anima;
-		}
+		anima interpolate(anima o, double start_time, double length) const;
 	};
 
 	template<typename Owner>
@@ -132,22 +107,7 @@ namespace rfkt {
 		anima c = 0.0;
 		anima f = 0.0;
 
-		affine rotated(double deg) const noexcept {
-			double rad = -glm::radians(deg);
-
-			glm::dmat4 m = {
-				a.t0, b.t0, 0, 0,
-				d.t0, e.t0, 0, 0,
-				0, 0, 1, 0,
-				0, 0, 0, 1
-			};
-
-			auto newmat = glm::rotate(m, rad, glm::dvec3(0, 0, 1));
-
-			return {
-				newmat[0][0], newmat[1][0], newmat[0][1], newmat[1][1], c.t0, f.t0
-			};
-		}
+		affine rotated(double deg) const noexcept;
 
 		affine scaled(double scale) const noexcept {
 			return { a.t0 * scale, d.t0 * scale, b.t0 * scale, e.t0 * scale, c.t0, f.t0 };
@@ -178,27 +138,9 @@ namespace rfkt {
 			return affine{ 1, 0, 0, 1, 0, 0 };
 		}
 
-		ordered_json serialize() const noexcept {
-			return ordered_json::array({ a.serialize(), d.serialize(), b.serialize(), e.serialize(), c.serialize(), f.serialize() });
-		}
+		ordered_json serialize() const noexcept;
 
-		static std::optional<affine> deserialize(const json& js, const function_table& ft) noexcept {
-			if (!js.is_array()) return std::nullopt;
-
-			auto arr = js.get<json::array_t>();
-			if (arr.size() != 6) return std::nullopt;
-
-			auto a = anima::deserialize(arr[0], ft);
-			auto d = anima::deserialize(arr[1], ft);
-			auto b = anima::deserialize(arr[2], ft);
-			auto e = anima::deserialize(arr[3], ft);
-			auto c = anima::deserialize(arr[4], ft);
-			auto f = anima::deserialize(arr[5], ft);
-
-			if (!a || !b || !c || !d || !e || !f) return std::nullopt;
-
-			return affine{ std::move(*a), std::move(*d), std::move(*b), std::move(*e), std::move(*c), std::move(*f) };
-		}
+		static std::optional<affine> deserialize(const json& js, const function_table& ft) noexcept;
 
 		template<typename Invoker>
 		std::pair<double, double> sample(std::pair<double, double> point, double t, Invoker invoker) {
@@ -235,16 +177,7 @@ namespace rfkt {
 			return nullptr;
 		}
 
-		double distance(const rfkt::affine& o) const noexcept {
-			double dist = 0.0;
-			dist += std::pow(a.t0 - o.a.t0, 2);
-			dist += std::pow(b.t0 - o.b.t0, 2);
-			dist += std::pow(c.t0 - o.c.t0, 2);
-			dist += std::pow(d.t0 - o.d.t0, 2);
-			dist += std::pow(e.t0 - o.e.t0, 2);
-			dist += std::pow(f.t0 - o.f.t0, 2);
-			return std::sqrt(dist);
-		}
+		double distance(const rfkt::affine& o) const noexcept;
 
 	};
 
@@ -312,19 +245,7 @@ namespace rfkt {
 
 		~vardata() = default;
 
-		ordered_json serialize() const noexcept {
-			if (parameters_.empty()) return weight.serialize();
-
-			ordered_json js;
-			js["weight"] = weight.serialize();
-			js["parameters"] = json::object();
-
-			for (const auto& [name, value] : parameters_) {
-				js["parameters"][name] = value.serialize();
-			}
-
-			return js;
-		}
+		ordered_json serialize() const noexcept;
 
 		static std::optional<vardata> deserialize(std::string_view name, const json& js, const function_table& ft, const flamedb& fdb);
 
@@ -342,17 +263,7 @@ namespace rfkt {
 			return { "linear", vardata{ 1.0, 0, {} } };
 		}
 
-		anima* lookup(std::string_view path) {
-			auto [head, tail] = detail::split_path(path);
-			if (head == "weight") return &weight;
-			if (head == "parameter") {
-				auto [param_name, _] = detail::split_path(tail);
-				if(param_name.empty()) return nullptr;
-				auto iter = parameters_.find(param_name);
-				if(iter == parameters_.end()) return nullptr;
-				return &iter->second;
-			}
-		}
+		anima* lookup(std::string_view path);
 
 	private:
 
@@ -405,11 +316,7 @@ namespace rfkt {
 			return variations_.contains(name);
 		}
 
-		void add_to_hash(rfkt::hash::state_t& hs) const {
-			for (const auto& [name, _] : variations_) {
-				hs.update(name);
-			}
-		}
+		void add_to_hash(rfkt::hash::state_t& hs) const;
 
 		template<typename T>
 		auto pack(T&& p) const noexcept {
@@ -460,21 +367,7 @@ namespace rfkt {
 			return size;
 		}
 
-		ordered_json serialize() const noexcept {
-			ordered_json js;
-			js["transform"] = transform.serialize();
-			js["mod_x"] = mod_x.serialize();
-			js["mod_y"] = mod_y.serialize();
-			js["mod_scale"] = mod_scale.serialize();
-			js["mod_rotate"] = mod_rotate.serialize();
-			js["variations"] = ordered_json::object();
-
-			for (const auto& [name, value] : variations_) {
-				js["variations"][name] = value.serialize();
-			}
-
-			return js;
-		}
+		ordered_json serialize() const noexcept;
 
 		static std::optional<vlink> deserialize(const json& js, const function_table& ft, const flamedb& fdb);
 
@@ -494,67 +387,11 @@ namespace rfkt {
 			return nullptr;
 		}
 
-		static vlink identity() {
-			auto vl = vlink{};
-			vl.transform = affine::identity();
-			vl.add_variation(vardata::identity());
-			return vl;
-		}
+		static vlink identity();
 
-		anima* lookup(std::string_view path) {
-			auto [head, tail] = detail::split_path(path);
-			if (head == "transform") return transform.lookup(tail);
-			if( auto ptr = name_to_pointer(head); ptr) return &(this->*ptr);
-			if (head == "variation") {
-				auto [var_name, _] = detail::split_path(tail);
-				if(var_name.empty()) return nullptr;
-				auto iter = variations_.find(var_name);
-				if(iter == variations_.end()) return nullptr;
-				return iter->second.lookup(tail);
-			}
-			return nullptr;
-		}
+		anima* lookup(std::string_view path);
 
-		double similarity(const rfkt::vlink* o) const noexcept {
-			std::set<std::string_view> vars_a{};
-			std::set<std::string_view> vars_b{};
-
-			for(const auto& [name, data] : variations_) {
-				vars_a.insert(name);
-			}
-
-			for(const auto& [name, data] : o->variations_) {
-				vars_b.insert(name);
-			}
-
-			std::set<std::string_view> intersection {};
-			std::set_intersection(vars_a.begin(), vars_a.end(), vars_b.begin(), vars_b.end(), std::inserter(intersection, intersection.begin()));
-
-			auto union_size = vars_a.size() + vars_b.size() - intersection.size();
-			double jaccard_index = intersection.size() / static_cast<double>(union_size);
-
-			auto sum_weights = [](const rfkt::vlink& v) {
-				double total = 0.0;
-				for(const auto& [name, data] : v.variations_) {
-					total += std::abs(data.weight.t0);
-				}
-				return total;
-			};
-
-			auto total_weight_a = sum_weights(*this);
-			auto total_weight_b = sum_weights(*o);
-
-			double weight_sim = 0;
-			for(const auto name : intersection) {
-				double wa = variations_.find(name)->second.weight.t0 / total_weight_a;
-				double wb = o->variations_.find(name)->second.weight.t0 / total_weight_b;
-
-				weight_sim += 1.0 - std::abs(wa - wb) / std::max({wa, wb, 1e-6});
-			}
-			if(!intersection.empty()) weight_sim /= intersection.size();
-
-			return 0.5 * jaccard_index + 0.5 * weight_sim;
-		}
+		double similarity(const rfkt::vlink* o) const noexcept;
 
 	private:
 		std::map<std::string, vardata, std::less<>> variations_;
@@ -568,12 +405,7 @@ namespace rfkt {
 
 		std::vector<vlink> vchain;
 
-		void add_to_hash(rfkt::hash::state_t& hs) const {
-			for (int i = 0; i < vchain.size(); i++) {
-				hs.update(0xBULL);
-				vchain[i].add_to_hash(hs);
-			}
-		}
+		void add_to_hash(rfkt::hash::state_t& hs) const;
 
 		template<typename T>
 		auto pack(T&& p) const noexcept {
@@ -604,20 +436,7 @@ namespace rfkt {
 			return size;
 		}
 
-		ordered_json serialize() const noexcept {
-			ordered_json js;
-			js["weight"] = weight.serialize();
-			js["color"] = color.serialize();
-			js["color_speed"] = color_speed.serialize();
-			js["opacity"] = opacity.serialize();
-			js["vchain"] = ordered_json::array();
-
-			for (const auto& link : vchain) {
-				js["vchain"].emplace_back(link.serialize());
-			}
-
-			return js;
-		}
+		ordered_json serialize() const noexcept;
 
 		static std::optional<xform> deserialize(const json& js, const function_table& ft, const flamedb& fdb);
 
@@ -637,28 +456,9 @@ namespace rfkt {
 			return nullptr;
 		}
 
-		static xform identity() {
-			auto xf = xform{};
-			xf.weight = 0.0;
-			xf.color = 0.0;
-			xf.color_speed = 0.0;
-			xf.opacity = 1.0;
-			xf.vchain.emplace_back(vlink::identity());
-			return xf;
-		}
+		static xform identity();
 
-		anima* lookup(std::string_view path) {
-			auto [head, tail] = detail::split_path(path);
-			if (auto ptr = name_to_pointer(head); ptr) return &(this->*ptr);
-			if (head == "vlink") {
-				auto [vlink_idx, vlink_path] = detail::split_path(tail);
-				if(vlink_idx.empty()) return nullptr;
-				int idx = std::stoi(std::string(vlink_idx));
-				if(idx < 0 || idx >= vchain.size()) return nullptr;
-				return vchain[idx].lookup(vlink_path);
-			}
-			return nullptr;
-		}
+		anima* lookup(std::string_view path);
 
 	};
 
@@ -691,42 +491,9 @@ namespace rfkt {
 
 		flame() = default;
 
-		void add_to_hash(rfkt::hash::state_t& hs) const {
-			for (const auto& xf : xforms_) {
-				hs.update(0xDULL);
-				xf.add_to_hash(hs);
-			}
+		void add_to_hash(rfkt::hash::state_t& hs) const;
 
-			if (final_xform.has_value()) {
-				hs.update(0xFULL);
-				final_xform->add_to_hash(hs);
-			}
-
-			if (chaos_table.has_value()) {
-				hs.update(0xCULL);
-			}
-		}
-
-		/*template<typename T>
-		auto pack(T&& p) const noexcept {
-			for (const auto& xf : xforms) {
-				xf.pack(std::forward<T>(p));
-			}
-			if (final_xform) final_xform->pack(std::forward<T>(p));
-		}*/
-
-		std::size_t size_reals() const noexcept {
-			auto size = final_xform ? final_xform->size_reals() : 0;
-
-			if (chaos_table.has_value()) {
-				size += xforms_.size() * (xforms_.size() + 1);
-			}
-
-			for (const auto& xf : xforms_) {
-				size += xf.size_reals();
-			}
-			return size + 13;
-		}
+		std::size_t size_reals() const noexcept;
 
 		template<typename Func>
 		affine make_screen_space_affine(int w, int h, double t, Func& invoker) const noexcept {
@@ -766,17 +533,19 @@ namespace rfkt {
 			p(plane_space.f.t0);
 			p(0.0); // space for weight sum
 
+			auto order = canonical_xform_order();
+
 			if (chaos_table.has_value()) {
-				for (const auto& row : chaos_table.value()) {
+				for(std::size_t row = 0; row < order.size(); row++) {
 					p(0.0); // space for weight sum
-					for (const auto& column : row) {
-						p(column.sample(t, i));
+					for(std::size_t col = 0; col < order.size(); col++) {
+						p(chaos_table.value()[order[row]][order[col]].sample(t, i));
 					}
 				}
 			}
 
-			for (const auto& xf : xforms_) {
-				xf.pack_sample(p, i, t);
+			for (auto idx : order) {
+				xforms_[idx].pack_sample(p, i, t);
 			}
 			if (final_xform) final_xform->pack_sample(p, i, t);
 
@@ -787,38 +556,7 @@ namespace rfkt {
 			}
 		}
 
-		std::vector<std::size_t> affine_indices() const {
-
-			auto ret = std::vector<std::size_t>{};
-			ret.push_back(0);
-			ret.push_back(6);
-
-			constexpr static std::size_t flame_offset = 13;
-			constexpr static std::size_t xform_base_reals = 4;
-
-			std::size_t index = chaos_table.has_value() ? xforms_.size() * (xforms_.size() + 1): 0;
-			index += flame_offset;
-
-			for (auto& xf: xforms_) {
-				index += xform_base_reals;
-
-				for (auto& vl : xf.vchain) {
-					ret.push_back(index);
-					index += vl.size_reals();
-				}
-			}
-
-			if (final_xform) {
-				index += xform_base_reals;
-
-				for (auto& vl : final_xform->vchain) {
-					ret.push_back(index);
-					index += vl.size_reals();
-				}
-			}
-
-			return ret;
-		}
+		std::vector<std::size_t> affine_indices() const;
 
 		template<typename Packer, typename Invoker>
 		void pack_samples(Packer& p, Invoker& i, double start, double offset, int count, int w, int h) const {
@@ -849,33 +587,9 @@ namespace rfkt {
 			chaos_table.reset();
 		}
 
-		auto& add_xform(xform&& xf) noexcept {
+		xform& add_xform(xform&& xf) noexcept;
 
-			if (chaos_table.has_value()) {
-				for(auto& row: chaos_table.value()) {
-					row.emplace_back(1.0);
-				}
-
-				chaos_table->emplace_back();
-				for(int i = 0; i < xforms_.size(); i++) {
-					chaos_table->back().emplace_back(1.0);
-				}
-			}
-
-			return xforms_.emplace_back(std::move(xf));
-		}
-
-		void add_chaos() noexcept {
-			if (chaos_table.has_value()) return;
-
-			chaos_table.emplace();
-			for(int i = 0; i < xforms_.size(); i++) {
-				chaos_table->emplace_back();
-				for(int j = 0; j < xforms_.size(); j++) {
-					chaos_table->back().emplace_back(1.0);
-				}
-			}
-		}
+		void add_chaos() noexcept;
 
 		ordered_json serialize() const noexcept;
 
@@ -914,23 +628,14 @@ namespace rfkt {
 			return nullptr;
 		}
 
-		anima* lookup(std::string_view path) {
-			auto [head, tail] = detail::split_path(path);
-			if (auto ptr = name_to_pointer(head); ptr) return &(this->*ptr);
-			if (head == "xform") {
-				auto [xform_idx, xform_path] = detail::split_path(tail);
-				if(xform_idx.empty()) return nullptr;
-				if(xform_idx == "final") return final_xform ? final_xform->lookup(xform_path) : nullptr;
-				int idx = std::stoi(std::string(xform_idx));
-				if(idx < 0 || idx >= xforms_.size()) return nullptr;
-				return xforms_[idx].lookup(xform_path);
-			}
-			return nullptr;
-		}
+		anima* lookup(std::string_view path);
 
 		rfkt::hash_t value_hash() const noexcept;
+		std::vector<std::size_t> canonical_xform_order() const;
 
 	private:
+
+		friend class interpolator;
 
 		std::vector<xform> xforms_;
 
@@ -1183,6 +888,70 @@ namespace rfkt {
 	};
 
 	class flamedb;
+
+	class interpolator {
+	public:
+		interpolator(const rfkt::flame& linit, const rfkt::flame& rinit, const rfkt::flamedb& fdb, bool interp_by_weight);
+
+		const rfkt::flame& left_flame() const { return left.flame; }
+		const rfkt::flame& right_flame() const { return right.flame; }
+
+		template<typename Packer, typename Invoker>
+		void pack_samples(Packer& p, Invoker& i, double start, double offset, int count, int w, int h, double mix) const {
+
+			auto l_samples = std::vector<double>{};
+			auto r_samples = std::vector<double>{};
+
+			auto lpack = [&l_samples](auto s) {
+				l_samples.push_back(s);
+			};
+
+			left.flame.pack_samples(lpack, i, start, offset, count, w, h);
+
+			auto rpack = [&r_samples](auto s) {
+				r_samples.push_back(s);
+			};
+			right.flame.pack_samples(rpack, i, start, offset, count, w, h);
+
+			for (int i = 0; i < l_samples.size(); i++) {
+				p(l_samples[i] * (1 - mix) + r_samples[i] * mix);
+			}
+
+		}
+
+		template<typename Invoker>
+		double interp_anima(const rfkt::accessor& at, Invoker& i, double t, double mix) const {
+			const auto* left_a = at.access(left.flame);
+			const auto* right_a = at.access(right.flame);
+
+			if (!left_a || !right_a) {
+				SPDLOG_ERROR("interp_anima: left or right flame field not found: {}", at.to_string());
+				return 0.0;
+			}
+
+			return left_a->sample(t, i) * (1 - mix) + right_a->sample(t, i) * mix;
+		}
+
+		template<typename Invoker>
+		double interp_anima(rfkt::anima_ptr<rfkt::flame> ptr, Invoker& i, double t, double mix) const {
+			return (left.flame.*ptr).sample(t, i) * (1 - mix) + (right.flame.*ptr).sample(t, i) * mix;
+		}
+
+	private:
+
+		static void interp_xforms(rfkt::xform& l, rfkt::xform& r, const rfkt::flamedb& fdb);
+		void rebuild_sides(bool interp_by_weight, const rfkt::flamedb& fdb);
+
+		struct side {
+			rfkt::flame flame;
+			rfkt::hash_t value_hash;
+			rfkt::hash_t type_hash;
+		};
+
+		side left;
+		side right;
+		
+	};
 
 	auto import_flam3(const flamedb&, std::string_view content) noexcept -> std::expected<flame, std::string>;
 }
