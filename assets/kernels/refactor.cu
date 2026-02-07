@@ -344,7 +344,64 @@ void warmup(
 
 constexpr static uint64 per_block = THREADS_PER_BLOCK;
 
-__device__ unsigned int pass_and_draw(unsigned int pass_idx, float4* const __restrict__ bins, const uint32 bins_w, const uint32 bins_h) {
+__device__ void warp_aggregated_write(
+    float4* __restrict__ bins,
+    int bin_idx,           // -1 if this thread has no valid hit
+    float4 contribution    // the RGBA contribution to add
+) {
+    const uint32 active = __activemask();
+    
+    const int match_idx = (bin_idx >= 0) ? bin_idx : -1 - (int)threadIdx.x;
+    
+    const uint32 match_mask = __match_any_sync(active, match_idx);
+    const int match_count = __popc(match_mask);
+    
+    if (__all_sync(active, match_count <= 1)) {
+        if (bin_idx >= 0) {
+            float4 bin = bins[bin_idx];
+            bin.x += contribution.x;
+            bin.y += contribution.y;
+            bin.z += contribution.z;
+            bin.w += contribution.w;
+            bins[bin_idx] = bin;
+        }
+        return;
+    }
+    
+    float4 sum = contribution;
+    
+    #pragma unroll
+    for (int delta = 1; delta < 32; delta *= 2) {
+        float4 other;
+        other.x = __shfl_xor_sync(match_mask, sum.x, delta);
+        other.y = __shfl_xor_sync(match_mask, sum.y, delta);
+        other.z = __shfl_xor_sync(match_mask, sum.z, delta);
+        other.w = __shfl_xor_sync(match_mask, sum.w, delta);
+        
+        // Only add if the other thread is in our match group
+        uint32 other_lane = (threadIdx.x % 32) ^ delta;
+        if (match_mask & (1u << other_lane)) {
+            sum.x += other.x;
+            sum.y += other.y;
+            sum.z += other.z;
+            sum.w += other.w;
+        }
+    }
+    
+    const int leader = __ffs(match_mask) - 1;
+    const bool is_leader = ((threadIdx.x % 32) == leader);
+    
+    if (bin_idx >= 0 && is_leader) {
+        float4 bin = bins[bin_idx];
+        bin.x += sum.x;
+        bin.y += sum.y;
+        bin.z += sum.z;
+        bin.w += sum.w;
+        bins[bin_idx] = bin;
+    }
+}
+
+__device__ unsigned int pass_and_draw(unsigned int pass_idx, float4* const __restrict__ bins, const uint32 bins_w, const uint32 bins_h, unsigned int* const __restrict__ warp_collisions) {
 	
 	auto transformed = flame_pass(pass_idx);
 	
@@ -355,32 +412,35 @@ __device__ unsigned int pass_and_draw(unsigned int pass_idx, float4* const __res
 		
 	state.flame.screen_space.apply(transformed.x, transformed.y);
 
-	transformed.x = trunc(transformed.x);
-	transformed.y = trunc(transformed.y);
+	transformed.x = int(roundf(transformed.x));
+	transformed.y = int(roundf(transformed.y));
 
+	float4 new_bin = {0.0f, 0.0f, 0.0f, 0.0f};
+
+	auto bin_idx = int(transformed.y) * bins_w + int(transformed.x);
 	unsigned int hit = 0;
 	if(transformed.x >= 0 && transformed.y >= 0 
 	&& transformed.x < bins_w && transformed.y < bins_h 
 	&& transformed.w > 0.0) {
-
-		float4& bin = bins[int(transformed.y) * bins_w + int(transformed.x)];
 
 		const auto palette_idx = transformed.z * 255.0f;
 
 		const auto& upper = state.palette[static_cast<unsigned char>(ceil(palette_idx))];
 		const auto& lower = state.palette[static_cast<unsigned char>(floor(palette_idx))];
 		auto mix = palette_idx - truncf(palette_idx);
+		auto factor = transformed.w / 255.0f;
 
-		float4 new_bin = bin;
-
-		new_bin.x += ((1.0_r - mix) * lower.x + mix * upper.x) / 255.0f * transformed.w;
-		new_bin.y += ((1.0_r - mix) * lower.y + mix * upper.y) / 255.0f * transformed.w;
-		new_bin.z += ((1.0_r - mix) * lower.z + mix * upper.z) / 255.0f * transformed.w;
+		new_bin.x += ((1.0_r - mix) * lower.x + mix * upper.x) * factor;
+		new_bin.y += ((1.0_r - mix) * lower.y + mix * upper.y) * factor;
+		new_bin.z += ((1.0_r - mix) * lower.z + mix * upper.z) * factor;
 		new_bin.w += transformed.w;
 
-		bin = new_bin;
 		hit = (unsigned int)(255.0f * transformed.w);
+	} else {
+		bin_idx = -1;
 	}
+
+	warp_aggregated_write(bins, bin_idx, new_bin);
 
 	return hit;
 }
@@ -400,7 +460,8 @@ void bin(
 	const unsigned long long* const __restrict__ warmup_hits,
 	unsigned long long* const __restrict__ earliest_start,
 	unsigned long long* const __restrict__ latest_stop,
-	unsigned int* const __restrict__ sample_indices)
+	unsigned int* const __restrict__ sample_indices,
+	unsigned int* const __restrict__ warp_collisions)
 {
 	
 	if(fl::is_block_leader()) {
@@ -433,7 +494,7 @@ void bin(
 			iter_info.loaded_sample = iter_info.current_sample;
 		}
 
-		unsigned int hit = pass_and_draw(iter_info.iter, bins, bins_w, bins_h);
+		unsigned int hit = pass_and_draw(iter_info.iter, bins, bins_w, bins_h, warp_collisions);
 		hit = fl::warp_reduce(hit);
 		if(fl::is_warp_leader()) {
 			atomicAdd(&state.tss_quality, hit);

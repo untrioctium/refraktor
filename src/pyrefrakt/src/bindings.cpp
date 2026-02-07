@@ -103,6 +103,50 @@ void render_image(const rfkt::flame& flame, std::string_view output_path, unsign
 
 }
 
+void render_image_interpolated(const rfkt::interpolator& interpolator, double mix, std::string_view output_path, unsigned int width, unsigned int height, double t, double fps, double seconds_per_loop, double quality_bailout, unsigned int millis_bailout, bool denoise) {
+    py::gil_scoped_release release;
+    ctx->cuda_ctx->make_current();
+    auto compile_result = ctx->flame_compiler->get_flame_kernel(*ctx->flamedb, rfkt::precision::f32, interpolator.left_flame());
+
+    if (!compile_result.kernel) {
+        throw std::runtime_error(compile_result.log);
+    }
+
+    auto loops_per_frame = 1.0 / (fps * seconds_per_loop);
+
+    auto samples = std::vector<double>{};
+    auto packer = [&samples](double v) { samples.push_back(v); };
+    auto invoker = ctx->functions->make_invoker();
+    auto offset = 1.1 * loops_per_frame;
+    interpolator.pack_samples(packer, invoker, t - offset * loops_per_frame, offset, 4, width, height, mix);
+
+    auto state = compile_result.kernel->warmup(*ctx->stream, samples, rfkt::uint2{width, height}, 0xdeadbeef, 100);
+    auto bin_result = compile_result.kernel->bin(*ctx->stream, state, {.millis = millis_bailout, .quality = quality_bailout}).get();
+
+    auto tonemapped = roccu::gpu_image<rfkt::half3>(width, height, *ctx->stream);
+    auto denoised = roccu::gpu_image<rfkt::half3>(width, height, *ctx->stream);
+    auto converted = roccu::gpu_image<rfkt::uchar3>(width, height, *ctx->stream);
+
+    auto tm_args = rfkt::tonemapper::args_t{
+        .quality = bin_result.quality,
+        .gamma = interpolator.interp_anima(&rfkt::flame::gamma, invoker, t, mix),
+        .brightness = interpolator.interp_anima(&rfkt::flame::brightness, invoker, t, mix),
+        .vibrancy = interpolator.interp_anima(&rfkt::flame::vibrancy, invoker, t, mix),
+        .hdr = false
+    };
+
+    ctx->tonemapper->run(state.bins, tonemapped, tm_args, *ctx->stream);
+    if(denoise) {
+        ctx->denoiser->denoise(tonemapped, denoised, *ctx->event);
+    } else {
+        denoised = std::move(tonemapped);
+    }
+    ctx->converter->to_uchar3(denoised, converted, *ctx->stream);
+    auto fut = ctx->jpeg_encoder->encode_image(converted, 100, *ctx->stream);
+    auto output = fut.get()();
+    rfkt::fs::write(rfkt::fs::path(output_path), (const char*)output.data(), output.size());
+}
+
 auto make_histogram(const rfkt::flame& flame, unsigned int width, unsigned int height, double t, double fps, double seconds_per_loop, double quality_bailout, unsigned int millis_bailout, std::uint32_t seed) 
     -> std::tuple<py::array_t<float>, double> {
 
@@ -147,7 +191,7 @@ PYBIND11_MODULE(_pyrefrakt, m, py::mod_gil_not_used()) {
 
     m.def("initialize", [](const std::string& config_path, const std::string& assets_path) {
 
-        spdlog::set_level(spdlog::level::off);
+        //spdlog::set_level(spdlog::level::off);
 
         if (ctx) {
             return;
@@ -222,8 +266,26 @@ PYBIND11_MODULE(_pyrefrakt, m, py::mod_gil_not_used()) {
         ctx->flame_compiler->get_flame_kernel(*ctx->flamedb, rfkt::precision::f32, flame);
     });
 
+    m.def("interpolate", [](const rfkt::flame& left, const rfkt::flame& right, bool by_weight) {
+        py::gil_scoped_release release;
+        return rfkt::interpolator(left, right, *ctx->flamedb, by_weight);
+    });
+
     m.def("render_image", &render_image,
         py::arg("flame"),
+        py::arg("output_path"),
+        py::arg("width"),
+        py::arg("height"),
+        py::arg("t") = 0.0,
+        py::arg("fps") = 30.0,
+        py::arg("seconds_per_loop") = 5.0,
+        py::arg("quality_bailout") = 128.0,
+        py::arg("millis_bailout") = 2000,
+        py::arg("denoise") = true);
+
+    m.def("render_image_interpolated", &render_image_interpolated,
+        py::arg("interpolator"),
+        py::arg("mix"),
         py::arg("output_path"),
         py::arg("width"),
         py::arg("height"),
@@ -257,6 +319,8 @@ PYBIND11_MODULE(_pyrefrakt, m, py::mod_gil_not_used()) {
     EXPOSE_VECTOR2_TYPE(double, double2);
     EXPOSE_VECTOR3_TYPE(double, double3);
     EXPOSE_VECTOR4_TYPE(double, double4);
+
+    py::class_<rfkt::interpolator>(m, "interpolator");
 
     py::class_<rfkt::anima>(m, "anima")
         .def(py::init<double>())

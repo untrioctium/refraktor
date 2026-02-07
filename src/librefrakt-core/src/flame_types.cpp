@@ -16,6 +16,8 @@
 #include "librefrakt/anima.hpp"
 #include "librefrakt/util/zlib.hpp"
 
+#include <dlib/optimization/max_cost_assignment.h>
+
 std::vector<double> string_to_doubles(std::string_view s) {
 	std::vector<double> ret{};
 	for (double v : s
@@ -251,12 +253,8 @@ auto rfkt::import_flam3(const flamedb& fdb, std::string_view content) noexcept -
 		for (const auto& [idx, chaos] : chaos_table) {
 			auto vals = string_to_doubles(chaos);
 
-			if(vals.size() != ret.xforms().size()) {
-				return std::unexpected(std::format("Chaos table size mismatch: {} != {}", vals.size(), ret.xforms().size()));
-			}
-
 			for (int j = 0; j < ret.xforms().size(); j++) {
-				ret.chaos_table.value()[idx][j].t0 = vals[j];
+				ret.chaos_table.value()[idx][j].t0 = (j >= vals.size())? 1.0: vals[j];
 			}
 		}
 	}
@@ -1023,6 +1021,23 @@ void rfkt::interpolator::rebuild_sides(bool interp_by_weight, const rfkt::flamed
 		}
 	}
 	else {
+
+		auto left_weight_sum = std::accumulate(left.flame.xforms().begin(), left.flame.xforms().end(), 0.0, [](double sum, const auto& xf) { return sum + xf.weight.t0; });
+		auto right_weight_sum = std::accumulate(right.flame.xforms().begin(), right.flame.xforms().end(), 0.0, [](double sum, const auto& xf) { return sum + xf.weight.t0; });
+
+		auto xform_distance = [&](const rfkt::xform& l, const rfkt::xform& r) {
+			double dist = 0.1 * std::abs(l.weight.t0/left_weight_sum - r.weight.t0/right_weight_sum);
+
+			if(!l.vchain.empty() && !r.vchain.empty()) {
+				dist += l.vchain[0].transform.distance(r.vchain[0].transform);
+				dist += (1.0 - l.vchain[0].similarity(&r.vchain[0])) * 2.0;
+			} else {
+				dist += 5.0;
+			}
+
+			return dist;
+		};
+
 		while (left.flame.xforms().size() < max_xforms) {
 			left.flame.add_xform({});
 		}
@@ -1030,6 +1045,23 @@ void rfkt::interpolator::rebuild_sides(bool interp_by_weight, const rfkt::flamed
 		while (right.flame.xforms().size() < max_xforms) {
 			right.flame.add_xform({});
 		}
+
+		auto cost_matrix = dlib::matrix<std::int64_t>(max_xforms, max_xforms);
+		for(int i = 0; i < max_xforms; i++) {
+			for(int j = 0; j < max_xforms; j++) {
+				cost_matrix(i, j) = static_cast<std::int64_t>(std::round(xform_distance(left.flame.xforms()[i], right.flame.xforms()[j]) * -1'000'000.0));
+			}
+		}
+
+		auto assignment = dlib::max_cost_assignment(cost_matrix);
+
+		std::vector<rfkt::xform> reordered_right(max_xforms);
+		for(int i = 0; i < max_xforms; i++) {
+			reordered_right[i] = std::move(right.flame.xforms()[assignment[i]]);
+			SPDLOG_INFO("xform {} -> {} (cost: {})", i, assignment[i], cost_matrix(i, assignment[i]));
+		}
+
+		right.flame.xforms_ = std::move(reordered_right);
 
 		for (int i = 0; i < max_xforms; i++) {
 			interp_xforms(left.flame.xforms()[i], right.flame.xforms()[i], fdb);
@@ -1046,6 +1078,21 @@ void rfkt::interpolator::rebuild_sides(bool interp_by_weight, const rfkt::flamed
 
 	if (left.flame.final_xform.has_value() && right.flame.final_xform.has_value()) {
 		interp_xforms(left.flame.final_xform.value(), right.flame.final_xform.value(), fdb);
+	}
+
+	if(left.flame.rotate.t0 - right.flame.rotate.t0 > 180.0) {
+		right.flame.rotate.t0 += 360.0;
+	}
+	else if(left.flame.rotate.t0 - right.flame.rotate.t0 < -180.0) {
+		right.flame.rotate.t0 -= 360.0;
+	}
+
+	auto left_weight_sum = std::accumulate(left.flame.xforms().begin(), left.flame.xforms().end(), 0.0, [](double sum, const auto& xf) { return sum + xf.weight.t0; });
+	auto right_weight_sum = std::accumulate(right.flame.xforms().begin(), right.flame.xforms().end(), 0.0, [](double sum, const auto& xf) { return sum + xf.weight.t0; });
+
+	for(int i = 0; i < left.flame.xforms().size(); i++) {
+		left.flame.xforms()[i].weight.t0 /= left_weight_sum;
+		right.flame.xforms()[i].weight.t0 /= right_weight_sum;
 	}
 }
 

@@ -177,7 +177,7 @@ struct __align__(sizeof(FloatT)) flame_t {
         <# endif #>
 
         // jitter screen_space a bit for antialiasing
-        auto jitter = rs->randgauss(1/3.0f);
+        auto jitter = rs->randgauss(0.5f);
         screen_space.c += jitter.x;
         screen_space.f += jitter.y;
 

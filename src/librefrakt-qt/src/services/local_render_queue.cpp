@@ -105,7 +105,7 @@ QFuture<QImage> LocalRenderQueue::requestRenderToQImage(const rfkt::flame& f, co
             auto start = std::chrono::high_resolution_clock::now();
 
             if (!kernel_result.kernel.has_value()) {
-                qDebug() << "Failed to compile kernel: " << kernel_result.log;
+                qInfo() << "Failed to compile kernel: " << kernel_result.log;
                 return QImage();
             }
 

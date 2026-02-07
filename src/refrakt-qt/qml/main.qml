@@ -144,7 +144,8 @@ ApplicationWindow {
                 source: ""
                 quality: 1000
                 denoise: true
-                upscale: true
+                upscale: false
+                maxRenderMillis: 34
                 
                 BusyIndicator {
                     anchors.centerIn: parent

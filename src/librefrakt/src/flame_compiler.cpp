@@ -574,7 +574,7 @@ auto rfkt::flame_compiler::prepare_flame_kernel(const flamedb& fdb, precision pr
             std::move(compile_result.log)
         );
         r.compile_ms = duration_ms;
-        std::print("{}\n", r.source);
+        //std::print("{}\n", r.source);
     
         if (not compile_result.module.has_value()) {
             return r;
@@ -817,6 +817,30 @@ auto rfkt::flame_compiler::make_opts(precision prec, const flame& f)->std::pair<
     return { most_blocks, opts };
 }
 
+struct bin_args {
+
+    RUdeviceptr in_state;
+    std::uint64_t quality_target;
+    std::uint32_t iter_bailout;
+    std::uint64_t time_bailout;
+
+    ezrtc::device_span<rfkt::float4> bins;
+    std::uint64_t bins_width;
+
+    ezrtc::device_span<std::uint64_t> quality_counter;
+    ezrtc::device_span<std::uint64_t> pass_counter;
+    ezrtc::device_span<bool> stop_render;
+
+    std::int32_t temporal_multiplier;
+    std::int32_t temporal_slicing;
+
+    ezrtc::device_span<std::uint64_t> warmup_hits;
+    ezrtc::device_span<std::uint64_t> earliest_start;
+    ezrtc::device_span<std::uint64_t> latest_stop;
+    ezrtc::device_span<unsigned int> sample_indices;
+
+};
+
 auto rfkt::flame_kernel::bin(roccu::gpu_stream& stream, flame_kernel::saved_state & state, const bailout_args& bo, int temporal_slicing) const -> std::future<bin_result>
 {
     using counter_type = std::size_t;
@@ -829,9 +853,12 @@ auto rfkt::flame_kernel::bin(roccu::gpu_stream& stream, flame_kernel::saved_stat
         std::size_t num_threads;
 
         roccu::gpu_span<std::size_t> qpx_dev;
+        roccu::gpu_span<std::uint64_t> warp_collisions;
+        std::span<std::uint64_t> warp_collisions_host;
 
         std::promise<flame_kernel::bin_result> promise{};
         std::span<std::size_t> qpx_host;
+        std::pair<std::size_t, std::size_t> bin_dims;
     };
 
     auto stream_state = std::make_shared<stream_state_t>();
@@ -846,6 +873,10 @@ auto rfkt::flame_kernel::bin(roccu::gpu_stream& stream, flame_kernel::saved_stat
     stream_state->qpx_dev = srt->dra.reserve<std::size_t>(num_counters);
     stream_state->qpx_dev.clear(stream);
 
+    stream_state->warp_collisions = srt->dra.reserve<std::size_t>(1);
+    stream_state->warp_collisions.clear(stream);
+    stream_state->warp_collisions_host = srt->pra.reserve<std::uint64_t>(1);
+    stream_state->bin_dims = {state.bins.width(), state.bins.height()};
     const auto ullmax = std::numeric_limits<std::size_t>::max();
     ruMemcpyHtoDAsync(stream_state->qpx_dev.ptr() + counter_size * 2, &ullmax, counter_size, stream);
 
@@ -875,9 +906,14 @@ auto rfkt::flame_kernel::bin(roccu::gpu_stream& stream, flame_kernel::saved_stat
             state.warmup_hits.ptr(),
             stream_state->qpx_dev.ptr() + 2 * counter_size,
             stream_state->qpx_dev.ptr() + 3 * counter_size,
-            srt->sample_shuf_bufs[exec.first * state.temporal_multiplier].ptr()
+            srt->sample_shuf_bufs[exec.first * state.temporal_multiplier].ptr(),
+            stream_state->warp_collisions.ptr()
         ));
     }
+
+    stream.host_func([stream_state]() {
+        stream_state->end = std::chrono::high_resolution_clock::now();
+    });
 
     auto bins_count = state.bins.area();
     auto num_blocks = bins_count / 256 + 1;
@@ -891,9 +927,19 @@ auto rfkt::flame_kernel::bin(roccu::gpu_stream& stream, flame_kernel::saved_stat
 	);
 
     stream_state->qpx_dev.to_host(stream_state->qpx_host, stream);
+    stream_state->warp_collisions.to_host(stream_state->warp_collisions_host, stream);
 
     stream.host_func([ss = stream_state](){
-        ss->end = std::chrono::high_resolution_clock::now();
+
+        //SPDLOG_INFO("Warp collision percentage: {:.2f}% of all draws on dims {}x{}", ss->warp_collisions_host[0] / (ss->qpx_host[0] / 255.0) * 100.0, ss->bin_dims.first, ss->bin_dims.second);
+
+        auto elapsed_ms = std::chrono::duration_cast<std::chrono::nanoseconds>(ss->end - ss->start).count() / 1e6;
+        auto megapasses_per_ms = ss->qpx_host[1] / 1e6 / elapsed_ms;
+        auto megadraws_per_ms = (ss->qpx_host[0] / 255.0) / 1e6 / elapsed_ms;
+        auto quality_per_ms = ss->qpx_host[0] / (ss->total_bins * 255.0) / elapsed_ms;
+
+        SPDLOG_INFO("{:.2f} megapasses/ms, {:.2f} megadraws/ms, {:.2f} quality/ms", megapasses_per_ms, megadraws_per_ms, quality_per_ms);
+        
         ss->promise.set_value(flame_kernel::bin_result{
             .quality = ss->qpx_host[0] / (ss->total_bins * 255.0),
             .elapsed_ms = (ss->qpx_host[3] - ss->qpx_host[2]) / 1e6,
