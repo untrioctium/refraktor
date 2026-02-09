@@ -344,6 +344,26 @@ void warmup(
 
 constexpr static uint64 per_block = THREADS_PER_BLOCK;
 
+__device__ void write_bin(float4* __restrict__ bins, int bin_idx, float4 contribution) {
+	if(bin_idx >= 0) {
+		float4 bin = bins[bin_idx];
+		bin.x += contribution.x;
+		bin.y += contribution.y;
+		bin.z += contribution.z;
+		bin.w += contribution.w;
+		bins[bin_idx] = bin;
+	}
+}
+
+__device__ void write_bin_atomic(float4* __restrict__ bins, int bin_idx, float4 contribution) {
+	if(bin_idx >= 0) {
+		atomicAdd(&bins[bin_idx].x, contribution.x);
+		atomicAdd(&bins[bin_idx].y, contribution.y);
+		atomicAdd(&bins[bin_idx].z, contribution.z);
+		atomicAdd(&bins[bin_idx].w, contribution.w);
+	}
+}
+
 __device__ void warp_aggregated_write(
     float4* __restrict__ bins,
     int bin_idx,           // -1 if this thread has no valid hit
@@ -358,12 +378,11 @@ __device__ void warp_aggregated_write(
     
     if (__all_sync(active, match_count <= 1)) {
         if (bin_idx >= 0) {
-            float4 bin = bins[bin_idx];
-            bin.x += contribution.x;
-            bin.y += contribution.y;
-            bin.z += contribution.z;
-            bin.w += contribution.w;
-            bins[bin_idx] = bin;
+            #ifdef FLAG_ATOMIC
+            write_bin_atomic(bins, bin_idx, contribution);
+            #else
+            write_bin(bins, bin_idx, contribution);
+            #endif
         }
         return;
     }
@@ -392,12 +411,11 @@ __device__ void warp_aggregated_write(
     const bool is_leader = ((threadIdx.x % 32) == leader);
     
     if (bin_idx >= 0 && is_leader) {
-        float4 bin = bins[bin_idx];
-        bin.x += sum.x;
-        bin.y += sum.y;
-        bin.z += sum.z;
-        bin.w += sum.w;
-        bins[bin_idx] = bin;
+        #ifdef FLAG_ATOMIC
+        write_bin_atomic(bins, bin_idx, sum);
+        #else
+        write_bin(bins, bin_idx, sum);
+        #endif
     }
 }
 
@@ -440,7 +458,15 @@ __device__ unsigned int pass_and_draw(unsigned int pass_idx, float4* const __res
 		bin_idx = -1;
 	}
 
+	#ifdef FLAG_WARP_AGGREGATED_WRITE
 	warp_aggregated_write(bins, bin_idx, new_bin);
+	#else
+	#ifdef FLAG_ATOMIC
+	write_bin_atomic(bins, bin_idx, new_bin);
+	#else
+	write_bin(bins, bin_idx, new_bin);
+	#endif
+	#endif
 
 	return hit;
 }
@@ -466,7 +492,7 @@ void bin(
 	
 	if(fl::is_block_leader()) {
 		iter_info.init(temporal_multiplier, temporal_slicing);
-		atomicMin(earliest_start, iter_info.start_time);
+		atomicMin(earliest_start, fl::time());
 
 		for(int i = 0; i < temporal_multiplier; i++) {
 			iter_info.sample_indices[i] = sample_indices[blockIdx.x + gridDim.x * i];

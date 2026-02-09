@@ -65,7 +65,14 @@ std::expected<rfkt::xform, std::string> from_flam3_xml(const rfkt::flamedb& fdb,
 		if (aname.starts_with("pre_")) {
 			which_vl = 0;
 			aname = aname.substr(4);
-			if (aname == "blur") aname = "gaussian_blur";
+			if (aname == "blur") {
+				aname = "gaussian_blur";
+				if(!vlinks[0].has_variation("linear")) {
+					vlinks[0].add_variation(fdb.make_vardata("linear"));
+				}
+
+				vlinks[0]["linear"].weight.t0 += 1.0;
+			}
 		}
 		else if (aname.starts_with("post_")) {
 			which_vl = 2;
@@ -1029,8 +1036,8 @@ void rfkt::interpolator::rebuild_sides(bool interp_by_weight, const rfkt::flamed
 			double dist = 0.1 * std::abs(l.weight.t0/left_weight_sum - r.weight.t0/right_weight_sum);
 
 			if(!l.vchain.empty() && !r.vchain.empty()) {
-				dist += l.vchain[0].transform.distance(r.vchain[0].transform);
-				dist += (1.0 - l.vchain[0].similarity(&r.vchain[0])) * 2.0;
+				dist += 1.0 - std::exp(-l.vchain[0].transform.distance(r.vchain[0].transform) / 1.5);
+				dist += (1.0 - l.vchain[0].similarity(&r.vchain[0])) * 4.0;
 			} else {
 				dist += 5.0;
 			}
@@ -1068,16 +1075,16 @@ void rfkt::interpolator::rebuild_sides(bool interp_by_weight, const rfkt::flamed
 		}
 	}
 
-	if (left.flame.final_xform.has_value() && !right.flame.final_xform.has_value()) {
-		right.flame.final_xform = rfkt::xform{};
-	}
-
-	if (right.flame.final_xform.has_value() && !left.flame.final_xform.has_value()) {
-		left.flame.final_xform = rfkt::xform{};
-	}
-
-	if (left.flame.final_xform.has_value() && right.flame.final_xform.has_value()) {
-		interp_xforms(left.flame.final_xform.value(), right.flame.final_xform.value(), fdb);
+	if(left.flame.final_xform.has_value() || right.flame.final_xform.has_value()) {
+		if (left.flame.final_xform.has_value() && !right.flame.final_xform.has_value()) {
+			right.flame.final_xform = rfkt::xform{};
+		}
+		if (right.flame.final_xform.has_value() && !left.flame.final_xform.has_value()) {
+			left.flame.final_xform = rfkt::xform{};
+		}
+		if (left.flame.final_xform.has_value() && right.flame.final_xform.has_value()) {
+			interp_xforms(left.flame.final_xform.value(), right.flame.final_xform.value(), fdb);
+		}
 	}
 
 	if(left.flame.rotate.t0 - right.flame.rotate.t0 > 180.0) {

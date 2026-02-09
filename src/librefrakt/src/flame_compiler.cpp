@@ -542,7 +542,7 @@ void rfkt::flame_compiler::add_to_hash(rfkt::hash::state_t& state)
     state.update(rfkt::fs::last_modified(rfkt::fs::assets_directory() / "kernels/include/refrakt/flamelib.h"));
 }
 
-auto rfkt::flame_compiler::prepare_flame_kernel(const flamedb& fdb, precision prec, const flame& f) -> std::move_only_function<result()>
+auto rfkt::flame_compiler::prepare_flame_kernel(const flamedb& fdb, precision prec, const flame& f, flag_set_t flags) -> std::move_only_function<result()>
 {
     if (fdb.hash() != last_flamedb_hash) {
         compiled_common.clear();
@@ -551,7 +551,7 @@ auto rfkt::flame_compiler::prepare_flame_kernel(const flamedb& fdb, precision pr
     }
 
     auto src = make_source(fdb, f);
-    auto [most_blocks, opts] = make_opts(prec, f);
+    auto [most_blocks, opts] = make_opts(prec, f, flags);
     opts.header("flame_generated.h", src);
 
     auto rand_src = rfkt::fs::read_string(rfkt::fs::assets_directory() / "kernels/include/refrakt/random.h");
@@ -604,9 +604,9 @@ auto rfkt::flame_compiler::prepare_flame_kernel(const flamedb& fdb, precision pr
     };
 }
 
-auto rfkt::flame_compiler::get_flame_kernel(const flamedb& fdb, precision prec, const flame& f) -> result
+auto rfkt::flame_compiler::get_flame_kernel(const flamedb& fdb, precision prec, const flame& f, flag_set_t flags) -> result
 {
-    return prepare_flame_kernel(fdb, prec, f)();
+    return prepare_flame_kernel(fdb, prec, f, flags)();
 }
 
 template<typename Contained>
@@ -758,7 +758,7 @@ rfkt::flame_compiler::flame_compiler(ezrtc::compiler* k_manager): km(k_manager)
 
 }
 
-auto rfkt::flame_compiler::make_opts(precision prec, const flame& f)->std::pair<roccu::execution_config, ezrtc::spec>
+auto rfkt::flame_compiler::make_opts(precision prec, const flame& f, flame_compiler::flag_set_t flags)->std::pair<roccu::execution_config, ezrtc::spec>
 {
     auto flame_real_count = f.size_reals();
     auto flame_size_bytes = ((prec == precision::f32) ? sizeof(float) : sizeof(double)) * flame_real_count;
@@ -781,13 +781,17 @@ auto rfkt::flame_compiler::make_opts(precision prec, const flame& f)->std::pair<
     // threads within a warp are already divergent.
     if (!f.chaos_table.has_value()) {
         const auto warp_size = roccu::context::current().device().warp_size();
-        while (exec_configs[most_blocks_idx].block / warp_size < 4) most_blocks_idx--;
+        while (exec_configs[most_blocks_idx].block / warp_size < 6) most_blocks_idx--;
     }
     //most_blocks_idx = 0;
     auto& most_blocks = exec_configs[most_blocks_idx];
 
 
     auto name = std::format("flame_{}_f{}_t{}_s{}", flame_hash.str64(), (prec == precision::f32) ? "32" : "64", most_blocks.grid, flame_real_count);
+
+    for (const auto& flag : flags) {
+        name += std::format("_{}", flag);
+    }
 
     auto opts = ezrtc::spec::source_file(name, (rfkt::fs::assets_directory() / "kernels/refactor.cu").string());
 
@@ -807,6 +811,10 @@ auto rfkt::flame_compiler::make_opts(precision prec, const flame& f)->std::pair<
         .variable("shuf_bufs")
         
         ;
+
+    for (const auto& flag : flags) {
+        opts.define(std::format("FLAG_{}", flag));
+    }
 
     if (f.chaos_table.has_value()) opts.define("USE_CHAOS");
     if (prec == precision::f64) opts.define("DOUBLE_PRECISION");
@@ -847,7 +855,7 @@ auto rfkt::flame_kernel::bin(roccu::gpu_stream& stream, flame_kernel::saved_stat
     static constexpr auto counter_size = sizeof(counter_type);
 
     struct stream_state_t {
-        std::chrono::steady_clock::time_point start = std::chrono::high_resolution_clock::now();
+        std::chrono::high_resolution_clock::time_point start;
         decltype(start) end;
         std::size_t total_bins;
         std::size_t num_threads;
@@ -866,29 +874,37 @@ auto rfkt::flame_kernel::bin(roccu::gpu_stream& stream, flame_kernel::saved_stat
     const auto num_counters = 5;
 
     stream_state->qpx_host = srt->pra.reserve<std::size_t>(num_counters);
+    
+    for (int i = 0; i < num_counters; i++) {
+        stream_state->qpx_host[i] = 0;
+    }
+
+    stream_state->qpx_host[2] = std::numeric_limits<std::size_t>::max();
 
     stream_state->total_bins = state.bins.area();
     stream_state->num_threads = exec.first * exec.second;
 
     stream_state->qpx_dev = srt->dra.reserve<std::size_t>(num_counters);
-    stream_state->qpx_dev.clear(stream);
+    stream_state->qpx_dev.from_host(stream_state->qpx_host, stream);
 
     stream_state->warp_collisions = srt->dra.reserve<std::size_t>(1);
-    stream_state->warp_collisions.clear(stream);
-    stream_state->warp_collisions_host = srt->pra.reserve<std::uint64_t>(1);
+    //stream_state->warp_collisions.clear(stream);
+    //stream_state->warp_collisions_host = srt->pra.reserve<std::uint64_t>(1);
     stream_state->bin_dims = {state.bins.width(), state.bins.height()};
     const auto ullmax = std::numeric_limits<std::size_t>::max();
-    ruMemcpyHtoDAsync(stream_state->qpx_dev.ptr() + counter_size * 2, &ullmax, counter_size, stream);
+    //ruMemcpyHtoDAsync(stream_state->qpx_dev.ptr() + counter_size * 2, &ullmax, counter_size, stream);
 
     auto klauncher = [&mod = this->mod, &stream, &exec = this->exec]<typename ...Ts>(Ts&&... args) {
         return mod("bin").launch(exec.first, exec.second, stream, true)(std::forward<Ts>(args)...);
     };
 
+    state.stopper.clear(stream);
+
     stream.host_func([stream_state]() {
         stream_state->start = std::chrono::high_resolution_clock::now();
+        SPDLOG_INFO("Bin started at {}", stream_state->start.time_since_epoch().count());
     });
 
-    state.stopper.clear(stream);
     {
         roccu::l2_persister persister{ state.bins.ptr(), state.bins.size_bytes(), 1.0f, stream};
 
@@ -913,25 +929,28 @@ auto rfkt::flame_kernel::bin(roccu::gpu_stream& stream, flame_kernel::saved_stat
 
     stream.host_func([stream_state]() {
         stream_state->end = std::chrono::high_resolution_clock::now();
+        SPDLOG_INFO("Bin ended at {}", stream_state->end.time_since_epoch().count());
     });
 
     auto bins_count = state.bins.area();
     auto num_blocks = bins_count / 256 + 1;
 
-    state.density_histogram.clear(stream);
+    /*state.density_histogram.clear(stream);
     srt->histogram.kernel().launch(num_blocks, 256, stream)(
 		state.bins.ptr(),
 		bins_count,
 		state.density_histogram.ptr(),
         stream_state->qpx_dev.ptr() + counter_size * 4
-	);
+	);*/
 
     stream_state->qpx_dev.to_host(stream_state->qpx_host, stream);
-    stream_state->warp_collisions.to_host(stream_state->warp_collisions_host, stream);
+    //stream_state->warp_collisions.to_host(stream_state->warp_collisions_host, stream);
 
     stream.host_func([ss = stream_state](){
 
         //SPDLOG_INFO("Warp collision percentage: {:.2f}% of all draws on dims {}x{}", ss->warp_collisions_host[0] / (ss->qpx_host[0] / 255.0) * 100.0, ss->bin_dims.first, ss->bin_dims.second);
+
+        SPDLOG_INFO("Recorded start at {}, end at {}", ss->start.time_since_epoch().count(), ss->end.time_since_epoch().count());
 
         auto elapsed_ms = std::chrono::duration_cast<std::chrono::nanoseconds>(ss->end - ss->start).count() / 1e6;
         auto megapasses_per_ms = ss->qpx_host[1] / 1e6 / elapsed_ms;
@@ -942,12 +961,12 @@ auto rfkt::flame_kernel::bin(roccu::gpu_stream& stream, flame_kernel::saved_stat
         
         ss->promise.set_value(flame_kernel::bin_result{
             .quality = ss->qpx_host[0] / (ss->total_bins * 255.0),
-            .elapsed_ms = (ss->qpx_host[3] - ss->qpx_host[2]) / 1e6,
+            .elapsed_ms = double(ss->qpx_host[3] - ss->qpx_host[2]) / 1e6,
             .total_passes = ss->qpx_host[1],
             .total_draws = ss->qpx_host[0] / 255,
             .total_bins = ss->total_bins,
             .passes_per_thread = double(ss->qpx_host[1]) / (ss->num_threads),
-            .max_density = ss->qpx_host[4] * 1.0
+            //.max_density = ss->qpx_host[4] * 1.0
         });
     });
 

@@ -152,6 +152,8 @@ namespace rfkt {
 	class flame_compiler: public traits::noncopyable, public traits::hashable {
 	public:
 
+		using flag_set_t = std::set<std::string>;
+
 		struct result: public traits::noncopyable {
 			std::optional<flame_kernel> kernel = std::nullopt;
 			std::string source = {};
@@ -178,8 +180,8 @@ namespace rfkt {
 
 		static_assert(std::move_constructible<result>);
 
-		auto get_flame_kernel(const flamedb& fdb, precision prec, const flame& f)-> result;
-		auto prepare_flame_kernel(const flamedb& fdb, precision prec, const flame& f)-> std::move_only_function<result()>;
+		auto get_flame_kernel(const flamedb& fdb, precision prec, const flame& f, flag_set_t flags = {})-> result;
+		auto prepare_flame_kernel(const flamedb& fdb, precision prec, const flame& f, flag_set_t flags = {})-> std::move_only_function<result()>;
 		std::string make_source(const flamedb& fdb, const rfkt::flame& f);
 
 		explicit flame_compiler(ezrtc::compiler* k_manager);
@@ -208,7 +210,7 @@ namespace rfkt {
 			return sample_bytes + iteration_info_size;
 		}
 
-		std::pair<roccu::execution_config, ezrtc::spec> make_opts(precision prec, const flame& f);
+		std::pair<roccu::execution_config, ezrtc::spec> make_opts(precision prec, const flame& f, flag_set_t flags);
 
 		ezrtc::compiler* km = nullptr;
 		std::map<std::size_t, roccu::gpu_buffer<unsigned short>> shuf_bufs;
