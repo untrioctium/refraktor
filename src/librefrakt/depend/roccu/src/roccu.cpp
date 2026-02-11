@@ -105,7 +105,7 @@ struct roccu_impl {
 static inline std::optional<roccu_impl> api; // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
 constinit inline static std::atomic_size_t mem_alloc_size = 0; // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
 
-inline static std::unordered_map<RUdeviceptr, std::pair<size_t, std::stacktrace>> mem_alloc_map = {}; // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
+inline static std::unordered_map<CUdeviceptr, std::pair<size_t, std::stacktrace>> mem_alloc_map = {}; // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
 inline static std::mutex mem_alloc_mutex = {}; // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
 
 enum hipDeviceAttribute_t {
@@ -241,20 +241,20 @@ enum hipDeviceAttribute_t {
     // Extended attributes for vendors
 };
 
-using attr_conv_func = std::add_pointer_t<int(RUdevice dev)>;
+using attr_conv_func = std::add_pointer_t<int(CUdevice dev)>;
 using attrib_conv = std::variant<hipDeviceAttribute_t, int, attr_conv_func>;
 
-const static std::unordered_map<RUdevice_attribute, attrib_conv> ru_to_hip_device_attribute = {
-    {RU_DEVICE_ATTRIBUTE_COMPUTE_CAPABILITY_MAJOR, hipDeviceAttributeComputeCapabilityMajor},
-    {RU_DEVICE_ATTRIBUTE_COMPUTE_CAPABILITY_MINOR, hipDeviceAttributeComputeCapabilityMinor},
-    {RU_DEVICE_ATTRIBUTE_MAX_PERSISTING_L2_CACHE_SIZE, 0},
-    {RU_DEVICE_ATTRIBUTE_RESERVED_SHARED_MEMORY_PER_BLOCK, 0},
-    {RU_DEVICE_ATTRIBUTE_MAX_BLOCKS_PER_MULTIPROCESSOR, 16},
-    {RU_DEVICE_ATTRIBUTE_MAX_THREADS_PER_MULTIPROCESSOR, hipDeviceAttributeMaxThreadsPerMultiProcessor},
-    {RU_DEVICE_ATTRIBUTE_WARP_SIZE, hipDeviceAttributeWarpSize},
-    {RU_DEVICE_ATTRIBUTE_MAX_THREADS_PER_BLOCK, hipDeviceAttributeMaxThreadsPerBlock},
-    {RU_DEVICE_ATTRIBUTE_MULTIPROCESSOR_COUNT, hipDeviceAttributeMultiprocessorCount},
-    {RU_DEVICE_ATTRIBUTE_MAX_SHARED_MEMORY_PER_MULTIPROCESSOR, hipDeviceAttributeMaxSharedMemoryPerMultiprocessor},
+const static std::unordered_map<CUdevice_attribute, attrib_conv> ru_to_hip_device_attribute = {
+    {CU_DEVICE_ATTRIBUTE_COMPUTE_CAPABILITY_MAJOR, hipDeviceAttributeComputeCapabilityMajor},
+    {CU_DEVICE_ATTRIBUTE_COMPUTE_CAPABILITY_MINOR, hipDeviceAttributeComputeCapabilityMinor},
+    {CU_DEVICE_ATTRIBUTE_MAX_PERSISTING_L2_CACHE_SIZE, 0},
+    {CU_DEVICE_ATTRIBUTE_RESERVED_SHARED_MEMORY_PER_BLOCK, 0},
+    {CU_DEVICE_ATTRIBUTE_MAX_BLOCKS_PER_MULTIPROCESSOR, 16},
+    {CU_DEVICE_ATTRIBUTE_MAX_THREADS_PER_MULTIPROCESSOR, hipDeviceAttributeMaxThreadsPerMultiProcessor},
+    {CU_DEVICE_ATTRIBUTE_WARP_SIZE, hipDeviceAttributeWarpSize},
+    {CU_DEVICE_ATTRIBUTE_MAX_THREADS_PER_BLOCK, hipDeviceAttributeMaxThreadsPerBlock},
+    {CU_DEVICE_ATTRIBUTE_MULTIPROCESSOR_COUNT, hipDeviceAttributeMultiprocessorCount},
+    {CU_DEVICE_ATTRIBUTE_MAX_SHARED_MEMORY_PER_MULTIPROCESSOR, hipDeviceAttributeMaxSharedMemoryPerMultiprocessor},
 };
 
 bool load_symbols(int flags) {
@@ -264,7 +264,7 @@ bool load_symbols(int flags) {
 
 	for(auto& [name, traits] : ru_map) {
         bool force_rtc = api->api == ROCCU_API_ROCM && std::string_view{ traits.name }.starts_with("Link");
-		const auto& lib = traits.source == RU_DRIVER && !force_rtc? api->driver_lib : api->rtc_lib.value();
+		const auto& lib = traits.source == CU_DRIVER && !force_rtc? api->driver_lib : api->rtc_lib.value();
 		auto symbol_name = api->api == ROCCU_API_CUDA ? traits.cuda_name : traits.rocm_name;
 
 		if (symbol_name == "NOOP") {
@@ -288,19 +288,19 @@ bool load_symbols(int flags) {
 
 	if (api->api == ROCCU_API_ROCM) {
 
-		ruGetErrorString = +[](RUresult result, const char** ret) {
-			auto original_func = reinterpret_cast<std::add_pointer_t<const char* (RUresult)>>(ruGetErrorString_dllsym);
+		cuGetErrorString = +[](CUresult result, const char** ret) {
+			auto original_func = reinterpret_cast<std::add_pointer_t<const char* (CUresult)>>(cuGetErrorString_dllsym);
 			*ret = original_func(result);
-			return RU_SUCCESS;
+			return CUDA_SUCCESS;
 		};
 
-        ruGetErrorName = +[](RUresult result, const char** ret) {
-            auto original_func = reinterpret_cast<std::add_pointer_t<const char* (RUresult)>>(ruGetErrorName_dllsym);
+        cuGetErrorName = +[](CUresult result, const char** ret) {
+            auto original_func = reinterpret_cast<std::add_pointer_t<const char* (CUresult)>>(cuGetErrorName_dllsym);
             *ret = original_func(result);
-            return RU_SUCCESS;
+            return CUDA_SUCCESS;
         };
 
-        ruDeviceGetAttribute = +[](int* value, RUdevice_attribute attr, int device) -> RUresult {
+        cuDeviceGetAttribute = +[](int* value, CUdevice_attribute attr, int device) -> CUresult {
 			auto lut = ru_to_hip_device_attribute.find(attr);
             if(lut == ru_to_hip_device_attribute.end()) {
                 __debugbreak();
@@ -308,20 +308,20 @@ bool load_symbols(int flags) {
 
             if(std::holds_alternative<int>(lut->second)) {
 				*value = std::get<int>(lut->second);
-				return RU_SUCCESS;
+				return CUDA_SUCCESS;
             }
             else if (std::holds_alternative<attr_conv_func>(lut->second)) {
                 *value = std::get<attr_conv_func>(lut->second)(device);
-                return RU_SUCCESS;
+                return CUDA_SUCCESS;
             }
             else {
-                auto hip_attr = std::bit_cast<RUdevice_attribute>(std::get<hipDeviceAttribute_t>(lut->second));
-                return ruDeviceGetAttribute_dllsym(value, hip_attr, device);
+                auto hip_attr = std::bit_cast<CUdevice_attribute>(std::get<hipDeviceAttribute_t>(lut->second));
+                return cuDeviceGetAttribute_dllsym(value, hip_attr, device);
             }
 		};
 
-        ruMemAllocHost = +[](void** ptr, size_t size) -> RUresult {
-			auto original_func = reinterpret_cast<std::add_pointer_t<RUresult(void**, size_t, int)>>(ruMemAllocHost_dllsym);
+        cuMemAllocHost = +[](void** ptr, size_t size) -> CUresult {
+			auto original_func = reinterpret_cast<std::add_pointer_t<CUresult(void**, size_t, int)>>(cuMemAllocHost_dllsym);
 			return original_func(ptr, size, 0);
 		};
 	
@@ -331,40 +331,40 @@ bool load_symbols(int flags) {
 }
 
 static void hook_allocation() {
-	ruMemAlloc = [](RUdeviceptr* ptr, size_t size) {
+	cuMemAlloc = [](CUdeviceptr* ptr, size_t size) {
 		std::scoped_lock lock(mem_alloc_mutex);
 		mem_alloc_size += size;
-		auto ret = ruMemAlloc_dllsym(ptr, size);
+		auto ret = cuMemAlloc_dllsym(ptr, size);
 		mem_alloc_map[*ptr] = { size, std::stacktrace::current() };
 		return ret;
 		};
 
-	ruMemFree = [](RUdeviceptr ptr) {
+	cuMemFree = [](CUdeviceptr ptr) {
 		std::scoped_lock lock(mem_alloc_mutex);
 		mem_alloc_size -= mem_alloc_map[ptr].first;
 		mem_alloc_map.erase(ptr);
-		return ruMemFree_dllsym(ptr);
+		return cuMemFree_dllsym(ptr);
 	};
 
-	ruMemAllocAsync = [](RUdeviceptr* ptr, size_t size, RUstream stream) {
+	cuMemAllocAsync = [](CUdeviceptr* ptr, size_t size, CUstream stream) {
 		std::scoped_lock lock(mem_alloc_mutex);
 
-		auto ret = ruMemAllocAsync_dllsym(ptr, size, stream);
+		auto ret = cuMemAllocAsync_dllsym(ptr, size, stream);
 		mem_alloc_map[*ptr] = { size, std::stacktrace::current() };
 
-		ruLaunchHostFunc(stream, [](void* ptr) {
-			mem_alloc_size += mem_alloc_map[reinterpret_cast<RUdeviceptr>(ptr)].first;
+		cuLaunchHostFunc(stream, [](void* ptr) {
+			mem_alloc_size += mem_alloc_map[reinterpret_cast<CUdeviceptr>(ptr)].first;
 		}, reinterpret_cast<void*>(*ptr));
 
 		return ret;
 	};
 
-	ruMemFreeAsync = [](RUdeviceptr ptr, RUstream stream) {
-		auto ret = ruMemFreeAsync_dllsym(ptr, stream);
+	cuMemFreeAsync = [](CUdeviceptr ptr, CUstream stream) {
+		auto ret = cuMemFreeAsync_dllsym(ptr, stream);
 
-		ruLaunchHostFunc(stream, [](void* ptr) {
+		cuLaunchHostFunc(stream, [](void* ptr) {
 			std::scoped_lock lock(mem_alloc_mutex);
-			RUdeviceptr dptr = reinterpret_cast<RUdeviceptr>(ptr);
+			CUdeviceptr dptr = reinterpret_cast<CUdeviceptr>(ptr);
 			mem_alloc_size -= mem_alloc_map[dptr].first;
 			mem_alloc_map.erase(dptr);
 

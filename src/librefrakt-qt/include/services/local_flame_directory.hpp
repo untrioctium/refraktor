@@ -15,7 +15,7 @@ public:
     RequestID getFlame(const QString& name) override;
 
     QFuture<QStringList> listFlamesAsync() override;
-    QFuture<FlameInfo> getFlameAsync(const QString& name);
+    QFuture<FlameInfo> getFlameAsync(const QString& name) override;
 
     static LocalFlameDirectory* instance();
 

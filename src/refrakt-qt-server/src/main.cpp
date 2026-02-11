@@ -150,7 +150,7 @@ int main(int argc, char* argv[])
         });
     });
 
-    auto port = 3000;
+    constexpr static auto port = 3000;
     auto tcpServer = QTcpServer();
 
     if (!tcpServer.listen(QHostAddress::Any, port)) {

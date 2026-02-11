@@ -9,9 +9,11 @@ rfkt::function_table::function_table() {
 	lua_sethook(vm.lua_state(), [](lua_State* L, lua_Debug*) {
 		sol::state_view vm = L;
 		auto instruction_count = vm["instruction_count"].get_or(0);
-		if (instruction_count > 1000000) {
+
+		constexpr static auto instruction_count_limit = 1000000;
+		if (instruction_count > instruction_count_limit) {
 			SPDLOG_ERROR("Instruction count exceeded");
-			luaL_error(L, "Instruction count exceeded");
+			luaL_error(L, "Instruction count exceeded"); // NOLINT(cppcoreguidelines-pro-type-vararg)
 		}
 		vm["instruction_count"] = instruction_count + instruction_count_step;
 	}, LUA_MASKCOUNT, instruction_count_step);
@@ -102,7 +104,7 @@ double rfkt::function_table::call_impl(std::string_view name, double t, double i
 		if(t >= start_time + length) return right_value;
 
 		double mix = (t - start_time) / length;
-		mix = 6 * mix * mix * mix * mix * mix - 15 * mix * mix * mix * mix + 10 * mix * mix * mix;
+		mix = 6 * mix * mix * mix * mix * mix - 15 * mix * mix * mix * mix + 10 * mix * mix * mix; // NOLINT(cppcoreguidelines-avoid-magic-numbers)
 		return left_value * (1 - mix) + right_value * mix;
 	}
 

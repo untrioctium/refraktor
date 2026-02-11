@@ -7,15 +7,16 @@
 #include <cstdio>
 #include <cstring>
 
+// NOLINTBEGIN(cppcoreguidelines-avoid-do-while)
 // NOLINTBEGIN(cppcoreguidelines-pro-type-vararg)
-#define EZRTC_CHECK_RURTC(expression)                              \
+#define EZRTC_CHECK_NVRTC(expression)                              \
 do {                                                               \
-	if (const auto result = expression; result != RURTC_SUCCESS) { \
+	if (const auto result = expression; result != NVRTC_SUCCESS) { \
 		printf("RTC error %d\n", result);						   \
 		throw std::runtime_error(                                  \
 			std::format(                                           \
 				"NVRTC error: {} caused by '{}'",                  \
-				rurtcGetErrorString(result),                       \
+				nvrtcGetErrorString(result),                       \
 				#expression)                                       \
 		);                                                         \
 	}                                                              \
@@ -23,9 +24,9 @@ do {                                                               \
 
 #define EZRTC_CHECK_ROCCU(expression)                              \
 do {                                                               \
-	if (const auto result = expression; result != RU_SUCCESS) {    \
+	if (const auto result = expression; result != CUDA_SUCCESS) {    \
 		const char* error_str = nullptr;                           \
-		ruGetErrorString(result, &error_str);                      \
+		cuGetErrorString(result, &error_str);                      \
 		throw std::runtime_error(                                  \
 			std::format(                                           \
 				"CUDA error: {} caused by '{}'",                   \
@@ -35,6 +36,7 @@ do {                                                               \
 } while(0)
 
 // NOLINTEND(cppcoreguidelines-pro-type-vararg)
+// NOLINTEND(cppcoreguidelines-avoid-do-while)
 
 namespace ezrtc::detail::hash {
 
@@ -63,6 +65,7 @@ namespace ezrtc::detail::hash {
 	*/
 
 	// NOLINTBEGIN(cppcoreguidelines-pro-bounds-constant-array-index)
+	// NOLINTBEGIN(cppcoreguidelines-avoid-magic-numbers)
 	class sha1 {
 	public:
 		using byte = std::uint8_t;
@@ -99,7 +102,7 @@ namespace ezrtc::detail::hash {
 				const auto to_copy = std::min(length - offset, bytes_left);
 
 
-				std::transform(start + offset, start + offset + to_copy, block.data() + block_index, [](char v) {return std::bit_cast<char, T>(v); });
+				std::transform(start + offset, start + offset + to_copy, block.data() + block_index, [](char v) {return std::bit_cast<char, T>(v); }); // NOLINT(cppcoreguidelines-pro-bounds-pointer-arithmetic)
 
 				block_index += to_copy;
 				process_if_needed();
@@ -119,7 +122,7 @@ namespace ezrtc::detail::hash {
 				const auto bytes_left = block_size - block_index;
 				const auto to_fill = std::min(count - i, bytes_left);
 
-				std::fill(block.data() + block_index, block.data() + block_index + to_fill, 0);
+				std::fill(block.data() + block_index, block.data() + block_index + to_fill, 0); // NOLINT(cppcoreguidelines-pro-bounds-pointer-arithmetic)
 
 				block_index += to_fill;
 				process_if_needed();
@@ -272,12 +275,13 @@ namespace ezrtc::detail::hash {
 			digest[4] += e;
 		}
 	};
+	// NOLINTEND(cppcoreguidelines-avoid-magic-numbers)
 	// NOLINTEND(cppcoreguidelines-pro-bounds-constant-array-index)
 }
 
-RUresult ezrtc::kernel::launch_impl(RUfunction f, dim3 grid, dim3 block, RUstream stream, bool cooperative, void** args) noexcept {
+CUresult ezrtc::kernel::launch_impl(CUfunction f, dim3 grid, dim3 block, CUstream stream, bool cooperative, void** args) noexcept {
 	if (cooperative) {
-		return ruLaunchCooperativeKernel(
+		return cuLaunchCooperativeKernel(
 			f,
 			grid.x, grid.y, grid.z,
 			block.x, block.y, block.z,
@@ -286,7 +290,7 @@ RUresult ezrtc::kernel::launch_impl(RUfunction f, dim3 grid, dim3 block, RUstrea
 		);
 	}
 	else {
-		return ruLaunchKernel(
+		return cuLaunchKernel(
 			f,
 			grid.x, grid.y, grid.z,
 			block.x, block.y, block.z,
@@ -303,25 +307,26 @@ namespace ezrtc::detail {
 	}
 
 	std::string get_arch() {
-		RUdevice dev{};
-		EZRTC_CHECK_ROCCU(ruCtxGetDevice(&dev));
+		CUdevice dev{};
+		EZRTC_CHECK_ROCCU(cuCtxGetDevice(&dev));
 
 		int major = 0;
 		int minor = 0;
-		EZRTC_CHECK_ROCCU(ruDeviceGetAttribute(&major, RU_DEVICE_ATTRIBUTE_COMPUTE_CAPABILITY_MAJOR, dev));
-		EZRTC_CHECK_ROCCU(ruDeviceGetAttribute(&minor, RU_DEVICE_ATTRIBUTE_COMPUTE_CAPABILITY_MINOR, dev));
+		EZRTC_CHECK_ROCCU(cuDeviceGetAttribute(&major, CU_DEVICE_ATTRIBUTE_COMPUTE_CAPABILITY_MAJOR, dev));
+		EZRTC_CHECK_ROCCU(cuDeviceGetAttribute(&minor, CU_DEVICE_ATTRIBUTE_COMPUTE_CAPABILITY_MINOR, dev));
 
 		return EZRTC_FMT_IMPL("sm_{}{}", major, minor);
 	}
 
 	std::string get_device_name() {
-		RUdevice dev{};
-		EZRTC_CHECK_ROCCU(ruCtxGetDevice(&dev));
+		CUdevice dev{};
+		EZRTC_CHECK_ROCCU(cuCtxGetDevice(&dev));
 
 		std::string buf;
-		buf.resize(128);
+		constexpr static auto initial_buffer_size = 128;
+		buf.resize(initial_buffer_size);
 
-		ruDeviceGetName(buf.data(), static_cast<int>(buf.size()), dev);
+		cuDeviceGetName(buf.data(), static_cast<int>(buf.size()), dev);
 		return buf;
 	}
 
@@ -379,9 +384,12 @@ namespace ezrtc::detail {
 
 		template<typename T>
 		T pop_a() noexcept {
-			auto ptr = bytes.data();
+			assert(has_a<T>());
+
+			auto result = T{};
+			std::memcpy(&result, bytes.data(), sizeof(T));
 			bytes = bytes.subspan(sizeof(T));
-			return *reinterpret_cast<const T*>(ptr);
+			return result;
 		}
 
 		bool has_long() const { return has_a<std::size_t>(); }
@@ -434,6 +442,7 @@ namespace ezrtc::detail {
 				return std::nullopt;
 			}
 
+			// NOLINTBEGIN(cppcoreguidelines-avoid-do-while, cppcoreguidelines-macro-usage)
 #define MUST_LONG(variable) \
 				if (not iter.has_long()) { return std::nullopt; } \
 			    auto variable = iter.pop_long()
@@ -451,7 +460,7 @@ namespace ezrtc::detail {
 						{ return std::nullopt; }    \
 					variable = iter.pop_str<decltype(variable)::value_type>(s_len); \
                 } while(0)                               
-
+			// NOLINTEND(cppcoreguidelines-avoid-do-while, cppcoreguidelines-macro-usage)
 
 			auto iter = metadata_iterator{ bytes };
 			auto md = metadata{};
@@ -537,28 +546,32 @@ namespace ezrtc::detail {
 
 			auto bytes = std::vector<char>{};
 			bytes.resize(n_bytes);
-			char* ptr = bytes.data();
+			std::span<char> ptr = bytes;
 
 			auto put_long = [&ptr](std::size_t l) noexcept {
-				*reinterpret_cast<std::size_t*>(ptr) = l;
-				ptr += sizeof(std::size_t);
+				assert(ptr.size() >= sizeof(std::size_t));
+				std::memcpy(ptr.data(), &l, sizeof(std::size_t));
+				ptr = ptr.subspan(sizeof(std::size_t));
 			};
 
 			auto put_len = [&ptr](std::uint16_t l) noexcept {
-				*reinterpret_cast<std::uint16_t*>(ptr) = l;
-				ptr += sizeof(std::uint16_t);
+				assert(ptr.size() >= sizeof(std::uint16_t));
+				std::memcpy(ptr.data(), &l, sizeof(std::uint16_t));
+				ptr = ptr.subspan(sizeof(std::uint16_t));
 			};
 
 			auto put_str = [&ptr, &put_len](std::string_view sv) {
 				put_len(sv.size());
-				sv.copy(ptr, sv.size());
-				ptr += sv.size();
+				assert(ptr.size() >= sv.size());
+				sv.copy(ptr.data(), sv.size());
+				ptr = ptr.subspan(sv.size());
 			};
 
 			auto put_str_u8 = [&ptr, &put_len](std::u8string_view sv) {
 				put_len(sv.size());
-				sv.copy((char8_t*)ptr, sv.size());
-				ptr += sv.size();
+				assert(ptr.size() >= sv.size());
+				std::memcpy(ptr.data(), sv.data(), sv.size());
+				ptr = ptr.subspan(sv.size());
 			};
 
 			put_long(serial);
@@ -621,8 +634,9 @@ namespace ezrtc::detail {
 
 std::optional<ezrtc::cuda_module> ezrtc::cuda_module::from_cubin(std::span<const char> cubin) {
 
+	constexpr static auto elf_magic = 0x7F;
 	if (cubin.size() < 4
-		|| cubin[0] != 0x7F
+		|| cubin[0] != elf_magic
 		|| cubin[1] != 'E'
 		|| cubin[2] != 'L'
 		|| cubin[3] != 'F'
@@ -631,8 +645,8 @@ std::optional<ezrtc::cuda_module> ezrtc::cuda_module::from_cubin(std::span<const
 	}
 
 	auto mod = cuda_module{};
-	if (const auto status = ruModuleLoadData(&mod.handle, cubin.data());
-		status != RU_SUCCESS) {
+	if (const auto status = cuModuleLoadData(&mod.handle, cubin.data());
+		status != CUDA_SUCCESS) {
 		return std::nullopt;
 	}
 	return mod;
@@ -641,10 +655,10 @@ std::optional<ezrtc::cuda_module> ezrtc::cuda_module::from_cubin(std::span<const
 bool ezrtc::cuda_module::load_kernel(std::string_view pretty, std::string_view mangled) {
 	if (mangled.back() != '\0') return false;
 
-	RUfunction f{};
+	CUfunction f{};
 
-	if (const auto status = ruModuleGetFunction(&f, handle, mangled.data());
-		status != RU_SUCCESS) {
+	if (const auto status = cuModuleGetFunction(&f, handle, mangled.data());
+		status != CUDA_SUCCESS) {
 		return false;
 	}
 
@@ -655,11 +669,11 @@ bool ezrtc::cuda_module::load_kernel(std::string_view pretty, std::string_view m
 bool ezrtc::cuda_module::load_variable(std::string_view pretty, std::string_view mangled) {
 	if (mangled.back() != '\0') return false;
 
-	RUdeviceptr ptr{};
+	CUdeviceptr ptr{};
 	std::size_t size{};
 
-	if (const auto status = ruModuleGetGlobal(&ptr, &size, handle, mangled.data());
-		status != RU_SUCCESS) {
+	if (const auto status = cuModuleGetGlobal(&ptr, &size, handle, mangled.data());
+		status != CUDA_SUCCESS) {
 		return false;
 	}
 
@@ -733,9 +747,9 @@ ezrtc::compiler::compiler(cache::handle kernel_cache) :
 	k_cache(std::move(kernel_cache)),
 	arch_flag("--gpu-architecture=" + detail::get_arch())
 {
-	RUcontext ctx{};
-	const auto status = ruCtxGetCurrent(&ctx);
-	if (status != RU_SUCCESS or not ctx) throw std::runtime_error("cannot create ezrtc::compiler without a CUDA context");
+	CUcontext ctx{};
+	const auto status = cuCtxGetCurrent(&ctx);
+	if (status != CUDA_SUCCESS or not ctx) throw std::runtime_error("cannot create ezrtc::compiler without a CUDA context");
 }
 
 bool ezrtc::compiler::find_system_cuda(const std::filesystem::path& hint) {
@@ -990,15 +1004,15 @@ ezrtc::compiler::result ezrtc::compiler::compile(const ezrtc::spec& s) {
 		compile_options.push_back("--pre_include=<user_structs.hpp>");
 	}
 
-	using prog_scope = detail::scoped < rurtcProgram, [](rurtcProgram p) { rurtcDestroyProgram(&p); } > ;
+	using prog_scope = detail::scoped < nvrtcProgram, [](nvrtcProgram p) { nvrtcDestroyProgram(&p); } > ;
 
 	auto attempts = 0;
 	auto make_program = [&]() {
 		while (true) {
 			attempts++;
-			rurtcProgram prog_handle{};
-			EZRTC_CHECK_RURTC(
-				rurtcCreateProgram(
+			nvrtcProgram prog_handle{};
+			EZRTC_CHECK_NVRTC(
+				nvrtcCreateProgram(
 					&prog_handle, s.source.c_str(), s.name_.c_str(),
 					header_names.size(), header_contents.data(), header_names.data()
 				)
@@ -1007,24 +1021,24 @@ ezrtc::compiler::result ezrtc::compiler::compile(const ezrtc::spec& s) {
 			auto prog = prog_scope{ prog_handle };
 
 			for (const auto& kernel : s.kernels) {
-				EZRTC_CHECK_RURTC(rurtcAddNameExpression(prog, kernel.c_str())); 
+				EZRTC_CHECK_NVRTC(nvrtcAddNameExpression(prog, kernel.c_str())); 
 			}
 
 			for (const auto& [_, expr] : s.variables) {
-				EZRTC_CHECK_RURTC(rurtcAddNameExpression(prog, expr.c_str()));
+				EZRTC_CHECK_NVRTC(nvrtcAddNameExpression(prog, expr.c_str()));
 			}
 
-			auto status = rurtcCompileProgram(prog, static_cast<int>(compile_options.size()), compile_options.data());
+			auto status = nvrtcCompileProgram(prog, static_cast<int>(compile_options.size()), compile_options.data());
 
 			ret.log.clear();
 			std::size_t log_size{};
-			EZRTC_CHECK_RURTC(rurtcGetProgramLogSize(prog, &log_size));
+			EZRTC_CHECK_NVRTC(nvrtcGetProgramLogSize(prog, &log_size));
 			if (log_size > 1) {
 				ret.log.resize(log_size);
-				EZRTC_CHECK_RURTC(rurtcGetProgramLog(prog, ret.log.data()));
+				EZRTC_CHECK_NVRTC(nvrtcGetProgramLog(prog, ret.log.data()));
 			}
 
-			if (status == RURTC_SUCCESS) {
+			if (status == NVRTC_SUCCESS) {
 				return std::make_pair(std::move(prog), status);
 			}
 			auto missing = find_missing_headers(ret.log);
@@ -1059,28 +1073,28 @@ ezrtc::compiler::result ezrtc::compiler::compile(const ezrtc::spec& s) {
 
 	auto&& [prog, status] = make_program();
 
-	if (status != RURTC_SUCCESS) {
+	if (status != NVRTC_SUCCESS) {
 		return ret;
 	}
 
 	std::size_t ptx_size{};
-	EZRTC_CHECK_RURTC(rurtcGetAssemblySize(prog, &ptx_size));
+	EZRTC_CHECK_NVRTC(nvrtcGetCUBINSize(prog, &ptx_size));
 	auto ptx = std::string(ptx_size + 1, '\0');
-	EZRTC_CHECK_RURTC(rurtcGetAssembly(prog, ptx.data()));
+	EZRTC_CHECK_NVRTC(nvrtcGetCUBIN(prog, ptx.data()));
 
 	/*
-	RUlinkState ls_handle;
-	EZRTC_CHECK_ROCCU(ruLinkCreate(0, 0, 0, &ls_handle));
-	using link_scope = detail::scoped<RUlinkState, [](RUlinkState p) { ruLinkDestroy(p); } >;
+	CUlinkState ls_handle;
+	EZRTC_CHECK_ROCCU(cuLinkCreate(0, 0, 0, &ls_handle));
+	using link_scope = detail::scoped<CUlinkState, [](CUlinkState p) { cuLinkDestroy(p); } >;
 	auto ls = link_scope{ ls_handle };
 
-	EZRTC_CHECK_ROCCU(ruLinkAddData(ls, RU_JIT_INPUT_PTX,
+	EZRTC_CHECK_ROCCU(cuLinkAddData(ls, CU_JIT_INPUT_PTX,
 		(void*)ptx.data(), ptx_size, s.name.c_str(),
 		0, 0, 0));
 
 	std::size_t cubin_size;
 	char* cubin;
-	EZRTC_CHECK_ROCCU(ruLinkComplete(ls, (void**)&cubin, &cubin_size));*/
+	EZRTC_CHECK_ROCCU(cuLinkComplete(ls, (void**)&cubin, &cubin_size));*/
 
 	auto handle = cuda_module::from_cubin({ ptx.data(), ptx_size });
 	if (not handle) {
@@ -1090,7 +1104,7 @@ ezrtc::compiler::result ezrtc::compiler::compile(const ezrtc::spec& s) {
 
 	auto get_lowered_name = [&prog](std::string_view expression) {
 		const char* name{};
-		EZRTC_CHECK_RURTC(rurtcGetLoweredName(prog, expression.data(), &name));
+		EZRTC_CHECK_NVRTC(nvrtcGetLoweredName(prog, expression.data(), &name));
 		return std::string_view{ name, std::strlen(name) + 1 }; // include null terminator
 	};
 

@@ -40,14 +40,14 @@ namespace ezrtc {
 
 	template<typename T>
 	struct device_span {
-		RUdeviceptr _ptr;
+		CUdeviceptr _ptr;
 		std::size_t _size;
 
 		constexpr auto ptr() const { return _ptr; }
 		constexpr auto size() const { return _size; }
 		constexpr auto size_bytes() const { return _size * sizeof(T); }
 
-		constexpr device_span(RUdeviceptr ptr, std::size_t size) noexcept : _ptr(ptr), _size(size) {}
+		constexpr device_span(CUdeviceptr ptr, std::size_t size) noexcept : _ptr(ptr), _size(size) {}
 
 		
 	};
@@ -271,33 +271,33 @@ namespace ezrtc {
 
 	class kernel {
 	private:
-		template<RUfunction_attribute a>
+		template<CUfunction_attribute a>
 		std::size_t attribute() const noexcept {
 			int ret{};
-			ruFuncGetAttribute(&ret, a, f);
+			cuFuncGetAttribute(&ret, a, f);
 			return static_cast<std::size_t>(ret);
 		}
 
-		static RUresult launch_impl(RUfunction f, dim3 grid, dim3 block, RUstream stream, bool cooperative, void** args) noexcept;
-		RUfunction f;
+		static CUresult launch_impl(CUfunction f, dim3 grid, dim3 block, CUstream stream, bool cooperative, void** args) noexcept;
+		CUfunction f;
 	public:
 
-		explicit kernel(RUfunction f) noexcept : f(f) {}
+		explicit kernel(CUfunction f) noexcept : f(f) {}
 
-		auto launch(dim3 grid, dim3 block, RUstream stream = nullptr, bool cooperative = false) const noexcept {
+		auto launch(dim3 grid, dim3 block, CUstream stream = nullptr, bool cooperative = false) const noexcept {
 			return[f = this->f, grid, block, stream, cooperative](auto... args) noexcept {
 				auto packed_args = std::array<void*, sizeof...(args)>{ &args... };
 				return launch_impl(f, grid, block, stream, cooperative, packed_args.data());
 			};
 		}
 
-		auto launch(std::uint32_t grid, std::uint32_t block, RUstream stream = nullptr, bool cooperative = false) const noexcept {
+		auto launch(std::uint32_t grid, std::uint32_t block, CUstream stream = nullptr, bool cooperative = false) const noexcept {
 			return this->launch({ grid, 1, 1 }, { block, 1, 1 }, stream, cooperative);
 		}
 
 		int max_blocks_per_mp(int block_size) const noexcept {
 			int num_blocks{};
-			ruOccupancyMaxActiveBlocksPerMultiprocessor(&num_blocks, f, block_size, 0);
+			cuOccupancyMaxActiveBlocksPerMultiprocessor(&num_blocks, f, block_size, 0);
 
 			return (roccuGetApi() == ROCCU_API_CUDA)? num_blocks : num_blocks * 2;
 		}
@@ -308,23 +308,23 @@ namespace ezrtc {
 
 		std::pair<int, int> suggested_dims() const noexcept {
 			std::pair<int, int> result;
-			ruOccupancyMaxPotentialBlockSize(&result.first, &result.second, f, nullptr, 0, 0);
+			cuOccupancyMaxPotentialBlockSize(&result.first, &result.second, f, nullptr, 0, 0);
 			return result;
 		}
 
-		auto shared_bytes() const noexcept { return attribute<RU_FUNC_ATTRIBUTE_SHARED_SIZE_BYTES>(); }
-		auto const_bytes() const noexcept { return attribute<RU_FUNC_ATTRIBUTE_CONST_SIZE_BYTES>(); }
-		auto local_bytes() const noexcept { return attribute<RU_FUNC_ATTRIBUTE_LOCAL_SIZE_BYTES>(); }
-		auto register_count() const noexcept { return attribute<RU_FUNC_ATTRIBUTE_NUM_REGS>(); }
+		auto shared_bytes() const noexcept { return attribute<CU_FUNC_ATTRIBUTE_SHARED_SIZE_BYTES>(); }
+		auto const_bytes() const noexcept { return attribute<CU_FUNC_ATTRIBUTE_CONST_SIZE_BYTES>(); }
+		auto local_bytes() const noexcept { return attribute<CU_FUNC_ATTRIBUTE_LOCAL_SIZE_BYTES>(); }
+		auto register_count() const noexcept { return attribute<CU_FUNC_ATTRIBUTE_NUM_REGS>(); }
 
 	};
 
 	class variable {
 	public:
 
-		variable(RUdeviceptr ptr, std::size_t size) noexcept : ptr_(ptr), size_(size) {}
+		variable(CUdeviceptr ptr, std::size_t size) noexcept : ptr_(ptr), size_(size) {}
 
-		explicit(false) operator RUdeviceptr() const noexcept {
+		explicit(false) operator CUdeviceptr() const noexcept {
 			return ptr_;
 		}
 
@@ -336,7 +336,7 @@ namespace ezrtc {
 
 	private:
 
-		RUdeviceptr ptr_;
+		CUdeviceptr ptr_;
 		std::size_t size_;
 	};
 
@@ -365,7 +365,7 @@ namespace ezrtc {
 		}
 
 		~cuda_module() {
-			if (handle) ruModuleUnload(handle);
+			if (handle) cuModuleUnload(handle);
 		}
 
 		explicit operator bool() const noexcept { return handle != nullptr; }
@@ -394,8 +394,8 @@ namespace ezrtc {
 
 		friend class compiler;
 
-		RUmodule handle = nullptr;
-		std::unordered_map<std::string, RUfunction> kernels = {};
+		CUmodule handle = nullptr;
+		std::unordered_map<std::string, CUfunction> kernels = {};
 		std::unordered_map<std::string, variable> variables = {};
 	};
 

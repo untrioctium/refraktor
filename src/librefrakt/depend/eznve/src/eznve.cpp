@@ -176,7 +176,7 @@ namespace eznve {
 	}
 }
 
-eznve::encoder::encoder(config cfg, RUcontext ctx, std::function<void(std::string_view)> logger) : dims(cfg.dims), fps_(cfg.fps), logger(logger) {
+eznve::encoder::encoder(config cfg, CUcontext ctx, std::function<void(std::string_view)> logger) : dims(cfg.dims), fps_(cfg.fps), logger(logger) {
 	const auto& funcs = api.funcs();
 
 	auto session_params = pbuf_as<NV_ENC_OPEN_ENCODE_SESSION_EX_PARAMS>();
@@ -252,7 +252,7 @@ eznve::encoder::~encoder() {
 	for (auto& buf : buffers) {
 		funcs.nvEncDestroyBitstreamBuffer(session, buf.output_stream);
 		funcs.nvEncUnregisterResource(session, buf.registration);
-		ruMemFree(buf.ptr);
+		cuMemFree(buf.ptr);
 	}
 
 	funcs.nvEncDestroyEncoder(session);
@@ -357,7 +357,7 @@ void eznve::encoder::push_buffer()
 {
 	auto buf = buffer_t{};
 
-	ruMemAlloc(&buf.ptr, dims.x * dims.y * 4);
+	cuMemAlloc(&buf.ptr, dims.x * dims.y * 4);
 
 	auto input_res = pbuf_as<NV_ENC_REGISTER_RESOURCE>();
 	input_res->version = NV_ENC_REGISTER_RESOURCE_VER;

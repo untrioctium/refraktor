@@ -19,10 +19,10 @@ namespace rfkt {
 		oidn_denoiser(uint2 dims, denoiser_flag::flags options, roccu::gpu_stream& stream): stream(stream) {
 			device = [&stream]() -> oidn::DeviceRef {
 				if (roccuGetApi() == ROCCU_API_CUDA) {
-					return oidn::newCUDADevice({ 0 }, { (cudaStream_t)stream.operator RUstream_st * () });
+					return oidn::newCUDADevice({ 0 }, stream);
 				}
 				else {
-					return oidn::newHIPDevice({ 0 }, { (hipStream_t)stream.operator RUstream_st * () });
+					return oidn::newHIPDevice({ 0 },  (hipStream_t) stream.operator CUstream() );
 				}
 			}();
 

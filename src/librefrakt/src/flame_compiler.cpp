@@ -1,14 +1,8 @@
 #define EZRTC_IMPLEMENTATION_UNIT
 
-#include <stack>
-#include <fstream>
-#include <iostream>
 #include <filesystem>
 #include <algorithm>
-#include <unordered_map>
-#include <thread>
 #include <random>
-#include <print>
 #include <span>
 #include <nlohmann/json.hpp>
 
@@ -567,7 +561,8 @@ auto rfkt::flame_compiler::prepare_flame_kernel(const flamedb& fdb, precision pr
     return [=, this, opts=std::move(opts), src=std::move(src)]() mutable -> result {
         auto start = std::chrono::high_resolution_clock::now();
         auto compile_result = km->compile(opts);
-        auto duration_ms = std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::high_resolution_clock::now() - start).count() / 1'000'000.0;
+        constexpr static auto nanoseconds_per_millisecond = 1'000'000;
+        auto duration_ms = static_cast<double>(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::high_resolution_clock::now() - start).count()) / nanoseconds_per_millisecond;
     
         auto r = result(
             annotate_source(src),
@@ -596,7 +591,7 @@ auto rfkt::flame_compiler::prepare_flame_kernel(const flamedb& fdb, precision pr
         }
     
         auto shuf_dev = compile_result.module.value()["shuf_bufs"];
-        ruMemcpyDtoD(shuf_dev.ptr(), shuf_bufs[most_blocks.block].ptr(), shuf_dev.size());
+        cuMemcpyDtoD(shuf_dev.ptr(), shuf_bufs[most_blocks.block].ptr(), shuf_dev.size());
     
         r.kernel = flame_kernel{ size_reals, std::move(compile_result.module.value()), std::pair<int, int>{most_blocks.grid, most_blocks.block}, srt, affine_indices};
     
@@ -683,10 +678,10 @@ rfkt::flame_compiler::flame_compiler(ezrtc::compiler* k_manager): km(k_manager)
     auto size_buf = roccu::gpu_buffer<unsigned long long>(exec_configs.size() * 2 + 1);
 
     check_result.module->kernel("get_sizes").launch(1, 1)(size_buf.ptr());
-    ruStreamSynchronize(0);
+    cuStreamSynchronize(0);
     std::vector<unsigned long long> shared_sizes{};
     shared_sizes.resize(size_buf.size());
-    ruMemcpyDtoH(shared_sizes.data(), size_buf.ptr(), size_buf.size_bytes());
+    cuMemcpyDtoH(shared_sizes.data(), size_buf.ptr(), size_buf.size_bytes());
 
 
     iteration_info_size = shared_sizes[0];
@@ -827,7 +822,7 @@ auto rfkt::flame_compiler::make_opts(precision prec, const flame& f, flame_compi
 
 struct bin_args {
 
-    RUdeviceptr in_state;
+    CUdeviceptr in_state;
     std::uint64_t quality_target;
     std::uint32_t iter_bailout;
     std::uint64_t time_bailout;
@@ -892,7 +887,7 @@ auto rfkt::flame_kernel::bin(roccu::gpu_stream& stream, flame_kernel::saved_stat
     //stream_state->warp_collisions_host = srt->pra.reserve<std::uint64_t>(1);
     stream_state->bin_dims = {state.bins.width(), state.bins.height()};
     const auto ullmax = std::numeric_limits<std::size_t>::max();
-    //ruMemcpyHtoDAsync(stream_state->qpx_dev.ptr() + counter_size * 2, &ullmax, counter_size, stream);
+    //cuMemcpyHtoDAsync(stream_state->qpx_dev.ptr() + counter_size * 2, &ullmax, counter_size, stream);
 
     auto klauncher = [&mod = this->mod, &stream, &exec = this->exec]<typename ...Ts>(Ts&&... args) {
         return mod("bin").launch(exec.first, exec.second, stream, true)(std::forward<Ts>(args)...);

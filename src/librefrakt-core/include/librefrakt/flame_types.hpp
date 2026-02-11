@@ -1,5 +1,7 @@
 #pragma once
 
+//NOLINTBEGIN(cppcoreguidelines-non-private-member-variables-in-classes)
+
 #ifdef delete
 #undef delete
 #endif
@@ -126,12 +128,12 @@ namespace rfkt {
 		}
 
 		template<typename T>
-		auto pack(T&& p) const noexcept {
+		auto pack(T&& p) const noexcept { // NOLINT(cppcoreguidelines-missing-std-forward)
 			p(a); p(d); p(b); p(e); p(c); p(f);
 		}
 
-		std::size_t size_reals() const noexcept {
-			return 6;
+		constexpr static std::size_t size_reals() noexcept {
+			return 6; // NOLINT(cppcoreguidelines-avoid-magic-numbers)
 		}
 
 		static auto identity() noexcept {
@@ -181,8 +183,7 @@ namespace rfkt {
 
 	};
 
-	class vardata {
-	public:
+	struct vardata {
 		anima weight;
 
 		auto& operator[](std::string_view name) {
@@ -200,7 +201,7 @@ namespace rfkt {
 		auto end() const { return parameters_.cend(); }
 
 		template<typename T>
-		auto pack(T&& p) const noexcept {
+		auto pack(T&& p) const noexcept { // NOLINT(cppcoreguidelines-missing-std-forward)
 			p(weight);
 			for (const auto& [_, value] : parameters_) {
 				p(value);
@@ -240,8 +241,8 @@ namespace rfkt {
 		vardata(vardata&&) = default;
 		vardata(const vardata&) = default;
 
-		vardata& operator=(vardata&&) = default;
-		vardata& operator=(const vardata&) = default;
+		vardata& operator=(vardata&&) noexcept = default;
+		vardata& operator=(const vardata&) noexcept = default;
 
 		~vardata() = default;
 
@@ -275,8 +276,8 @@ namespace rfkt {
 		std::size_t precalc_count_;
 	};
 
-	class vlink : public traits::hashable {
-	public:
+	struct vlink : public traits::hashable {
+
 		affine transform;
 
 		anima mod_x = 0;
@@ -304,7 +305,7 @@ namespace rfkt {
 			return variations_.cend();
 		}
 
-		void add_variation(std::pair<std::string, vardata>&& vdata) {
+		void add_variation(std::pair<std::string, vardata>&& vdata) { // NOLINT(cppcoreguidelines-rvalue-reference-param-not-moved)
 			variations_.insert_or_assign(std::move(vdata.first), std::move(vdata.second));
 		}
 
@@ -429,7 +430,7 @@ namespace rfkt {
 		}
 
 		auto size_reals() const noexcept {
-			auto size = 4;
+			std::size_t size = 4;
 			for (const auto& vl : vchain) {
 				size += vl.size_reals();
 			}
@@ -465,9 +466,7 @@ namespace rfkt {
 	using palette_t = std::vector<std::array<double, 3>>;
 
 
-	class flame : public traits::hashable {
-	public:
-
+	struct flame : public traits::hashable {
 		std::string name;
 
 		std::optional<xform> final_xform;
@@ -498,7 +497,7 @@ namespace rfkt {
 		template<typename Func>
 		affine make_screen_space_affine(int w, int h, double t, Func& invoker) const noexcept {
 			return affine::identity()
-				.translated(w / 2.0, h / 2.0)
+				.translated(w / 2.0, h / 2.0) // NOLINT(cppcoreguidelines-avoid-magic-numbers)
 				.scaled(scale.sample(t, invoker) * h)
 				.rotated(rotate.sample(t, invoker))
 				.translated(-center_x.sample(t, invoker), -center_y.sample(t, invoker));
@@ -510,7 +509,7 @@ namespace rfkt {
 				.translated(center_x.sample(t, invoker), center_y.sample(t, invoker))
 				.rotated(-rotate.sample(t, invoker))
 				.scaled(1 / (scale.sample(t, invoker) * h))
-				.translated(w / -2.0, h / -2.0);
+				.translated(w / -2.0, h / -2.0); // NOLINT(cppcoreguidelines-avoid-magic-numbers)
 		}
 
 		template<typename Packer, typename Invoker>
@@ -550,7 +549,7 @@ namespace rfkt {
 			if (final_xform) final_xform->pack_sample(p, i, t);
 
 			for(const auto& [hue, sat, val]: palette) {
-				p(std::fmod(hue + mod_hue.sample(t, i), 360.0)); 
+				p(std::fmod(hue + mod_hue.sample(t, i), 360.0)); // NOLINT(cppcoreguidelines-avoid-magic-numbers)
 				p(std::clamp(sat + mod_sat.sample(t, i), 0.0, 1.0)); 
 				p(std::clamp(val + mod_val.sample(t, i), 0.0, 1.0));
 			}
@@ -566,7 +565,7 @@ namespace rfkt {
 		}
 
 		template<typename T>
-		void for_each_xform(this auto&& self, T&& t) noexcept {
+		void for_each_xform(this auto&& self, T&& t) noexcept { // NOLINT(cppcoreguidelines-missing-std-forward)
 			for (int i = 0; i < self.xforms_.size(); i++) {
 				t(i, self.xforms_[i]);
 			}
@@ -859,7 +858,9 @@ namespace rfkt {
 
 		const anima* access(const rfkt::flame& flame) const noexcept {
 			return std::visit([&flame](const auto& arg) -> const anima* {
-				return arg.access(const_cast<rfkt::flame&>(flame));
+				// the .access() methods are purely navigational and do not modify the flame
+				// so this const_cast is less tedious than duplicating a bunch of code to make it "const correct"
+				return arg.access(const_cast<rfkt::flame&>(flame)); // NOLINT(cppcoreguidelines-pro-type-const-cast)
 				}, *this);
 		}
 
@@ -963,3 +964,5 @@ namespace sol {
 namespace rfkt::flame_types {
 	void bind_to_lua(sol::state& lua);
 }
+
+//NOLINTEND(cppcoreguidelines-non-private-member-variables-in-classes)

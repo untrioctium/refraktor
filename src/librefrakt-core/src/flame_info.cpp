@@ -36,13 +36,13 @@ nlohmann::json yaml_to_json(const YAML::Node& node) {
 			const auto& scalar = node.Scalar();
 
 			try {
-				std::size_t pos;
+				std::size_t pos{};
 				auto i = std::stoll(scalar, &pos);
 				if (pos == scalar.size()) return i;
 			} catch(...) {}
 
 			try {
-				std::size_t pos;
+				std::size_t pos{};
 				auto d = std::stod(scalar, &pos);
 				if (pos == scalar.size()) return d;
 			} catch(...) {}

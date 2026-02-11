@@ -10,18 +10,20 @@
 
 #include <chrono>
 
+constexpr static auto tile_dimensions = rfkt::uint2{512, 512};
+
 LocalRenderQueue::LocalRenderQueue(QObject* parent)
     : QObject(parent)
     , m_renderPool(this)
     , m_tonemapper(*KernelCompileQueue::kernelManagerInstance())
     , m_denoiser(rfkt::denoiser::make(
           "rfkt::optix_denoise",
-          rfkt::uint2{512, 512},
+          tile_dimensions,
           rfkt::denoiser_flag::tiled,
           m_stream))
     , m_upscaleDenoiser(rfkt::denoiser::make(
           "rfkt::optix_denoise",
-          rfkt::uint2{512, 512},
+          tile_dimensions,
           rfkt::denoiser_flag::tiled | rfkt::denoiser_flag::upscale,
           m_stream))
     , m_converter(*KernelCompileQueue::kernelManagerInstance())
@@ -100,7 +102,7 @@ QFuture<QImage> LocalRenderQueue::requestRenderToQImage(const rfkt::flame& f, co
          &tm = this->m_tonemapper,
          dn = params.upscale ? this->m_upscaleDenoiser.get() : this->m_denoiser.get(),
          &dn_event = this->m_dnEvent,
-         &conv = this->m_converter](rfkt::flame_compiler::result&& kernel_result) mutable {
+         &conv = this->m_converter](rfkt::flame_compiler::result kernel_result) mutable {
 
             auto start = std::chrono::high_resolution_clock::now();
 
@@ -146,8 +148,8 @@ QFuture<QImage> LocalRenderQueue::requestRenderToQImage(const rfkt::flame& f, co
 
             return QImage(
                 reinterpret_cast<uchar*>(host_converted.data()),
-                params.dims.x,
-                params.dims.y,
+                static_cast<int>(params.dims.x),
+                static_cast<int>(params.dims.y),
                 QImage::Format_RGBA8888).copy();
         });
 }

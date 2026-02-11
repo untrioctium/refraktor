@@ -32,11 +32,11 @@ enum nvjpegChromaSubsampling_t { NVJPEG_CSS_444 = 0 };
 enum nvjpegInputFormat_t { NVJPEG_INPUT_RGBI = 5 };
 enum nvjpegBackend_t { NVJPEG_BACKEND_DEFAULT = 0 };
 
-typedef RUresult (*tDevMalloc)(RUdeviceptr*, size_t);
-typedef RUresult(*tDevFree)(RUdeviceptr);
+typedef CUresult (*tDevMalloc)(CUdeviceptr*, size_t);
+typedef CUresult(*tDevFree)(CUdeviceptr);
 
-typedef RUresult(*tPinnedMalloc)(void**, size_t, unsigned int flags);
-typedef RUresult(*tPinnedFree)(void*);
+typedef CUresult(*tPinnedMalloc)(void**, size_t, unsigned int flags);
+typedef CUresult(*tPinnedFree)(void*);
 
 typedef struct
 {
@@ -56,13 +56,13 @@ struct nvjpeg_api_table {
 		nvjpegCreateSimple = lib.get_function<nvjpegStatus_t(nvjpegHandle_t*)>("nvjpegCreateSimple");
 		nvjpegCreateEx = lib.get_function<nvjpegStatus_t(nvjpegBackend_t, nvjpegDevAllocator_t*, nvjpegPinnedAllocator_t*, unsigned int, nvjpegHandle_t*)>("nvjpegCreateEx");
 		nvjpegDestroy = lib.get_function<nvjpegStatus_t(nvjpegHandle_t)>("nvjpegDestroy");
-		nvjpegEncoderStateCreate = lib.get_function<nvjpegStatus_t(nvjpegHandle_t, nvjpegEncoderState_t*, RUstream)>("nvjpegEncoderStateCreate");
+		nvjpegEncoderStateCreate = lib.get_function<nvjpegStatus_t(nvjpegHandle_t, nvjpegEncoderState_t*, CUstream)>("nvjpegEncoderStateCreate");
 		nvjpegEncoderStateDestroy = lib.get_function<nvjpegStatus_t(nvjpegEncoderState_t)>("nvjpegEncoderStateDestroy");
-		nvjpegEncoderParamsCreate = lib.get_function<nvjpegStatus_t(nvjpegHandle_t, nvjpegEncoderParams_t*, RUstream)>("nvjpegEncoderParamsCreate");
-		nvjpegEncoderParamsSetSamplingFactors = lib.get_function<nvjpegStatus_t(nvjpegEncoderParams_t, nvjpegChromaSubsampling_t, RUstream)>("nvjpegEncoderParamsSetSamplingFactors");
-		nvjpegEncoderParamsSetQuality = lib.get_function<nvjpegStatus_t(nvjpegEncoderParams_t, int, RUstream)>("nvjpegEncoderParamsSetQuality");
-		nvjpegEncodeImage = lib.get_function<nvjpegStatus_t(nvjpegHandle_t, nvjpegEncoderState_t, nvjpegEncoderParams_t, nvjpegImage_t*, nvjpegInputFormat_t, int, int, RUstream)>("nvjpegEncodeImage");
-		nvjpegEncodeRetrieveBitstream = lib.get_function<nvjpegStatus_t(nvjpegHandle_t, nvjpegEncoderState_t, unsigned char*, size_t*, RUstream)>("nvjpegEncodeRetrieveBitstream");
+		nvjpegEncoderParamsCreate = lib.get_function<nvjpegStatus_t(nvjpegHandle_t, nvjpegEncoderParams_t*, CUstream)>("nvjpegEncoderParamsCreate");
+		nvjpegEncoderParamsSetSamplingFactors = lib.get_function<nvjpegStatus_t(nvjpegEncoderParams_t, nvjpegChromaSubsampling_t, CUstream)>("nvjpegEncoderParamsSetSamplingFactors");
+		nvjpegEncoderParamsSetQuality = lib.get_function<nvjpegStatus_t(nvjpegEncoderParams_t, int, CUstream)>("nvjpegEncoderParamsSetQuality");
+		nvjpegEncodeImage = lib.get_function<nvjpegStatus_t(nvjpegHandle_t, nvjpegEncoderState_t, nvjpegEncoderParams_t, nvjpegImage_t*, nvjpegInputFormat_t, int, int, CUstream)>("nvjpegEncodeImage");
+		nvjpegEncodeRetrieveBitstream = lib.get_function<nvjpegStatus_t(nvjpegHandle_t, nvjpegEncoderState_t, unsigned char*, size_t*, CUstream)>("nvjpegEncodeRetrieveBitstream");
 	
 	}
 
@@ -71,13 +71,13 @@ struct nvjpeg_api_table {
 	nvjpegStatus_t(*nvjpegCreateSimple)(nvjpegHandle_t* handle);
 	nvjpegStatus_t(*nvjpegCreateEx)(nvjpegBackend_t backend, nvjpegDevAllocator_t* dev_allocator, nvjpegPinnedAllocator_t* pinned_allocator, unsigned int flags, nvjpegHandle_t* handle);
 	nvjpegStatus_t(*nvjpegDestroy)(nvjpegHandle_t handle);
-	nvjpegStatus_t(*nvjpegEncoderStateCreate)(nvjpegHandle_t handle, nvjpegEncoderState_t* state, RUstream stream);
+	nvjpegStatus_t(*nvjpegEncoderStateCreate)(nvjpegHandle_t handle, nvjpegEncoderState_t* state, CUstream stream);
 	nvjpegStatus_t(*nvjpegEncoderStateDestroy)(nvjpegEncoderState_t state);
-	nvjpegStatus_t(*nvjpegEncoderParamsCreate)(nvjpegHandle_t handle, nvjpegEncoderParams_t* params, RUstream stream);
-	nvjpegStatus_t(*nvjpegEncoderParamsSetSamplingFactors)(nvjpegEncoderParams_t params, nvjpegChromaSubsampling_t subsampling, RUstream stream);
-	nvjpegStatus_t(*nvjpegEncoderParamsSetQuality)(nvjpegEncoderParams_t params, int quality, RUstream stream);
-	nvjpegStatus_t(*nvjpegEncodeImage)(nvjpegHandle_t handle, nvjpegEncoderState_t state, nvjpegEncoderParams_t params, nvjpegImage_t* image, nvjpegInputFormat_t format, int width, int height, RUstream stream);
-	nvjpegStatus_t(*nvjpegEncodeRetrieveBitstream)(nvjpegHandle_t handle, nvjpegEncoderState_t state, unsigned char* pBitstream, size_t* pSize, RUstream stream);
+	nvjpegStatus_t(*nvjpegEncoderParamsCreate)(nvjpegHandle_t handle, nvjpegEncoderParams_t* params, CUstream stream);
+	nvjpegStatus_t(*nvjpegEncoderParamsSetSamplingFactors)(nvjpegEncoderParams_t params, nvjpegChromaSubsampling_t subsampling, CUstream stream);
+	nvjpegStatus_t(*nvjpegEncoderParamsSetQuality)(nvjpegEncoderParams_t params, int quality, CUstream stream);
+	nvjpegStatus_t(*nvjpegEncodeImage)(nvjpegHandle_t handle, nvjpegEncoderState_t state, nvjpegEncoderParams_t params, nvjpegImage_t* image, nvjpegInputFormat_t format, int width, int height, CUstream stream);
+	nvjpegStatus_t(*nvjpegEncodeRetrieveBitstream)(nvjpegHandle_t handle, nvjpegEncoderState_t state, unsigned char* pBitstream, size_t* pSize, CUstream stream);
 };
 
 namespace rfkt {
@@ -90,8 +90,8 @@ namespace rfkt {
 
 		explicit nvjpeg_encoder(roccu::gpu_stream& stream) : api(dylib{ "nvjpeg64_13" }) {
 
-			dev_allocator.dev_malloc = ruMemAlloc;
-			dev_allocator.dev_free = ruMemFree;
+			dev_allocator.dev_malloc = cuMemAlloc;
+			dev_allocator.dev_free = cuMemFree;
 
 			NVJPEG_SAFE_CALL(api.nvjpegCreateEx(NVJPEG_BACKEND_DEFAULT, &dev_allocator, nullptr, 0, &nv_handle));
 
@@ -126,7 +126,7 @@ namespace rfkt {
 
 			NVJPEG_SAFE_CALL(api.nvjpegEncodeImage(nv_handle, ss->state.get(), params_map[quality], &nv_image, NVJPEG_INPUT_RGBI, image.width(), image.height(), stream));
 
-			ruLaunchHostFunc(stream, [](void* d) {
+			cuLaunchHostFunc(stream, [](void* d) {
 				auto ss = (stream_state_t*)d;
 
 				auto func = [state = std::move(ss->state), handle = ss->handle, api = ss->api] {

@@ -1,6 +1,9 @@
 #pragma once
 
-#include <librefrakt/util/hash.hpp>
+#include <compare>
+
+#include "librefrakt/util/hash.hpp"
+
 
 namespace rfkt::traits {
 
@@ -10,5 +13,8 @@ namespace rfkt::traits {
 			self.add_to_hash(state);
 			return state.digest();
 		}
+
+		constexpr std::strong_ordering operator<=>(const hashable& o) const noexcept = default;
 	};
+
 }

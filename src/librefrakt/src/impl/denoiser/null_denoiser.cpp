@@ -21,7 +21,7 @@ namespace rfkt {
 			auto future = promise.get_future();
 
 			stream.host_func([timer]() { timer->reset(); });
-			ruMemcpyDtoDAsync(out.ptr(), in.ptr(), in.size_bytes(), stream);
+			cuMemcpyDtoDAsync(out.ptr(), in.ptr(), in.size_bytes(), stream);
 			stream.record(event);
 
 			stream.host_func([timer = std::move(timer), promise = std::move(promise)]() mutable {

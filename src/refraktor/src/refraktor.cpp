@@ -235,7 +235,7 @@ namespace rfkt {
 			return roccu::gpu_buffer<uchar3>{ dims_.x* dims_.y };
 		}
 
-		auto make_output_buffer(RUstream stream) const -> roccu::gpu_buffer<uchar3> {
+		auto make_output_buffer(CUstream stream) const -> roccu::gpu_buffer<uchar3> {
 			return { dims_.x * dims_.y, stream };
 		}
 

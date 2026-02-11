@@ -86,7 +86,7 @@ namespace rfkt {
 
 	private:
 
-		void run_convert(const std::string& name, RUdeviceptr in, RUdeviceptr out, unsigned int width, unsigned int height, roccu::gpu_stream& stream, int flags) const {
+		void run_convert(const std::string& name, CUdeviceptr in, CUdeviceptr out, unsigned int width, unsigned int height, roccu::gpu_stream& stream, int flags) const {
 			auto size = width * height;
 			auto nblocks = size / block_size;
 			if (size % block_size != 0) {

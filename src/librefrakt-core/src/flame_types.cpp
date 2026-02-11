@@ -25,7 +25,7 @@ std::vector<double> string_to_doubles(std::string_view s) {
 		| std::views::transform(
 			[](auto sv) {
 				double v = 0.0;
-				std::from_chars(sv.data(), sv.data() + sv.size(), v);
+				std::from_chars(sv.data(), sv.data() + sv.size(), v); // NOLINT(cppcoreguidelines-pro-bounds-pointer-arithmetic)
 				return v;
 			}
 		)
@@ -79,7 +79,7 @@ std::expected<rfkt::xform, std::string> from_flam3_xml(const rfkt::flamedb& fdb,
 			aname = aname.substr();
 		}
 
-		auto& cur_vl = vlinks[which_vl];
+		auto& cur_vl = vlinks.at(which_vl);
 
 		if (aname == "weight") xf.weight = attr.as_double();
 		else if (aname == "color") xf.color = attr.as_double();
@@ -95,9 +95,9 @@ std::expected<rfkt::xform, std::string> from_flam3_xml(const rfkt::flamedb& fdb,
 			if (aname == "post") has_post_affine = true;
 
 			auto vec = string_to_doubles(attr.value());
-			while (vec.size() < 6) vec.push_back(0.0);
+			while (vec.size() < rfkt::affine::size_reals()) vec.push_back(0.0);
 
-			vlinks[(aname == "coefs")? 1: 2].transform = rfkt::affine{ vec[0], vec[1], vec[2], vec[3], vec[4], vec[5] };
+			vlinks.at((aname == "coefs")? 1: 2).transform = rfkt::affine{ vec[0], vec[1], vec[2], vec[3], vec[4], vec[5] };
 		}
 		else if (fdb.is_variation(aname)) {
 			if (!cur_vl.has_variation(aname)) {
@@ -214,7 +214,7 @@ auto rfkt::import_flam3(const flamedb& fdb, std::string_view content) noexcept -
 
 		ret.palette.resize(count);
 
-		auto pal_data = pnode.text().as_string();
+		auto pal_data = std::string_view{pnode.text().as_string()};
 		int current_index = 0;
 		std::vector<char> hex_color;
 		for (int idx = 0; pal_data[idx] != '\0'; idx++) {
@@ -746,7 +746,7 @@ double rfkt::vlink::similarity(const rfkt::vlink* o) const noexcept {
 	std::set_intersection(vars_a.begin(), vars_a.end(), vars_b.begin(), vars_b.end(), std::inserter(intersection, intersection.begin()));
 
 	auto union_size = vars_a.size() + vars_b.size() - intersection.size();
-	double jaccard_index = intersection.size() / static_cast<double>(union_size);
+	double jaccard_index = static_cast<double>(intersection.size()) / static_cast<double>(union_size);
 
 	auto sum_weights = [](const rfkt::vlink& v) {
 		double total = 0.0;
@@ -766,15 +766,15 @@ double rfkt::vlink::similarity(const rfkt::vlink* o) const noexcept {
 
 		weight_sim += 1.0 - std::abs(wa - wb) / std::max({wa, wb, 1e-6});
 	}
-	if(!intersection.empty()) weight_sim /= intersection.size();
+	if(!intersection.empty()) weight_sim /= static_cast<double>(intersection.size());
 
 	return 0.5 * jaccard_index + 0.5 * weight_sim;
 }
 
 void rfkt::xform::add_to_hash(rfkt::hash::state_t& hs) const {
-	for (int i = 0; i < vchain.size(); i++) {
-		hs.update(0xBULL);
-		vchain[i].add_to_hash(hs);
+	for (std::size_t i = 0; i < vchain.size(); i++) {
+		hs.update(0xBULL); // NOLINT(cppcoreguidelines-avoid-magic-numbers)
+		vchain.at(i).add_to_hash(hs);
 	}
 }
 
@@ -819,17 +819,17 @@ rfkt::anima* rfkt::xform::lookup(std::string_view path) {
 void rfkt::flame::add_to_hash(rfkt::hash::state_t& hs) const {
 	auto order = canonical_xform_order();
 	for (auto idx : order) {
-		hs.update(0xDULL);
+		hs.update(0xDULL); // NOLINT(cppcoreguidelines-avoid-magic-numbers)
 		xforms_[idx].add_to_hash(hs);
 	}
 
 	if (final_xform.has_value()) {
-		hs.update(0xFULL);
+		hs.update(0xFULL); // NOLINT(cppcoreguidelines-avoid-magic-numbers)
 		final_xform->add_to_hash(hs);
 	}
 
 	if (chaos_table.has_value()) {
-		hs.update(0xCULL);
+		hs.update(0xCULL); // NOLINT(cppcoreguidelines-avoid-magic-numbers)
 	}
 }
 
@@ -868,7 +868,7 @@ std::vector<std::size_t> rfkt::flame::affine_indices() const {
 
 	auto ret = std::vector<std::size_t>{};
 	ret.push_back(0);
-	ret.push_back(6);
+	ret.push_back(rfkt::affine::size_reals());
 
 	constexpr static std::size_t flame_offset = 13;
 	constexpr static std::size_t xform_base_reals = 4;
@@ -1002,8 +1002,6 @@ void rfkt::interpolator::interp_xforms(rfkt::xform& l, rfkt::xform& r, const rfk
 
 void rfkt::interpolator::rebuild_sides(bool interp_by_weight, const rfkt::flamedb& fdb) {
 	
-	const auto max_xforms = std::max(left.flame.xforms().size(), right.flame.xforms().size());
-
 	auto nleft = left.flame.xforms().size();
 	auto nright = right.flame.xforms().size();
 
@@ -1019,11 +1017,11 @@ void rfkt::interpolator::rebuild_sides(bool interp_by_weight, const rfkt::flamed
 			right.flame.add_xform(std::move(xfc));
 		}
 
-		for (int i = nleft; i < left.flame.xforms().size(); i++) {
+		for (auto i = nleft; i < left.flame.xforms().size(); i++) {
 			left.flame.xforms()[i].weight = 0.0;
 		}
 
-		for (int i = 0; i < nleft; i++) {
+		for (auto i = 0; i < nleft; i++) {
 			right.flame.xforms()[i].weight = 0.0;
 		}
 	}
@@ -1033,17 +1031,27 @@ void rfkt::interpolator::rebuild_sides(bool interp_by_weight, const rfkt::flamed
 		auto right_weight_sum = std::accumulate(right.flame.xforms().begin(), right.flame.xforms().end(), 0.0, [](double sum, const auto& xf) { return sum + xf.weight.t0; });
 
 		auto xform_distance = [&](const rfkt::xform& l, const rfkt::xform& r) {
-			double dist = 0.1 * std::abs(l.weight.t0/left_weight_sum - r.weight.t0/right_weight_sum);
+			constexpr static auto weight_distance_scale = 0.1;
+			constexpr static auto affine_distance_scale = 1.0;
+			constexpr static auto affine_distance_decay = 1.5;
+			constexpr static auto vlink_similarity_scale = 4.0;
+			constexpr static auto vlink_empty_scale = 5.0;
+
+
+			double dist = weight_distance_scale * std::abs(l.weight.t0/left_weight_sum - r.weight.t0/right_weight_sum);
 
 			if(!l.vchain.empty() && !r.vchain.empty()) {
-				dist += 1.0 - std::exp(-l.vchain[0].transform.distance(r.vchain[0].transform) / 1.5);
-				dist += (1.0 - l.vchain[0].similarity(&r.vchain[0])) * 4.0;
+				dist += affine_distance_scale * (1.0 - std::exp(-l.vchain[0].transform.distance(r.vchain[0].transform) / affine_distance_decay));
+				dist += vlink_similarity_scale * (1.0 - l.vchain[0].similarity(&r.vchain[0]));
 			} else {
-				dist += 5.0;
+				dist += vlink_empty_scale;
 			}
 
 			return dist;
 		};
+
+		const auto max_xforms = static_cast<long>(std::max(left.flame.xforms().size(), right.flame.xforms().size()));
+
 
 		while (left.flame.xforms().size() < max_xforms) {
 			left.flame.add_xform({});
@@ -1056,7 +1064,8 @@ void rfkt::interpolator::rebuild_sides(bool interp_by_weight, const rfkt::flamed
 		auto cost_matrix = dlib::matrix<std::int64_t>(max_xforms, max_xforms);
 		for(int i = 0; i < max_xforms; i++) {
 			for(int j = 0; j < max_xforms; j++) {
-				cost_matrix(i, j) = static_cast<std::int64_t>(std::round(xform_distance(left.flame.xforms()[i], right.flame.xforms()[j]) * -1'000'000.0));
+				constexpr static auto cost_matrix_scale = -1'000'000.0;
+				cost_matrix(i, j) = static_cast<std::int64_t>(std::round(xform_distance(left.flame.xforms()[i], right.flame.xforms()[j]) * cost_matrix_scale));
 			}
 		}
 

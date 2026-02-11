@@ -24,7 +24,7 @@ namespace rfkt {
 
 	private:
 
-		void run_impl(const std::string& kernel, RUdeviceptr bins, RUdeviceptr out, unsigned int size, const args_t& args, roccu::gpu_stream& stream) const;
+		void run_impl(const std::string& kernel, CUdeviceptr bins, CUdeviceptr out, unsigned int size, const args_t& args, roccu::gpu_stream& stream) const;
 
 		ezrtc::cuda_module tm;
 		int block_size;

@@ -116,7 +116,7 @@ namespace eznve {
 
 	class encoder {
 	public:
-		encoder(config cfg, RUcontext ctx, std::function<void(std::string_view)> logger = [](std::string_view) {});
+		encoder(config cfg, CUcontext ctx, std::function<void(std::string_view)> logger = [](std::string_view) {});
 		~encoder();
 
 		encoder(const encoder&) = delete;
@@ -144,7 +144,7 @@ namespace eznve {
 		std::vector<chunk> submit_frame(frame_flag = frame_flag::none);
 		std::vector<chunk> flush();
 
-		RUdeviceptr buffer() const noexcept {
+		CUdeviceptr buffer() const noexcept {
 			logger(std::format("giving buffer {}", free_buffers.front()));
 			return buffers[free_buffers.front()].ptr;
 		}
@@ -196,7 +196,7 @@ namespace eznve {
 		void push_buffer();
 
 		struct buffer_t {
-			RUdeviceptr ptr;
+			CUdeviceptr ptr;
 			void* registration;
 			void* mapped;
 			void* output_stream;

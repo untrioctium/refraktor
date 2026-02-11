@@ -6,8 +6,8 @@
 #include <librefrakt/util.hpp>
 
 #define OPTIX_DONT_INCLUDE_CUDA
-using CUcontext = RUcontext;
-using CUstream = RUstream;
+using CUcontext = CUcontext;
+using CUstream = CUstream;
 
 #include <optix.h>
 #include <optix_stubs.h>

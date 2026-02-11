@@ -56,7 +56,7 @@ void write_log(const char* format, Args... args)
 	}
 }
 
-#define CHECK_ROCCU_THROWING(expr) do { if (auto ret = expr; ret != RU_SUCCESS) throw std::runtime_error(std::format("error executing `{}`: {}", #expr, ret)); } while (0)
+#define CHECK_ROCCU_THROWING(expr) do { if (auto ret = expr; ret != CUDA_SUCCESS) throw std::runtime_error(std::format("error executing `{}`: {}", #expr, ret)); } while (0)
 
 auto render_flame(shared_state& state, std::string_view fxml, uint2 dims) -> std::vector<uchar4> {
 	
@@ -131,12 +131,12 @@ auto create_state() -> std::unique_ptr<shared_state> {
 		return nullptr;
 	}
 
-	RUdevice dev;
-	RUcontext ctx;
+	CUdevice dev;
+	CUcontext ctx;
 
-	CHECK_ROCCU_THROWING(ruInit(0));
-	CHECK_ROCCU_THROWING(ruDeviceGet(&dev, 0));
-	CHECK_ROCCU_THROWING(ruCtxCreate(&ctx, 0x01 | 0x08, dev));
+	CHECK_ROCCU_THROWING(cuInit(0));
+	CHECK_ROCCU_THROWING(cuDeviceGet(&dev, 0));
+	CHECK_ROCCU_THROWING(cuCtxCreate(&ctx, 0x01 | 0x08, dev));
 
 	rfkt::initialize(state->fdb, "config");
 

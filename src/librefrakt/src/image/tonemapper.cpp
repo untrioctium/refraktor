@@ -33,7 +33,7 @@ namespace rfkt {
 		block_size = s_block;
 	}
 
-	void tonemapper::run_impl(const std::string& kernel, RUdeviceptr bins, RUdeviceptr out, unsigned int size, const args_t& args, roccu::gpu_stream& stream) const {
+	void tonemapper::run_impl(const std::string& kernel, CUdeviceptr bins, CUdeviceptr out, unsigned int size, const args_t& args, roccu::gpu_stream& stream) const {
 		auto nblocks = size / block_size;
 		if (size % block_size != 0) {
 			nblocks++;

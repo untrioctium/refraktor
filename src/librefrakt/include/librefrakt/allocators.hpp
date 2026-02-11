@@ -12,16 +12,16 @@ namespace rfkt {
     };
 
     struct device_allocator_traits {
-        using PtrType = RUdeviceptr;
+        using PtrType = CUdeviceptr;
 
         static PtrType alloc(std::size_t sz) {
             PtrType ptr;
-            ruMemAlloc(&ptr, sz);
+            cuMemAlloc(&ptr, sz);
             return ptr;
         }
 
         static void free(PtrType ptr) {
-            ruMemFree(ptr);
+            cuMemFree(ptr);
         }
 
         template<typename StoredT>
@@ -35,12 +35,12 @@ namespace rfkt {
 
         static PtrType alloc(std::size_t sz) {
             std::byte* memory = nullptr;
-            auto ret = ruMemAllocHost((void**)&memory, sz);
+            auto ret = cuMemAllocHost((void**)&memory, sz);
             return memory;
         }
 
         static void free(PtrType ptr) {
-            ruMemFreeHost(ptr);
+            cuMemFreeHost(ptr);
         }
 
         template<typename StoredT>

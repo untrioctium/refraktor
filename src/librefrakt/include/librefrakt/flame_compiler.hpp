@@ -59,7 +59,7 @@ namespace rfkt {
 				return *this;
 			}
 
-			saved_state(uint2 dims, std::size_t nbytes, int temporal_multiplier, std::future<double>&& warmup_time, RUstream stream) :
+			saved_state(uint2 dims, std::size_t nbytes, int temporal_multiplier, std::future<double>&& warmup_time, CUstream stream) :
 				bins(dims.x, dims.y, stream),
 				temporal_multiplier(temporal_multiplier),
 				shared(nbytes * temporal_multiplier, stream),
@@ -70,7 +70,7 @@ namespace rfkt {
 				warmup_hits.clear(stream);
 			}
 
-			saved_state(decltype(saved_state::bins)&& bins, std::size_t nbytes, int temporal_multiplier, std::future<double>&& warmup_time, RUstream stream) :
+			saved_state(decltype(saved_state::bins)&& bins, std::size_t nbytes, int temporal_multiplier, std::future<double>&& warmup_time, CUstream stream) :
 				bins(std::move(bins)),
 				temporal_multiplier(temporal_multiplier),
 				shared(nbytes * temporal_multiplier, stream),
