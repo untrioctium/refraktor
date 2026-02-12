@@ -172,17 +172,16 @@ namespace flamelib {
 		#endif
 	}
 
-	/*template<typename FloatT, uint64 ThreadsPerBlock>
+	template<typename FloatT, uint64 ThreadsPerBlock>
 	struct iterators_t {
 		FloatT x[ThreadsPerBlock];
 		FloatT y[ThreadsPerBlock];
 		FloatT color[ThreadsPerBlock];
-	};*/
+	};
 
 	template<typename FloatT, typename RandCtx, uint64 ThreadsPerBlock>
 	struct thread_states_t {
-		//iterators_t<FloatT, ThreadsPerBlock> iterators;
-		vec3<FloatT> iterators[ThreadsPerBlock];
+		iterators_t<FloatT, ThreadsPerBlock> iterators;
 		RandCtx rand_states[ThreadsPerBlock];
 		uint8 xform_vote[ThreadsPerBlock];
 	};
