@@ -584,14 +584,11 @@ auto rfkt::flame_compiler::prepare_flame_kernel(const flamedb& fdb, precision pr
             SPDLOG_ERROR("Kernel for {} needs {} blocks but only got {}; {} shared, {} expected, {} regs, {} local", opts.name(), most_blocks.grid, max_blocks, func.shared_bytes(), expected_shared, func.register_count(), func.local_bytes());
             return r;
         }
-        SPDLOG_INFO("Loaded flame kernel {}: {} temp. samples, {} flame params, {} regs, {} shared ({} expected), {} local, {:.4} ms", opts.name(), max_blocks, size_reals, func.register_count(), func.shared_bytes(), expected_shared, func.local_bytes(), duration_ms);
+        SPDLOG_INFO("Loaded flame kernel {}: {} temp. samples, {} flame params, {} regs, {} shared ({} expected), {} local, {:.4} ms, (cache {})", opts.name(), max_blocks, size_reals, func.register_count(), func.shared_bytes(), expected_shared, func.local_bytes(), duration_ms, compile_result.loaded_from_cache ? "hit" : "miss");
     
         if (func.local_bytes() > 0) {
             SPDLOG_WARN("Kernel for {} uses {} local memory", opts.name(), func.local_bytes());
         }
-    
-        auto shuf_dev = compile_result.module.value()["shuf_bufs"];
-        cuMemcpyDtoD(shuf_dev.ptr(), shuf_bufs[most_blocks.block].ptr(), shuf_dev.size());
     
         r.kernel = flame_kernel{ size_reals, std::move(compile_result.module.value()), std::pair<int, int>{most_blocks.grid, most_blocks.block}, srt, affine_indices};
     
@@ -634,9 +631,6 @@ roccu::gpu_buffer<Contained> make_shuffle_buffers(std::size_t ppts, std::size_t 
 
 rfkt::flame_compiler::flame_compiler(ezrtc::compiler* k_manager): km(k_manager)
 {
-
-    num_shufs = 512;
-
     exec_configs = roccu::context::current().device().concurrent_block_configurations();
 
     std::string check_kernel_name = "get_sizes";
@@ -654,8 +648,6 @@ rfkt::flame_compiler::flame_compiler(ezrtc::compiler* k_manager): km(k_manager)
     }
 
     base_src += "}";
-
-    SPDLOG_INFO("\n{}", base_src);
 
     SPDLOG_INFO("Checking kernel sizes for {}", check_kernel_name);
 
@@ -691,8 +683,6 @@ rfkt::flame_compiler::flame_compiler(ezrtc::compiler* k_manager): km(k_manager)
     }
 
     for (auto& exec : exec_configs) {
-        shuf_bufs[exec.block] = make_shuffle_buffers<unsigned short>(exec.block, num_shufs);
-
         {
             auto needed = smem_per_block(precision::f32, 0, exec.block);
             auto leftover = exec.shared_per_block - needed;
@@ -735,13 +725,13 @@ rfkt::flame_compiler::flame_compiler(ezrtc::compiler* k_manager): km(k_manager)
 
     auto hfunc = histogram_result.module->kernel(histogram_name);
     auto [h_grid, h_block] = hfunc.suggested_dims();
-    SPDLOG_INFO("Loaded histogram kernel: {} regs, {} shared, {} local, {}x{} suggested dims", hfunc.register_count(), hfunc.shared_bytes(), hfunc.local_bytes(), h_grid, h_block);
+    SPDLOG_INFO("Loaded histogram kernel: {} regs, {} shared, {} local, {}x{} suggested dims (cache {})", hfunc.register_count(), hfunc.shared_bytes(), hfunc.local_bytes(), h_grid, h_block, histogram_result.loaded_from_cache ? "hit" : "miss");
 
     this->srt = std::shared_ptr<flame_kernel::shared_runtime>(new flame_kernel::shared_runtime{ std::move(result.module.value()), std::move(histogram_result.module.value()), 16 * 1000 * 1000, 16 * 1000 * 1000 });
 
     auto func = srt->catmull.kernel("generate_sample_coefficients");
     auto [s_grid, s_block] = func.suggested_dims();
-    SPDLOG_INFO("Loaded catmull kernel: {} regs, {} shared, {} local, {}x{} suggested dims", func.register_count(), func.shared_bytes(), func.local_bytes(), s_grid, s_block);
+    SPDLOG_INFO("Loaded catmull kernel: {} regs, {} shared, {} local, {}x{} suggested dims (cache {})", func.register_count(), func.shared_bytes(), func.local_bytes(), s_grid, s_block, result.loaded_from_cache ? "hit" : "miss");
 
     for(auto& exec: exec_configs)
         for (int i = 1; i <= 32; i++) {
@@ -776,7 +766,7 @@ auto rfkt::flame_compiler::make_opts(precision prec, const flame& f, flame_compi
     // threads within a warp are already divergent.
     if (!f.chaos_table.has_value()) {
         const auto warp_size = roccu::context::current().device().warp_size();
-        while (exec_configs[most_blocks_idx].block / warp_size < 6) most_blocks_idx--;
+        while (exec_configs[most_blocks_idx].block / warp_size < 4) most_blocks_idx--;
     }
     //most_blocks_idx = 0;
     auto& most_blocks = exec_configs[most_blocks_idx];
@@ -794,7 +784,6 @@ auto rfkt::flame_compiler::make_opts(precision prec, const flame& f, flame_compi
         .flag(ezrtc::compile_flag::extra_device_vectorization)
         .flag(ezrtc::compile_flag::default_device)
         .flag(ezrtc::compile_flag::generate_line_info)
-        .define("NUM_SHUF_BUFS", num_shufs)
         .define("THREADS_PER_BLOCK", most_blocks.block)
         .define("BLOCKS_PER_MP", most_blocks.grid / roccu::context::current().device().mp_count())
         .define("FLAME_SIZE_REALS", flame_real_count)
@@ -803,7 +792,6 @@ auto rfkt::flame_compiler::make_opts(precision prec, const flame& f, flame_compi
         .kernel("warmup")
         .kernel("bin")
         .kernel("get_sample_state_size")
-        .variable("shuf_bufs")
         
         ;
 
@@ -883,8 +871,8 @@ auto rfkt::flame_kernel::bin(roccu::gpu_stream& stream, flame_kernel::saved_stat
     stream_state->qpx_dev.from_host(stream_state->qpx_host, stream);
 
     stream_state->warp_collisions = srt->dra.reserve<std::size_t>(1);
-    //stream_state->warp_collisions.clear(stream);
-    //stream_state->warp_collisions_host = srt->pra.reserve<std::uint64_t>(1);
+    stream_state->warp_collisions.clear(stream);
+    stream_state->warp_collisions_host = srt->pra.reserve<std::uint64_t>(1);
     stream_state->bin_dims = {state.bins.width(), state.bins.height()};
     const auto ullmax = std::numeric_limits<std::size_t>::max();
     //cuMemcpyHtoDAsync(stream_state->qpx_dev.ptr() + counter_size * 2, &ullmax, counter_size, stream);
@@ -897,7 +885,6 @@ auto rfkt::flame_kernel::bin(roccu::gpu_stream& stream, flame_kernel::saved_stat
 
     stream.host_func([stream_state]() {
         stream_state->start = std::chrono::high_resolution_clock::now();
-        SPDLOG_INFO("Bin started at {}", stream_state->start.time_since_epoch().count());
     });
 
     {
@@ -920,11 +907,11 @@ auto rfkt::flame_kernel::bin(roccu::gpu_stream& stream, flame_kernel::saved_stat
             srt->sample_shuf_bufs[exec.first * state.temporal_multiplier].ptr(),
             stream_state->warp_collisions.ptr()
         ));
+        cuStreamQuery(stream);
     }
 
     stream.host_func([stream_state]() {
         stream_state->end = std::chrono::high_resolution_clock::now();
-        SPDLOG_INFO("Bin ended at {}", stream_state->end.time_since_epoch().count());
     });
 
     auto bins_count = state.bins.area();
@@ -939,20 +926,18 @@ auto rfkt::flame_kernel::bin(roccu::gpu_stream& stream, flame_kernel::saved_stat
 	);*/
 
     stream_state->qpx_dev.to_host(stream_state->qpx_host, stream);
-    //stream_state->warp_collisions.to_host(stream_state->warp_collisions_host, stream);
+    stream_state->warp_collisions.to_host(stream_state->warp_collisions_host, stream);
 
     stream.host_func([ss = stream_state](){
 
         //SPDLOG_INFO("Warp collision percentage: {:.2f}% of all draws on dims {}x{}", ss->warp_collisions_host[0] / (ss->qpx_host[0] / 255.0) * 100.0, ss->bin_dims.first, ss->bin_dims.second);
-
-        SPDLOG_INFO("Recorded start at {}, end at {}", ss->start.time_since_epoch().count(), ss->end.time_since_epoch().count());
 
         auto elapsed_ms = std::chrono::duration_cast<std::chrono::nanoseconds>(ss->end - ss->start).count() / 1e6;
         auto megapasses_per_ms = ss->qpx_host[1] / 1e6 / elapsed_ms;
         auto megadraws_per_ms = (ss->qpx_host[0] / 255.0) / 1e6 / elapsed_ms;
         auto quality_per_ms = ss->qpx_host[0] / (ss->total_bins * 255.0) / elapsed_ms;
 
-        SPDLOG_INFO("{:.2f} megapasses/ms, {:.2f} megadraws/ms, {:.2f} quality/ms", megapasses_per_ms, megadraws_per_ms, quality_per_ms);
+        SPDLOG_INFO("{:.2f} megapasses/ms, {:.2f} megadraws/ms, {:.2f} quality/ms, {:.2f} ms", megapasses_per_ms, megadraws_per_ms, quality_per_ms, elapsed_ms);
         
         ss->promise.set_value(flame_kernel::bin_result{
             .quality = ss->qpx_host[0] / (ss->total_bins * 255.0),
@@ -960,7 +945,8 @@ auto rfkt::flame_kernel::bin(roccu::gpu_stream& stream, flame_kernel::saved_stat
             .total_passes = ss->qpx_host[1],
             .total_draws = ss->qpx_host[0] / 255,
             .total_bins = ss->total_bins,
-            .passes_per_thread = double(ss->qpx_host[1]) / (ss->num_threads),
+            .max_sm_time = ss->warp_collisions_host[0],
+            .passes_per_thread = double(ss->qpx_host[1]) / (ss->num_threads)
             //.max_density = ss->qpx_host[4] * 1.0
         });
     });

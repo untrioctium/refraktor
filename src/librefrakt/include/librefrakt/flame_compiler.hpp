@@ -29,6 +29,7 @@ namespace rfkt {
 			std::size_t total_passes;
 			std::size_t total_draws;
 			std::size_t total_bins;
+			std::size_t max_sm_time;
 			double passes_per_thread;
 			double max_density;
 		};
@@ -192,9 +193,7 @@ namespace rfkt {
 		}
 
 		flame_compiler(flame_compiler&& o) noexcept {
-			std::swap(shuf_bufs, o.shuf_bufs);
 			std::swap(exec_configs, o.exec_configs);
-			std::swap(num_shufs, o.num_shufs);
 			std::swap(srt, o.srt);
 			std::swap(compiled_variations, o.compiled_variations);
 			std::swap(compiled_common, o.compiled_common);
@@ -213,14 +212,11 @@ namespace rfkt {
 		std::pair<roccu::execution_config, ezrtc::spec> make_opts(precision prec, const flame& f, flag_set_t flags);
 
 		ezrtc::compiler* km = nullptr;
-		std::map<std::size_t, roccu::gpu_buffer<unsigned short>> shuf_bufs;
 
 		decltype(std::declval<roccu::device_t>().concurrent_block_configurations()) exec_configs;
 
 		std::map<std::pair<precision, std::size_t>, std::size_t> required_smem;
 		std::size_t iteration_info_size = 0;
-
-		std::size_t num_shufs = 4096;
 
 		std::map<std::string, std::pair<std::string, std::string>, std::less<>> compiled_variations;
 		std::map<std::string, std::string, std::less<>> compiled_common;

@@ -59,13 +59,6 @@ namespace fl = flamelib;
 constexpr static uint32 threads_per_block = THREADS_PER_BLOCK;
 constexpr static uint32 flame_size_reals = FLAME_SIZE_REALS;
 constexpr static uint32 flame_size_bytes = flame_size_reals * sizeof(Real);
-constexpr static uint32 num_shuf_bufs = NUM_SHUF_BUFS;
-
-struct exec_config {
-	uint64 grid;
-	uint64 block;
-	uint64 shared_per_block;
-};
 
 #include "flame_generated.h"
 
@@ -90,16 +83,78 @@ __shared__ fl::iteration_info_t iter_info;
 
 #define my_iter(comp) (state.ts.iterators.comp[fl::block_rank()])
 #define my_rand() (state.ts.rand_states[fl::block_rank()])
-#define my_shuffle() (state.ts.shuffle[fl::block_rank()])
-#define my_shuffle_vote() (state.ts.shuffle_vote[fl::block_rank()])
 #define my_xform_vote() (state.ts.xform_vote[fl::block_rank()])
 
-__device__ unsigned short shuf_bufs[THREADS_PER_BLOCK * NUM_SHUF_BUFS];
+constexpr uint32 isqrt_ceil(uint32 n) {
+	uint32 a = 1;
+	while (a * a < n) a++;
+	return a;
+}
 
-__device__ void queue_shuffle_load(uint32 pass_idx) {
-	if(pass_idx % threads_per_block == 0) {
-		my_shuffle_vote() = my_rand().rand() % num_shuf_bufs;
+__device__ __forceinline__ constexpr uint32 feistel_round_fn(uint32 v, uint32 key) {
+	v ^= key;
+	v ^= v >> 16;
+	v *= 0x85ebca6bu;
+	v ^= v >> 13;
+	v *= 0xc2b2ae35u;
+	v ^= v >> 16;
+	return v;
+}
+
+template<uint32 rounds>
+__device__ constexpr uint32 feistel_permute(uint32 x, uint32 seed) {
+	constexpr uint32 half = isqrt_ceil(threads_per_block);
+
+	do {
+		uint32 L = x / half;
+		uint32 R = x % half;
+
+		for (uint32 i = 0; i < rounds; i++) {
+			uint32 round_key = seed ^ (i * 0x9e3779b9u);
+			uint32 new_R = (L + feistel_round_fn(R, round_key)) % half;
+			L = R;
+			R = new_R;
+		}
+
+		x = L * half + R;
+	} while (x >= threads_per_block);
+
+	return x;
+}
+
+__device__ void randomize_iterators(const uint32 bins_w, const uint32 bins_h) {
+	__shared__ vec2<Real> cp_offset;
+
+	if(fl::is_block_leader()) {
+		cp_offset.x = my_rand().rand01() * Real(2.0) - Real(1.0);
+		cp_offset.y = my_rand().rand01() * Real(2.0) - Real(1.0);
 	}
+
+	// Cranley-Patterson rotation of Hammersley sequence
+	auto pos = hammersley::sample<Real, threads_per_block>(fl::block_rank());
+	
+	fl::sync_block();
+	pos.x += cp_offset.x;
+	pos.y += cp_offset.y;
+	if(pos.x > Real(1.0)) pos.x -= Real(2.0);
+	if(pos.x < Real(-1.0)) pos.x += Real(2.0);
+	if(pos.y > Real(1.0)) pos.y -= Real(2.0);
+	if(pos.y < Real(-1.0)) pos.y += Real(2.0);
+
+	// Map from [-1,1] to screen space, then to flame space
+	pos.x = (pos.x + Real(1.0)) / Real(2.0) * bins_w;
+	pos.y = (pos.y + Real(1.0)) / Real(2.0) * bins_h;
+	state.flame.plane_space.apply(pos.x, pos.y);
+
+	my_iter(x) = pos.x;
+	my_iter(y) = pos.y;
+	my_iter(color) = my_rand().rand01();
+
+	if constexpr(use_chaos) {
+		my_xform_vote() = static_cast<unsigned char>(255);
+	}
+
+	fl::sync_block();
 }
 
 template<uint32 count>
@@ -198,13 +253,11 @@ vec4<Real> flame_pass(unsigned int pass_idx) {
 		opacity = 0.0;
 	}
 	
+	const auto shuf = feistel_permute<6>(fl::block_rank(), pass_idx);
 	fl::sync_block();
-	const auto shuf = shuf_bufs[threads_per_block * state.ts.shuffle_vote[pass_idx % threads_per_block] + fl::block_rank()];
 	state.ts.iterators.x[shuf] = out_local.x;
 	state.ts.iterators.y[shuf] = out_local.y;
 	state.ts.iterators.color[shuf] = out_local.z;
-
-	queue_shuffle_load(pass_idx + 1);
 
 	return vec4<Real>{out_local.x, out_local.y, out_local.z, opacity};
 }
@@ -256,12 +309,6 @@ void warmup(
 	auto nsamples = temporal_multiplier * gridDim.x;
 	for(int sample = 0; sample < temporal_multiplier; sample++) {
 		my_rand().init(seed + fl::grid_rank());
-		
-		if constexpr(!use_chaos) {
-			queue_shuffle_load(0);
-		} else {
-			my_xform_vote() = static_cast<unsigned char>(255);
-		}
 
 		const auto sample_idx = sample * gridDim.x + blockIdx.x;
 		const auto seg_size = nsamples / num_segments;
@@ -298,16 +345,7 @@ void warmup(
 			state.flame.do_precalc(&my_rand());
 		}
 
-		auto pos = hammersley::sample<Real, TOTAL_THREADS>(fl::grid_rank());
-		pos.x = (pos.x + 1)/2 * bins_w;
-		pos.y = (pos.y + 1)/2 * bins_h;
-		state.flame.plane_space.apply(pos.x, pos.y);
-		
-		my_iter(x) = pos.x;
-		my_iter(y) = pos.y;
-		my_iter(color) = my_rand().rand01();
-
-		fl::sync_block();
+		randomize_iterators(bins_w, bins_h);
 		for(unsigned int pass = 0; pass < warmup_count; pass++) {
 			auto transformed = flame_pass(pass);
 
@@ -419,10 +457,23 @@ __device__ void warp_aggregated_write(
     }
 }
 
-__device__ unsigned int pass_and_draw(unsigned int pass_idx, float4* const __restrict__ bins, const uint32 bins_w, const uint32 bins_h, unsigned int* const __restrict__ warp_collisions) {
+constexpr static uint32 randomize_interval = 500;
+constexpr static uint32 fusion_length = 32;
+
+__device__ unsigned int pass_and_draw(unsigned int pass_idx, float4* const __restrict__ bins, const uint32 bins_w, const uint32 bins_h) {
 	
+	const auto cycle_pos = (pass_idx + fusion_length) % randomize_interval;
+
+	if(cycle_pos == 0) {
+		randomize_iterators(bins_w, bins_h);
+	}
+
 	auto transformed = flame_pass(pass_idx);
-	
+
+	if(cycle_pos < fusion_length) {
+		return 0;
+	}
+
 	if constexpr(has_final_xform) {
 			vec3<Real> my_iter_copy = {transformed.x, transformed.y, transformed.z};
 			state.flame.dispatch(num_xforms, my_iter_copy, transformed, &my_rand());
@@ -435,7 +486,7 @@ __device__ unsigned int pass_and_draw(unsigned int pass_idx, float4* const __res
 
 	float4 new_bin = {0.0f, 0.0f, 0.0f, 0.0f};
 
-	auto bin_idx = int(transformed.y) * bins_w + int(transformed.x);
+	auto bin_idx = int(transformed.y) * int(bins_w) + int(transformed.x);
 	unsigned int hit = 0;
 	if(transformed.x >= 0 && transformed.y >= 0 
 	&& transformed.x < bins_w && transformed.y < bins_h 
@@ -487,10 +538,12 @@ void bin(
 	unsigned long long* const __restrict__ earliest_start,
 	unsigned long long* const __restrict__ latest_stop,
 	unsigned int* const __restrict__ sample_indices,
-	unsigned int* const __restrict__ warp_collisions)
+	unsigned long long* const __restrict__ warp_collisions)
 {
 	
+	decltype(clock64()) start_time;
 	if(fl::is_block_leader()) {
+		start_time = clock64();
 		iter_info.init(temporal_multiplier, temporal_slicing);
 		atomicMin(earliest_start, fl::time());
 
@@ -520,7 +573,7 @@ void bin(
 			iter_info.loaded_sample = iter_info.current_sample;
 		}
 
-		unsigned int hit = pass_and_draw(iter_info.iter, bins, bins_w, bins_h, warp_collisions);
+		unsigned int hit = pass_and_draw(iter_info.iter, bins, bins_w, bins_h);
 		hit = fl::warp_reduce(hit);
 		if(fl::is_warp_leader()) {
 			atomicAdd(&state.tss_quality, hit);
@@ -538,10 +591,10 @@ void bin(
 			iter_info.tick();
 
 			iter_info.bail |= iter_info.samples_active == 0;
-			iter_info.bail |= 
-				iter_info.iter >= temporal_slicing
-				&& ((iter_info.on_sample_boundary() && iter_info.lowest_active_sample() == iter_info.current_sample) || temporal_multiplier == 1)
-				&& ((fl::time() - iter_info.start_time) >= time_bailout || *stop_render);
+			iter_info.bail |= iter_info.iter >= iter_bailout ||
+				//iter_info.iter >= temporal_slicing
+				// ((iter_info.on_sample_boundary() && iter_info.lowest_active_sample() == iter_info.current_sample) || temporal_multiplier == 1)
+				 ((fl::time() - iter_info.start_time) >= time_bailout || *stop_render);
 		}
 		fl::sync_block();
 	}
@@ -556,6 +609,7 @@ void bin(
 	}
 	
 	if(fl::is_block_leader()) {
+		atomicMax(warp_collisions, clock64() - start_time);
 		atomicMax(latest_stop, fl::time());
 	}
 	

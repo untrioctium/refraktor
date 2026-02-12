@@ -425,6 +425,7 @@ ROCCU_DEFINE_FUNC(StreamDestroy, CU_DRIVER, cuStreamDestroy_v2, hipStreamDestroy
 ROCCU_DEFINE_FUNC(StreamSetAttribute, CU_DRIVER, cuStreamSetAttribute, NOOP, CUresult, (CUstream stream, CUlaunchAttributeID attr, CUlaunchAttributeValue* value));
 ROCCU_DEFINE_DIRECT_FUNC(StreamSynchronize, CU_DRIVER, CUresult, (CUstream stream));
 ROCCU_DEFINE_DIRECT_FUNC(StreamWaitEvent, CU_DRIVER, CUresult, (CUstream stream, CUevent event, unsigned int flags));
+ROCCU_DEFINE_DIRECT_FUNC(StreamQuery, CU_DRIVER, CUresult, (CUstream stream));
 
 ROCCU_DEFINE_RTC_FUNC(rtcAddNameExpression, CU_RTC, nvrtcAddNameExpression, hiprtcAddNameExpression, nvrtcResult, (nvrtcProgram prog, const char* name_expression));
 ROCCU_DEFINE_RTC_FUNC(rtcCompileProgram, CU_RTC, nvrtcCompileProgram, hiprtcCompileProgram, nvrtcResult, (nvrtcProgram prog, int numOptions, const char** options));

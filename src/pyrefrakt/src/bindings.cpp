@@ -33,6 +33,8 @@ struct context {
     std::unique_ptr<rfkt::jpeg_encoder> jpeg_encoder;
     std::unique_ptr<roccu::gpu_stream> stream;
     std::unique_ptr<roccu::gpu_event> event;
+
+    std::map<rfkt::hash_t, rfkt::flame_compiler::result> cached_kernels;
 };
 
 static std::unique_ptr<context> ctx = nullptr;
@@ -105,14 +107,22 @@ rfkt::flame_kernel::bin_result render_image(const rfkt::flame& flame, std::strin
     return bin_result;
 }
 
-rfkt::flame_kernel::bin_result render_image_interpolated(const rfkt::interpolator& interpolator, double mix, std::string_view output_path, unsigned int width, unsigned int height, double t, double fps, double seconds_per_loop, double quality_bailout, unsigned int millis_bailout, bool denoise, bool upscale, std::set<std::string> flags) {
+rfkt::flame_kernel::bin_result render_image_interpolated(const rfkt::interpolator& interpolator, double mix, std::string_view output_path, unsigned int width, unsigned int height, double t, double fps, double seconds_per_loop, double quality_bailout, unsigned int millis_bailout, bool denoise, bool upscale, std::set<std::string> flags, std::uint32_t iter_bailout) {
     py::gil_scoped_release release;
     ctx->cuda_ctx->make_current();
-    auto compile_result = ctx->flame_compiler->get_flame_kernel(*ctx->flamedb, rfkt::precision::f32, interpolator.left_flame(), flags);
 
-    if (!compile_result.kernel) {
-        throw std::runtime_error(compile_result.log);
+    auto hash = interpolator.left_flame().hash();
+    auto cache_search = ctx->cached_kernels.find(hash);
+
+    if(cache_search == ctx->cached_kernels.end()) {
+        auto compile_result = ctx->flame_compiler->get_flame_kernel(*ctx->flamedb, rfkt::precision::f32, interpolator.left_flame(), flags);
+        if (!compile_result.kernel) {
+            throw std::runtime_error(compile_result.log);
+        }
+        cache_search = ctx->cached_kernels.emplace(hash, std::move(compile_result)).first;
     }
+
+    auto& compile_result = cache_search->second;
 
     unsigned int out_width = width;
     unsigned int out_height = height;
@@ -131,7 +141,7 @@ rfkt::flame_kernel::bin_result render_image_interpolated(const rfkt::interpolato
     interpolator.pack_samples(packer, invoker, t - offset, offset, 4, width, height, mix);
 
     auto state = compile_result.kernel->warmup(*ctx->stream, samples, rfkt::uint2{width, height}, 0xdeadbeef, 100);
-    auto bin_result = compile_result.kernel->bin(*ctx->stream, state, {.millis = millis_bailout, .quality = quality_bailout}).get();
+    auto bin_result = compile_result.kernel->bin(*ctx->stream, state, {.millis = millis_bailout, .quality = quality_bailout, .iters = iter_bailout}).get();
 
     auto tonemapped = roccu::gpu_image<rfkt::half3>(width, height, *ctx->stream);
     auto denoised = roccu::gpu_image<rfkt::half3>(out_width, out_height, *ctx->stream);
@@ -196,7 +206,7 @@ auto make_histogram(const rfkt::flame& flame, unsigned int width, unsigned int h
     };
 }
 
-auto make_benchmark_samples(const rfkt::flame& flame, unsigned int width, unsigned int height, double t, double fps, double seconds_per_loop, double quality_bailout, unsigned int millis_bailout, std::set<std::string> flags, int nsamples) -> std::vector<rfkt::flame_kernel::bin_result> {
+auto make_benchmark_samples(const rfkt::flame& flame, unsigned int width, unsigned int height, double t, double fps, double seconds_per_loop, double quality_bailout, unsigned int millis_bailout, std::set<std::string> flags, int nsamples, std::size_t iter_bailout) -> std::vector<rfkt::flame_kernel::bin_result> {
 
     py::gil_scoped_release release;
 
@@ -218,7 +228,7 @@ auto make_benchmark_samples(const rfkt::flame& flame, unsigned int width, unsign
 
     auto bin_futures = std::vector<std::future<rfkt::flame_kernel::bin_result>>{};
     for(int i = 0; i < nsamples + 1; i++) {
-        bin_futures.push_back(compile_result.kernel->bin(*ctx->stream, state, {.millis = millis_bailout, .quality = quality_bailout}));
+        bin_futures.push_back(compile_result.kernel->bin(*ctx->stream, state, {.millis = millis_bailout, .quality = quality_bailout, .iters = static_cast<std::uint32_t>(iter_bailout)}));
     }
 
     auto bin_results = std::vector<rfkt::flame_kernel::bin_result>{};
@@ -357,7 +367,8 @@ PYBIND11_MODULE(_pyrefrakt, m, py::mod_gil_not_used()) {
         py::arg("millis_bailout") = 2000,
         py::arg("denoise") = true,
         py::arg("upscale") = false,
-        py::arg("flags") = std::set<std::string>{});
+        py::arg("flags") = std::set<std::string>{},
+        py::arg("iter_bailout") = 4'000'000'000);
 
     m.def("make_histogram", &make_histogram,
         py::arg("flame"),
@@ -381,7 +392,8 @@ PYBIND11_MODULE(_pyrefrakt, m, py::mod_gil_not_used()) {
         py::arg("quality_bailout") = 128.0,
         py::arg("millis_bailout") = 2000,
         py::arg("flags") = std::set<std::string>{},
-        py::arg("nsamples") = 10);
+        py::arg("nsamples") = 10,
+        py::arg("iter_bailout") = 4'000'000'000);
 
     EXPOSE_VECTOR2_TYPE(int, int2);
     EXPOSE_VECTOR3_TYPE(int, int3);
@@ -403,7 +415,8 @@ PYBIND11_MODULE(_pyrefrakt, m, py::mod_gil_not_used()) {
         .def_readwrite("total_draws", &rfkt::flame_kernel::bin_result::total_draws)
         .def_readwrite("total_bins", &rfkt::flame_kernel::bin_result::total_bins)
         .def_readwrite("passes_per_thread", &rfkt::flame_kernel::bin_result::passes_per_thread)
-        .def_readwrite("max_density", &rfkt::flame_kernel::bin_result::max_density);
+        .def_readwrite("max_density", &rfkt::flame_kernel::bin_result::max_density)
+        .def_readwrite("max_sm_time", &rfkt::flame_kernel::bin_result::max_sm_time);
 
     py::class_<rfkt::interpolator>(m, "interpolator");
 
