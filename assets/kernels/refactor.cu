@@ -481,7 +481,7 @@ __device__ void warp_aggregated_write(
     }
 }
 
-constexpr static uint32 randomize_interval = 200;
+constexpr static uint32 randomize_interval = 500;
 constexpr static uint32 fusion_length = 32;
 
 __device__ unsigned int pass_and_draw(unsigned int pass_idx, float4* const __restrict__ bins, const uint32 bins_w, const uint32 bins_h) {
@@ -508,13 +508,15 @@ __device__ unsigned int pass_and_draw(unsigned int pass_idx, float4* const __res
 	transformed.x = int(roundf(transformed.x));
 	transformed.y = int(roundf(transformed.y));
 
-	float4 new_bin = {0.0f, 0.0f, 0.0f, 0.0f};
-
 	auto bin_idx = int(transformed.y) * int(bins_w) + int(transformed.x);
+	float4 new_bin = float4{0.0f, 0.0f, 0.0f, 0.0f};
+
 	unsigned int hit = 0;
 	if(transformed.x >= 0 && transformed.y >= 0 
 	&& transformed.x < bins_w && transformed.y < bins_h 
 	&& transformed.w > 0.0) {
+
+		new_bin = ld_cg_evict_last(bins + bin_idx);
 
 		const auto palette_idx = transformed.z * 255.0f;
 
@@ -529,19 +531,21 @@ __device__ unsigned int pass_and_draw(unsigned int pass_idx, float4* const __res
 		new_bin.w += transformed.w;
 
 		hit = (unsigned int)(255.0f * transformed.w);
+
+		st_cg_evict_last(bins + bin_idx, new_bin);
 	} else {
 		bin_idx = -1;
 	}
 
-	#ifdef FLAG_WARP_AGGREGATED_WRITE
-	warp_aggregated_write(bins, bin_idx, new_bin);
-	#else
-	#ifdef FLAG_ATOMIC
-	write_bin_atomic(bins, bin_idx, new_bin);
-	#else
-	write_bin(bins, bin_idx, new_bin);
-	#endif
-	#endif
+	//#ifdef FLAG_WARP_AGGREGATED_WRITE
+	//warp_aggregated_write(bins, bin_idx, new_bin);
+	//#else
+	//#ifdef FLAG_ATOMIC
+	//write_bin_atomic(bins, bin_idx, new_bin);
+	//#else
+	//write_bin(bins, bin_idx, new_bin);
+	//#endif
+	//#endif
 
 	return hit;
 }
@@ -603,7 +607,8 @@ void bin(
 			atomicAdd(&state.tss_quality, hit);
 		}
 		
-		fl::sync_block();
+		// this sync might not be needed; it's probably ok if we're off by an iteration of writes to tss_quality
+		//fl::sync_block();
 		if(fl::is_block_leader()) {
 
 			if(state.tss_quality >= double(quality_target) / (temporal_multiplier * gridDim.x)) {
