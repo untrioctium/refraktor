@@ -132,7 +132,7 @@ __device__ void randomize_iterators(const uint32 bins_w, const uint32 bins_h) {
 
 	// Cranley-Patterson rotation of Hammersley sequence
 	auto pos = hammersley::sample<Real, threads_per_block>(fl::block_rank());
-	
+
 	fl::sync_block();
 	pos.x += cp_offset.x;
 	pos.y += cp_offset.y;
@@ -144,11 +144,9 @@ __device__ void randomize_iterators(const uint32 bins_w, const uint32 bins_h) {
 	// Map from [-1,1] to screen space, then to flame space
 	pos.x = (pos.x + Real(1.0)) / Real(2.0) * bins_w;
 	pos.y = (pos.y + Real(1.0)) / Real(2.0) * bins_h;
-	state.flame.plane_space.apply(pos.x, pos.y);
+	state.flame.plane_space.apply(pos);
 
-	my_iter(x) = pos.x;
-	my_iter(y) = pos.y;
-	my_iter(color) = my_rand().rand01();
+	state.ts.iterators[fl::block_rank()] = {pos.x, pos.y, my_rand().rand01()};
 
 	if constexpr(use_chaos) {
 		my_xform_vote() = static_cast<unsigned char>(255);
@@ -235,10 +233,10 @@ vec4<Real> flame_pass(unsigned int pass_idx) {
 	// every 32 passes, repopulate this warp's xid buffer
 	if(pass_idx % 32 == 0) {
 		my_xform_vote() = state.flame.select_xform(my_rand().rand01());
+		fl::sync_warp();
 	}
-	fl::sync_warp();
 
-	auto in_local = iterator{my_iter(x), my_iter(y), my_iter(color)};
+	auto& in_local = state.ts.iterators[fl::block_rank()];
 	auto out_local = iterator{-666.0, -666.0, -660.0};
 	auto selected_xform = state.ts.xform_vote[fl::warp_start_in_block() + pass_idx % 32];
 
@@ -255,9 +253,7 @@ vec4<Real> flame_pass(unsigned int pass_idx) {
 	
 	const auto shuf = feistel_permute<6>(fl::block_rank(), pass_idx);
 	fl::sync_block();
-	state.ts.iterators.x[shuf] = out_local.x;
-	state.ts.iterators.y[shuf] = out_local.y;
-	state.ts.iterators.color[shuf] = out_local.z;
+	state.ts.iterators[shuf] = out_local;
 
 	return vec4<Real>{out_local.x, out_local.y, out_local.z, opacity};
 }
@@ -354,7 +350,7 @@ void warmup(
 				state.flame.dispatch(num_xforms, my_iter_copy, transformed, &my_rand());
 			}
 		
-			state.flame.screen_space.apply(transformed.x, transformed.y);
+			state.flame.screen_space.apply(transformed.as_vec2());
 
 			transformed.x = trunc(transformed.x);
 			transformed.y = trunc(transformed.y);
@@ -382,14 +378,42 @@ void warmup(
 
 constexpr static uint64 per_block = THREADS_PER_BLOCK;
 
+__device__ float4 ld_cg_evict_last(const float4* addr) {
+    float4 r;
+    asm volatile(
+        "{\n\t"
+        "  .reg .b64 policy;\n\t"
+        "  createpolicy.fractional.L2::evict_last.b64 policy, 1.0;\n\t"
+        "  ld.global.cg.L2::cache_hint.v4.f32 {%0, %1, %2, %3}, [%4], policy;\n\t"
+        "}"
+        : "=f"(r.x), "=f"(r.y), "=f"(r.z), "=f"(r.w)
+        : "l"(addr)
+        : "memory"
+    );
+    return r;
+}
+
+__device__ void st_cg_evict_last(float4* addr, float4 val) {
+    asm volatile(
+        "{\n\t"
+        "  .reg .b64 policy;\n\t"
+        "  createpolicy.fractional.L2::evict_last.b64 policy, 1.0;\n\t"
+        "  st.global.cg.L2::cache_hint.v4.f32 [%0], {%1, %2, %3, %4}, policy;\n\t"
+        "}"
+        :
+        : "l"(addr), "f"(val.x), "f"(val.y), "f"(val.z), "f"(val.w)
+        : "memory"
+    );
+}
+
 __device__ void write_bin(float4* __restrict__ bins, int bin_idx, float4 contribution) {
 	if(bin_idx >= 0) {
-		float4 bin = bins[bin_idx];
+		float4 bin = ld_cg_evict_last(bins + bin_idx);
 		bin.x += contribution.x;
 		bin.y += contribution.y;
 		bin.z += contribution.z;
 		bin.w += contribution.w;
-		bins[bin_idx] = bin;
+		st_cg_evict_last(bins + bin_idx, bin);
 	}
 }
 
@@ -457,7 +481,7 @@ __device__ void warp_aggregated_write(
     }
 }
 
-constexpr static uint32 randomize_interval = 500;
+constexpr static uint32 randomize_interval = 200;
 constexpr static uint32 fusion_length = 32;
 
 __device__ unsigned int pass_and_draw(unsigned int pass_idx, float4* const __restrict__ bins, const uint32 bins_w, const uint32 bins_h) {
@@ -475,11 +499,11 @@ __device__ unsigned int pass_and_draw(unsigned int pass_idx, float4* const __res
 	}
 
 	if constexpr(has_final_xform) {
-			vec3<Real> my_iter_copy = {transformed.x, transformed.y, transformed.z};
+			vec3<Real> my_iter_copy = transformed;
 			state.flame.dispatch(num_xforms, my_iter_copy, transformed, &my_rand());
 	}
 		
-	state.flame.screen_space.apply(transformed.x, transformed.y);
+	state.flame.screen_space.apply(transformed.as_vec2());
 
 	transformed.x = int(roundf(transformed.x));
 	transformed.y = int(roundf(transformed.y));

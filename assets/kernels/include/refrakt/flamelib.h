@@ -53,8 +53,8 @@ struct vec2 {
 	}
 
 	__device__ vec2& operator-=(const vec2& other) {
-		x += other.x;
-        y += other.y;
+		x -= other.x;
+        y -= other.y;
         return *this;
 	}
 
@@ -181,7 +181,7 @@ namespace flamelib {
 
 	template<typename FloatT, typename RandCtx, uint64 ThreadsPerBlock>
 	struct thread_states_t {
-		iterators_t<FloatT, ThreadsPerBlock> iterators;
+		vec3<FloatT> iterators[ThreadsPerBlock];
 		RandCtx rand_states[ThreadsPerBlock];
 		uint8 xform_vote[ThreadsPerBlock];
 	};
@@ -273,7 +273,7 @@ __device__ vec2<T> operator-(const vec2<T>& a, const vec2<T>& b) noexcept {
 
 template<typename T>
 __device__ vec3<T> operator+(const vec3<T>& a, const vec3<T>& b) noexcept {
-    return {a.x + b.x, a.y + b.y, a.z - b.z};
+    return {a.x + b.x, a.y + b.y, a.z + b.z};
 }
 
 template<typename T>

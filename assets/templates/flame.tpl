@@ -7,10 +7,10 @@ template<typename FloatT>
 struct __align__(sizeof(FloatT)) affine {
     FloatT a, d, b, e, c, f;
 
-    __device__ void apply(FloatT& px, FloatT& py) const {
-        auto tmp = fl::fma(a, px, fl::fma(b, py, c));
-        py = fl::fma(d, px, fl::fma(e, py, f));
-        px = tmp;
+    __device__ void apply(vec2<FloatT>& p) const {
+        auto tmp = fl::fma(a, p.x, fl::fma(b, p.y, c));
+        p.y = fl::fma(d, p.x, fl::fma(e, p.y, f));
+        p.x = tmp;
     }
 };
 
@@ -70,7 +70,7 @@ struct __align__(sizeof(FloatT)) xform_@hash@_t {
     <# endfor #>
     __device__ void apply(vec2<FloatT>& inp, vec2<FloatT>& outp, RandCtx* rs) const {
         <# for vlink in xform.vchain #>
-        vlink_@loop.index@.aff.apply(inp.x, inp.y);
+        vlink_@loop.index@.aff.apply(inp);
         vlink_@loop.index@.apply(inp, outp, rs);
             <# if not loop.is_last #>
         inp = outp;
