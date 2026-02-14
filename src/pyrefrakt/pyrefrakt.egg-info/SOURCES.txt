@@ -1,6 +1,8 @@
 pyproject.toml
 ./pyrefrakt/__init__.py
-./pyrefrakt/_pyrefrakt.cp313-win_amd64.pyd
+./pyrefrakt/_pyrefrakt.cpython-313-x86_64-linux-gnu.so
+pyrefrakt/__init__.py
+pyrefrakt/_pyrefrakt.cpython-313-x86_64-linux-gnu.so
 pyrefrakt.egg-info/PKG-INFO
 pyrefrakt.egg-info/SOURCES.txt
 pyrefrakt.egg-info/dependency_links.txt

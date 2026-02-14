@@ -96,7 +96,7 @@ target_link_libraries(librefrakt PUBLIC
 	roccu
  	ezrtc
 	eznve
-	Rpcrt4.lib
+	#Rpcrt4.lib
 )
 
 add_library(librefrakt-impl OBJECT
@@ -104,7 +104,7 @@ add_library(librefrakt-impl OBJECT
 	"src/impl/jpeg_encoder/cpu_jpeg_encoder.cpp"
 	"src/impl/mp4_muxer/ffmpeg_muxer.cpp"
 	"src/impl/denoiser/optix_denoiser.cpp"
-	"src/impl/denoiser/oidn_denoiser.cpp"
+#	"src/impl/denoiser/oidn_denoiser.cpp"
 	"src/impl/denoiser/null_denoiser.cpp"
 )
 
@@ -129,16 +129,16 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(reproc)
 
 # intel open image denoise
-FetchContent_Declare(
-  oidn
-  URL https://github.com/OpenImageDenoise/oidn/releases/download/v2.2.2/oidn-2.2.2.x64.windows.zip
-  URL_HASH SHA256=5cc8bcc2a3321ef32547c3be70d43878a41324718cabdfb151b332a2a4928297
-)
-FetchContent_MakeAvailable(oidn)
-include("${oidn_SOURCE_DIR}/lib/cmake/OpenImageDenoise-2.2.2/OpenImageDenoiseConfig.cmake")
+#FetchContent_Declare(
+#  oidn
+#  URL https://github.com/OpenImageDenoise/oidn/releases/download/v2.2.2/oidn-2.2.2.x64.windows.zip
+#  URL_HASH SHA256=5cc8bcc2a3321ef32547c3be70d43878a41324718cabdfb151b332a2a4928297
+#)
+#FetchContent_MakeAvailable(oidn)
+#include("${oidn_SOURCE_DIR}/lib/cmake/OpenImageDenoise-2.2.2/OpenImageDenoiseConfig.cmake")
 
 target_link_libraries(librefrakt-impl PRIVATE 
-	OpenImageDenoise
+#	OpenImageDenoise
 	reproc++
 	dylib
 )

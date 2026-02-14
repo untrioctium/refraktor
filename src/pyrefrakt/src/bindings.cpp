@@ -262,13 +262,15 @@ PYBIND11_MODULE(_pyrefrakt, m, py::mod_gil_not_used()) {
 
         ctx = std::make_unique<context>();
 
+        SPDLOG_INFO("Initializing CUDA");
         ctx->cuda_ctx = std::make_unique<roccu::context>(rfkt::cuda::init());
     
+        SPDLOG_INFO("Initializing flame database");
         ctx->flamedb = std::make_unique<rfkt::flamedb>();
         rfkt::fs::set_assets_directory(rfkt::fs::path(assets_path));
         rfkt::initialize(*ctx->flamedb, config_path);
 
-
+        SPDLOG_INFO("Initializing function table");
         ctx->functions = std::make_unique<rfkt::function_table>();
         ctx->functions->add_or_update("increase", {
             {{"per_loop", {rfkt::func_info::arg_t::decimal, 360.0}}},
@@ -289,12 +291,14 @@ PYBIND11_MODULE(_pyrefrakt, m, py::mod_gil_not_used()) {
         });
 
 
+        SPDLOG_INFO("Initializing kernel cache");
         auto kernel_cache = std::make_shared<ezrtc::sqlite_cache>((rfkt::fs::user_local_directory() / "kernel.sqlite3").string());
         auto guarded = std::make_shared<ezrtc::cache_adaptors::guarded>(kernel_cache);
         auto zlib = std::make_shared<ezrtc::cache_adaptors::zlib>(guarded);
         ctx->kernel_manager = std::make_shared<ezrtc::compiler>(zlib);
 
 
+        SPDLOG_INFO("Initializing flame compiler");
         ctx->flame_compiler = std::make_unique<rfkt::flame_compiler>(ctx->kernel_manager.get());
 
 
@@ -305,8 +309,8 @@ PYBIND11_MODULE(_pyrefrakt, m, py::mod_gil_not_used()) {
         ctx->tonemapper = std::make_unique<rfkt::tonemapper>(*ctx->kernel_manager);
         ctx->converter = std::make_unique<rfkt::converter>(*ctx->kernel_manager);
 
-        ctx->denoiser = rfkt::denoiser::make("rfkt::optix_denoise", uint2{1024, 1024}, rfkt::denoiser_flag::tiled, *ctx->stream);
-        ctx->upscaling_denoiser = rfkt::denoiser::make("rfkt::optix_denoise", uint2{1024, 1024}, rfkt::denoiser_flag::upscale | rfkt::denoiser_flag::tiled, *ctx->stream);
+        ctx->denoiser = rfkt::denoiser::make("rfkt::null_denoise", uint2{1024, 1024}, rfkt::denoiser_flag::tiled, *ctx->stream);
+        ctx->upscaling_denoiser = rfkt::denoiser::make("rfkt::null_denoise", uint2{1024, 1024}, rfkt::denoiser_flag::upscale | rfkt::denoiser_flag::tiled, *ctx->stream);
         ctx->jpeg_encoder = rfkt::jpeg_encoder::make("rfkt::nvjpeg_encode", *ctx->stream);
 
         if(!ctx->jpeg_encoder) {

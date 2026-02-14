@@ -154,7 +154,7 @@ consteval static auto noop_ret(bool positive) {
 
 template<bool Positive, typename Ret, typename... Args>
 consteval auto get_noop(Ret(*)(Args...)) {
-	return [](Args...) -> Ret { 
+	return +[](Args...) -> Ret { 
         constexpr auto ret = noop_ret<Ret>(Positive);
         return ret; 
     };
@@ -164,7 +164,7 @@ template<typename FunctionPtrType>
 bool register_traits(const ru_traits& traits) {
 
     ru_map[traits.name] = traits;
-    ru_map[traits.name].noop = get_noop<true>((FunctionPtrType)nullptr);
+    ru_map[traits.name].noop = reinterpret_cast<void*>(get_noop<true>((FunctionPtrType)nullptr));
     return true;
 };
 

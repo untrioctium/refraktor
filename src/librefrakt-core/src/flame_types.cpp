@@ -5,6 +5,7 @@
 #include <cmath>
 #include <set>
 #include <algorithm>
+#include <string_view>
 #include <spdlog/spdlog.h>
 #include <sol/sol.hpp>
 
@@ -501,7 +502,7 @@ std::optional<rfkt::flame> rfkt::flame::deserialize(const json& js, const functi
 
 	if (!js.contains("palette") || !js["palette"].is_string()) return std::nullopt;
 
-	auto palette_data = zlib::uncompress_b64(js["palette"]);
+	auto palette_data = zlib::uncompress_b64(js["palette"].get<std::string>());
 
 	constexpr static auto palette_element_size = sizeof(decltype(palette)::value_type);
 	if (palette_data.size() % palette_element_size != 0) return std::nullopt;

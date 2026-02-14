@@ -8,6 +8,7 @@
 #include <functional>
 #include <string>
 #include <roccu.hpp>
+#include <cstring>
 
 namespace roccu {
 

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <string>
+#include <string_view>
 #include <set>
 #include <optional>
 #include <map>
@@ -113,8 +114,10 @@ namespace rfkt {
 		}
 
 		bool remove_variation(std::string_view name) noexcept {
-			if (variations_.erase(name) > 0) {
-				variation_cache_.erase(name);
+			auto it = variations_.find(name);
+			if (it != variations_.end()) {
+				variations_.erase(it);
+				variation_cache_.erase(it->first);
 				recalc_hash();
 				return true;
 			}
@@ -122,8 +125,10 @@ namespace rfkt {
 		}
 
 		bool remove_common(std::string_view name) noexcept {
-			if (common_.erase(name) > 0) {
-				common_cache_.erase(name);
+			auto it = common_.find(name);
+			if (it != common_.end()) {
+				common_.erase(it);
+				common_cache_.erase(it->first);
 				recalc_hash();
 				return true;
 			}

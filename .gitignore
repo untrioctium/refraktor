@@ -73,3 +73,6 @@ licenses/
 *.pyd
 *.pdb
 __pycache__/
+venv/
+pyrefrakt.egg-info/
+*.so.*

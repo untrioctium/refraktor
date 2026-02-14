@@ -132,7 +132,7 @@ namespace rfkt {
 		void check_error() {
 			if (const char* error; device.getError(error) != oidn::Error::None) {
 				SPDLOG_ERROR("OIDN error: {}", error);
-				__debugbreak();
+				//__debugbreak();
 			}
 		}
 

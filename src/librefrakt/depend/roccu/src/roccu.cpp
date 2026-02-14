@@ -33,8 +33,13 @@ inline const static auto roccu_load_info_list = std::array{
     roccu_load_info{ROCCU_API_CUDA, "nvcuda.dll", "nvrtc64_130_0.dll"},
     roccu_load_info{ROCCU_API_ROCM, "amdhip64.dll", "hiprtc0507.dll"}
 };
-#endif
+#else
 
+inline const static auto roccu_load_info_list = std::array{
+    roccu_load_info{ROCCU_API_CUDA, "libcuda.so.1", "libnvrtc.so.13.1.115"},
+    roccu_load_info{ROCCU_API_ROCM, "amdhip64.so", "hiprtc0507.so"}
+};
+#endif
 
 class dynamic_library {
 public:
@@ -303,7 +308,7 @@ bool load_symbols(int flags) {
         cuDeviceGetAttribute = +[](int* value, CUdevice_attribute attr, int device) -> CUresult {
 			auto lut = ru_to_hip_device_attribute.find(attr);
             if(lut == ru_to_hip_device_attribute.end()) {
-                __debugbreak();
+                //__debugbreak();
 			}
 
             if(std::holds_alternative<int>(lut->second)) {
@@ -381,7 +386,13 @@ roccu_api roccuInit(int flags) {
 	api = []() -> std::optional<roccu_impl> {
 		for(const auto& info : roccu_load_info_list) {
 			auto driver = dynamic_library::load(info.driver);
+            if(!driver) {
+                printf("Failed to load driver %s\n", info.driver);
+            }
             auto rtc = dynamic_library::load(info.rtc);
+            if(!rtc) {
+                printf("Failed to load RTC %s\n", info.rtc);
+            }
 
             if(driver && rtc) {
                 return roccu_impl{info.api, std::move(driver.value()), std::move(rtc.value())};

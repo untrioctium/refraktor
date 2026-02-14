@@ -17,11 +17,12 @@ include(CheckIPOSupported)
 check_ipo_supported()
 
 set(CMAKE_INTERPROCEDURAL_OPTIMIZATION TRUE)
+set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED TRUE)
 
-if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
     link_libraries(stdc++exp)  # Global, or use target_link_libraries per target
 endif()
 
@@ -61,11 +62,11 @@ FetchContent_MakeAvailable(zlib-ng)
 
 add_subdirectory(src/librefrakt-core)
 add_subdirectory(src/librefrakt)
-add_subdirectory(src/librefrakt-qt-core)
-add_subdirectory(src/librefrakt-qt)
+#add_subdirectory(src/librefrakt-qt-core)
+#add_subdirectory(src/librefrakt-qt)
 #add_subdirectory(src/librefrakt-qt-server)
-add_subdirectory(src/refrakt-qt)
-add_subdirectory(src/refrakt-qt-server)
+#add_subdirectory(src/refrakt-qt)
+#add_subdirectory(src/refrakt-qt-server)
 add_subdirectory(src/pyrefrakt)
 #add_subdirectory(src/refrakt-gui)
 
@@ -93,7 +94,7 @@ foreach(target_name ${all_targets})
 		set_property(TARGET ${target_name} PROPERTY FOLDER "Dependencies")
 	else()
 		set_target_properties(${target_name} PROPERTIES
-    CXX_CLANG_TIDY "clang-tidy"
+    CXX_CLANG_TIDY "clang-tidy-21"
 		)
 	endif()
 endforeach()

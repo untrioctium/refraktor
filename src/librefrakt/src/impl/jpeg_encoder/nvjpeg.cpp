@@ -1,6 +1,7 @@
 #include <spdlog/spdlog.h>
 #include <dylib.hpp>
 #include <queue>
+#include <cstring>
 
 #include <librefrakt/interface/jpeg_encoder.hpp>
 
@@ -12,7 +13,6 @@ constexpr static int NVJPEG_STATUS_SUCCESS = 0;
     nvjpegStatus_t result = x;                                    \
     if (result != NVJPEG_STATUS_SUCCESS) {                        \
       SPDLOG_ERROR("`{}` failed with result: {}", #x, result);    \
-      __debugbreak();                                             \
       exit(1);                                                    \
     }                                                             \
   } while(0)
@@ -88,7 +88,13 @@ namespace rfkt {
 			.supported_apis = { ROCCU_API_CUDA }
 		};
 
-		explicit nvjpeg_encoder(roccu::gpu_stream& stream) : api(dylib{ "nvjpeg64_13" }) {
+		#ifdef _WIN32
+			constexpr static auto lib_name = "nvjpeg64_13.dll";
+		#else
+			constexpr static auto lib_name = "libnvjpeg.so.13";
+		#endif
+
+		explicit nvjpeg_encoder(roccu::gpu_stream& stream) : api(dylib{ lib_name, false }) {
 
 			dev_allocator.dev_malloc = cuMemAlloc;
 			dev_allocator.dev_free = cuMemFree;
@@ -105,7 +111,7 @@ namespace rfkt {
 			auto state = get_or_make_state(stream);
 
 			nvjpegImage_t nv_image;
-			memset(&nv_image, 0, sizeof(nv_image));
+			std::memset(&nv_image, 0, sizeof(nv_image));
 			nv_image.channel[0] = (unsigned char*)image.ptr();
 			nv_image.pitch[0] = image.pitch() * decltype(image)::element_size;
 

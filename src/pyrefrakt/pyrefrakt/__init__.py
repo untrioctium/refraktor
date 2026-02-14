@@ -5,7 +5,7 @@ _repo_root = _module_dir.parent.parent.parent
 
 import os
 os.environ['PATH'] = str(_repo_root) + os.pathsep + os.environ.get('PATH', '')
-os.add_dll_directory(str(_repo_root))
+#os.add_dll_directory(str(_repo_root))
 
 from ._pyrefrakt import *
 

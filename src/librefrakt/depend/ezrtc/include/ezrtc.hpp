@@ -32,6 +32,7 @@
 #include <filesystem>
 #include <format>
 #include <roccu.hpp>
+#include <cstring>
 #include <nameof.hpp>
 #include <boost/pfr.hpp>
 

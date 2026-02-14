@@ -1,8 +1,12 @@
+#include <cmath>
+
 #include <spdlog/spdlog.h>
 
 #include <librefrakt/image/tonemapper.hpp>
 #include <librefrakt/constants.hpp>
 #include <librefrakt/util/filesystem.hpp>
+
+
 
 #define RFKT_ASSERT(x) 
 
@@ -44,7 +48,7 @@ namespace rfkt {
 			out,
 			size,
 			static_cast<float>(args.gamma),
-			std::powf(10.0f, -log10f(args.quality) - 0.5f),
+			std::powf(10.0f, -std::log10f(args.quality) - 0.5f),
 			static_cast<float>(args.brightness),
 			static_cast<float>(args.vibrancy),
 			args.hdr

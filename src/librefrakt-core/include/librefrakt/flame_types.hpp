@@ -310,7 +310,10 @@ namespace rfkt {
 		}
 
 		void remove_variation(std::string_view name) {
-			variations_.erase(name);
+			auto it = variations_.find(name);
+			if (it != variations_.end()) {
+				variations_.erase(it);
+			}
 		}
 
 		bool has_variation(std::string_view name) const {
@@ -926,7 +929,6 @@ namespace rfkt {
 			const auto* right_a = at.access(right.flame);
 
 			if (!left_a || !right_a) {
-				SPDLOG_ERROR("interp_anima: left or right flame field not found: {}", at.to_string());
 				return 0.0;
 			}
 

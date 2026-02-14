@@ -15,7 +15,6 @@ do { \
 		std::string error = std::format("{} failed with {} ({}@{})", #expr, get_error(ret), __FILE__, __LINE__); \
 		std::cerr << api.funcs().nvEncGetLastErrorString(session) << std::endl; \
 		std::cerr << error << std::endl; \
-		__debugbreak(); \
 		throw std::runtime_error{ error }; \
 	} \
 } while(0) \

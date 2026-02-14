@@ -9,6 +9,7 @@
 #include <array>
 #include <memory>
 #include <queue>
+#include <cstring>
 
 #include <assert.h>
 
@@ -222,7 +223,7 @@ namespace eznve {
 		template<typename T>
 		T* pbuf_as() noexcept {
 			assert(sizeof(T) < pbuf->size());
-			memset(pbuf->data(), 0, sizeof(T));
+			std::memset(pbuf->data(), 0, sizeof(T));
 			return reinterpret_cast<T*>(pbuf->data());
 		}
 

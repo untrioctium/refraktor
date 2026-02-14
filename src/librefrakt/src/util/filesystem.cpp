@@ -39,7 +39,7 @@ const path& rfkt::fs::assets_directory() {
 
 const path& rfkt::fs::user_local_directory() {
 	const static path local_dir = []() -> path {
-		path local_path{};
+		path local_path = std::filesystem::current_path();
 #ifdef _WIN32
 		PWSTR base_path = nullptr;
 		if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_LocalAppData, 0, NULL, &base_path))) {
@@ -101,7 +101,7 @@ auto rfkt::fs::read_string(const path& file_path) -> std::string
 bool rfkt::fs::write(const path& file_path, const char* bytes, std::size_t length, bool append)
 {
 	auto file = std::ofstream{};
-	file.open(file_path, std::ios::binary | std::ios::out | (append ? std::ios::app : 0));
+	file.open(file_path, std::ios::binary | std::ios::out | (append ? std::ios::app : std::ios::out));
 	file.write(bytes, length);
 	file.close();
 
