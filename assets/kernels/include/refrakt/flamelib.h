@@ -9,7 +9,7 @@
 	#define INTERP(a, b, mix) ((a) * (1.0 - (mix)) + (b) * (mix))
 	#define __sincos sincos
 	#define __pow pow
-	#define __fma fmaf
+	#define __fma fma
 	#define badvalue(x) (((x)!=(x))||((x)>1e10)||((x)<-1e10))
 #else
 	using Real = float;
@@ -21,7 +21,7 @@
 	#define INTERP(a, b, mix) ((a) * (1.0f - (mix)) + (b) * (mix))
 	#define __sincos __sincosf
 	#define __pow __powf
-	#define __fma fma
+	#define __fma fmaf
 	#define badvalue(x) (((x)!=(x))||((x)>1e10f)||((x)<-1e10f))
 #endif
 
@@ -195,6 +195,8 @@ namespace flamelib {
 		unsigned long long tss_passes;
 
 		unsigned long long warmup_hits;
+
+		FloatT scratch[2];
 
 		FlameT flame;
 	};

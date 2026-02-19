@@ -123,19 +123,18 @@ __device__ constexpr uint32 feistel_permute(uint32 x, uint32 seed) {
 }
 
 __device__ void randomize_iterators(const uint32 bins_w, const uint32 bins_h) {
-	__shared__ vec2<Real> cp_offset;
 
 	if(fl::is_block_leader()) {
-		cp_offset.x = my_rand().rand01() * Real(2.0) - Real(1.0);
-		cp_offset.y = my_rand().rand01() * Real(2.0) - Real(1.0);
+		state.scratch[0] = my_rand().rand01() * Real(2.0) - Real(1.0);
+		state.scratch[1] = my_rand().rand01() * Real(2.0) - Real(1.0);
 	}
 
 	// Cranley-Patterson rotation of Hammersley sequence
 	auto pos = hammersley::sample<Real, threads_per_block>(fl::block_rank());
 
 	fl::sync_block();
-	pos.x += cp_offset.x;
-	pos.y += cp_offset.y;
+	pos.x += state.scratch[0];
+	pos.y += state.scratch[1];
 	if(pos.x > Real(1.0)) pos.x -= Real(2.0);
 	if(pos.x < Real(-1.0)) pos.x += Real(2.0);
 	if(pos.y > Real(1.0)) pos.y -= Real(2.0);
@@ -481,7 +480,7 @@ __device__ void warp_aggregated_write(
     }
 }
 
-constexpr static uint32 randomize_interval = 500;
+constexpr static uint32 randomize_interval = 10000;
 constexpr static uint32 fusion_length = 32;
 
 __device__ unsigned int pass_and_draw(unsigned int pass_idx, float4* const __restrict__ bins, const uint32 bins_w, const uint32 bins_h) {
@@ -509,25 +508,29 @@ __device__ unsigned int pass_and_draw(unsigned int pass_idx, float4* const __res
 	transformed.y = int(roundf(transformed.y));
 
 	auto bin_idx = int(transformed.y) * int(bins_w) + int(transformed.x);
-	float4 new_bin = float4{0.0f, 0.0f, 0.0f, 0.0f};
 
 	unsigned int hit = 0;
 	if(transformed.x >= 0 && transformed.y >= 0 
 	&& transformed.x < bins_w && transformed.y < bins_h 
 	&& transformed.w > 0.0) {
 
-		new_bin = ld_cg_evict_last(bins + bin_idx);
-
 		const auto palette_idx = transformed.z * 255.0f;
 
-		const auto& upper = state.palette[static_cast<unsigned char>(ceil(palette_idx))];
-		const auto& lower = state.palette[static_cast<unsigned char>(floor(palette_idx))];
-		auto mix = palette_idx - truncf(palette_idx);
-		auto factor = transformed.w / 255.0f;
+		const auto floor_idx = __float2uint_rd(palette_idx);
+		const auto upper_idx = min(floor_idx + 1, 255u);
 
-		new_bin.x += ((1.0_r - mix) * lower.x + mix * upper.x) * factor;
-		new_bin.y += ((1.0_r - mix) * lower.y + mix * upper.y) * factor;
-		new_bin.z += ((1.0_r - mix) * lower.z + mix * upper.z) * factor;
+		const auto& upper = state.palette[static_cast<unsigned char>(upper_idx)];
+		const auto& lower = state.palette[static_cast<unsigned char>(floor_idx)];
+		auto mix = palette_idx - float(floor_idx);
+
+		constexpr static float factor_float = 1.0f / 255.0f;
+		auto factor = float(transformed.w) * factor_float;
+
+		auto new_bin = ld_cg_evict_last(bins + bin_idx);
+
+		new_bin.x += (lower.x + mix * (upper.x - lower.x)) * factor;
+		new_bin.y += (lower.y + mix * (upper.y - lower.y)) * factor;
+		new_bin.z += (lower.z + mix * (upper.z - lower.z)) * factor;
 		new_bin.w += transformed.w;
 
 		hit = (unsigned int)(255.0f * transformed.w);

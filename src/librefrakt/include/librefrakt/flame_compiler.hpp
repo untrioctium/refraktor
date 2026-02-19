@@ -130,12 +130,8 @@ namespace rfkt {
 			std::map<std::size_t, roccu::gpu_buffer<unsigned int>> sample_shuf_bufs;
 		};
 
-		flame_kernel(std::size_t flame_size_reals, ezrtc::cuda_module&& mod, std::pair<int, int> exec, std::shared_ptr<shared_runtime> srt, std::vector<std::size_t> affine_indices) :
-			mod(std::move(mod)), exec(exec), flame_size_reals(flame_size_reals), srt(srt), affine_indices(std::move(affine_indices)) {
-
-			roccu::gpu_buffer<std::size_t> state_size_buf{ 1 };
-			this->mod.kernel("get_sample_state_size").launch(1, 1)(state_size_buf.ptr());
-			saved_state_size = state_size_buf.to_host()[0] * exec.first;
+		flame_kernel(std::size_t flame_size_reals, ezrtc::cuda_module&& mod, std::pair<int, int> exec, std::shared_ptr<shared_runtime> srt, std::vector<std::size_t> affine_indices, std::size_t saved_state_size) :
+			mod(std::move(mod)), exec(exec), flame_size_reals(flame_size_reals), srt(srt), affine_indices(std::move(affine_indices)), saved_state_size(saved_state_size) {
 		}
 
 		std::size_t saved_state_size;
@@ -204,9 +200,14 @@ namespace rfkt {
 
 	private:
 
-		auto smem_per_block(precision prec, std::size_t flame_real_count, std::size_t threads_per_block) {
+		auto smem_per_sample(precision prec, std::size_t flame_real_count, std::size_t threads_per_block) {
 			auto sample_bytes = required_smem[std::make_pair(prec, threads_per_block)] + flame_real_count * (prec == precision::f32 ? 4: 8);
-			return sample_bytes + iteration_info_size;
+			auto total_sample_bytes = (sample_bytes + 15) & ~std::size_t(15);
+			return total_sample_bytes;
+		}
+
+		auto smem_per_block(precision prec, std::size_t flame_real_count, std::size_t threads_per_block) {
+			return smem_per_sample(prec, flame_real_count, threads_per_block) + iteration_info_size;
 		}
 
 		std::pair<roccu::execution_config, ezrtc::spec> make_opts(precision prec, const flame& f, flag_set_t flags);

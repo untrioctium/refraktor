@@ -584,13 +584,20 @@ auto rfkt::flame_compiler::prepare_flame_kernel(const flamedb& fdb, precision pr
             SPDLOG_ERROR("Kernel for {} needs {} blocks but only got {}; {} shared, {} expected, {} regs, {} local", opts.name(), most_blocks.grid, max_blocks, func.shared_bytes(), expected_shared, func.register_count(), func.local_bytes());
             return r;
         }
+
+        if(func.shared_bytes() != expected_shared) {
+            SPDLOG_ERROR("Kernel for {} has {} shared but expected {}", opts.name(), func.shared_bytes(), expected_shared);
+            return r;
+        }
+
         SPDLOG_INFO("Loaded flame kernel {}: {} temp. samples, {} flame params, {} regs, {} shared ({} expected), {} local, {:.4} ms, (cache {})", opts.name(), max_blocks, size_reals, func.register_count(), func.shared_bytes(), expected_shared, func.local_bytes(), duration_ms, compile_result.loaded_from_cache ? "hit" : "miss");
     
         if (func.local_bytes() > 0) {
             SPDLOG_WARN("Kernel for {} uses {} local memory", opts.name(), func.local_bytes());
         }
     
-        r.kernel = flame_kernel{ size_reals, std::move(compile_result.module.value()), std::pair<int, int>{most_blocks.grid, most_blocks.block}, srt, affine_indices};
+        auto saved_state_size = smem_per_sample(prec, size_reals, most_blocks.block) * most_blocks.grid;
+        r.kernel = flame_kernel{ size_reals, std::move(compile_result.module.value()), std::pair<int, int>{most_blocks.grid, most_blocks.block}, srt, affine_indices, saved_state_size};
     
         return r;
     };
@@ -678,20 +685,21 @@ rfkt::flame_compiler::flame_compiler(ezrtc::compiler* k_manager): km(k_manager)
 
     iteration_info_size = shared_sizes[0];
     for (int i = 0; i < exec_configs.size(); i++) {
-       required_smem[{precision::f32, exec_configs[i].block}] = shared_sizes[i + 1] + 128;
-       required_smem[{precision::f64, exec_configs[i].block}] = shared_sizes[i + 1 + exec_configs.size()] + 128;
+       required_smem[{precision::f32, exec_configs[i].block}] = shared_sizes[i + 1];
+       required_smem[{precision::f64, exec_configs[i].block}] = shared_sizes[i + 1 + exec_configs.size()];
     }
 
     for (auto& exec : exec_configs) {
         {
             auto needed = smem_per_block(precision::f32, 0, exec.block);
+            if (needed > exec.shared_per_block) continue;
             auto leftover = exec.shared_per_block - needed;
-            if (leftover <= 0) continue;
             SPDLOG_INFO("{}x{}xf32: {} needed, {} leftover shared ({} floats)", exec.grid, exec.block, needed, leftover, leftover / 4);
         }
         {
-            auto leftover = exec.shared_per_block - smem_per_block(precision::f64, 0, exec.block);
-            if (leftover <= 0) continue;
+            auto needed = smem_per_block(precision::f64, 0, exec.block);
+            if (needed > exec.shared_per_block) continue;
+            auto leftover = exec.shared_per_block - needed;
             SPDLOG_INFO("{}x{}xf64: {} leftover shared ({} doubles)", exec.grid, exec.block, leftover, leftover / 8);
         }
     }
@@ -801,8 +809,7 @@ auto rfkt::flame_compiler::make_opts(precision prec, const flame& f, flame_compi
 
     if (f.chaos_table.has_value()) opts.define("USE_CHAOS");
     if (prec == precision::f64) opts.define("DOUBLE_PRECISION");
-
-
+    
     opts.flag(ezrtc::compile_flag::use_fast_math);
 
     return { most_blocks, opts };
