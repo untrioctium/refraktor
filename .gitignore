@@ -76,3 +76,6 @@ __pycache__/
 venv/
 pyrefrakt.egg-info/
 *.so.*
+dist.7z
+sheep.db
+*Identifier*

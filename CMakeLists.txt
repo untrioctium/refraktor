@@ -22,8 +22,12 @@ set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED TRUE)
 
-if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang" AND NOT WIN32)
     link_libraries(stdc++exp)  # Global, or use target_link_libraries per target
+endif()
+
+if(WIN32)
+    link_libraries(rpcrt4.lib)
 endif()
 
 set(CMAKE_CXX_EXTENSIONS OFF)
@@ -94,7 +98,7 @@ foreach(target_name ${all_targets})
 		set_property(TARGET ${target_name} PROPERTY FOLDER "Dependencies")
 	else()
 		set_target_properties(${target_name} PROPERTIES
-    CXX_CLANG_TIDY "clang-tidy-21"
+    CXX_CLANG_TIDY "clang-tidy"
 		)
 	endif()
 endforeach()

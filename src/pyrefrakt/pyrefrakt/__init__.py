@@ -1,7 +1,10 @@
 from pathlib import Path
 
 _module_dir = Path(__file__).parent
-_repo_root = _module_dir.parent.parent.parent
+_repo_root = _module_dir
+
+while not (_repo_root / "assets").exists():
+    _repo_root = _repo_root.parent
 
 import os
 os.environ['PATH'] = str(_repo_root) + os.pathsep + os.environ.get('PATH', '')

@@ -15,6 +15,8 @@
 #include <librefrakt/image/tonemapper.hpp>
 #include <librefrakt/image/converter.hpp>
 
+#include <sqlite3.h>
+
 #include <print>
 
 namespace py = pybind11;
@@ -33,6 +35,8 @@ struct context {
     std::unique_ptr<rfkt::jpeg_encoder> jpeg_encoder;
     std::unique_ptr<roccu::gpu_stream> stream;
     std::unique_ptr<roccu::gpu_event> event;
+
+    std::unique_ptr<sqlite3, decltype(&sqlite3_close)> db = {nullptr, sqlite3_close};
 
     std::map<rfkt::hash_t, rfkt::flame_compiler::result> cached_kernels;
 };
@@ -316,12 +320,40 @@ PYBIND11_MODULE(_pyrefrakt, m, py::mod_gil_not_used()) {
         if(!ctx->jpeg_encoder) {
             throw std::runtime_error("Failed to initialize jpeg encoder");
         }
+
+        sqlite3* dbptr = nullptr;
+        if(sqlite3_open(std::format("{}/sheep.db", assets_path).c_str(), &dbptr) != SQLITE_OK) {
+            throw std::runtime_error("Failed to open database");
+        }
+        ctx->db = {dbptr, &sqlite3_close};
     });
 
     m.def("import_flam3", [](std::string_view path) {
         py::gil_scoped_release release;
         auto data = rfkt::fs::read_string(rfkt::fs::path(path));
         auto result = rfkt::import_flam3(*ctx->flamedb, data);
+        if(!result) {
+            throw std::runtime_error(result.error());
+        }
+        return std::move(result.value());
+    });
+
+    m.def("get_sheep", [](int gen, int idx) -> rfkt::flame {
+        py::gil_scoped_release release;
+        sqlite3_stmt* stmt;
+        constexpr static std::string_view sql = "SELECT content FROM flames WHERE generation = ? AND id = ?";
+        if(sqlite3_prepare_v2(ctx->db.get(), sql.data(), sql.size(), &stmt, nullptr) != SQLITE_OK) {
+            throw std::runtime_error("Failed to prepare statement");
+        }
+        sqlite3_bind_int(stmt, 1, gen);
+        sqlite3_bind_int(stmt, 2, idx);
+        if(sqlite3_step(stmt) != SQLITE_ROW) {
+            throw std::runtime_error(std::format("No flame found for generation {} and id {}", gen, idx));
+        }
+
+
+        auto content = std::string_view{reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0)), static_cast<std::size_t>(sqlite3_column_bytes(stmt, 0))};
+        auto result = rfkt::import_flam3(*ctx->flamedb, content);
         if(!result) {
             throw std::runtime_error(result.error());
         }
