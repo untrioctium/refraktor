@@ -260,7 +260,7 @@ vec4<Real> flame_pass(unsigned int pass_idx) {
 __device__
 vec4<Real> flame_pass(unsigned int pass_idx) {
 
-	auto in_local = iterator{my_iter(x), my_iter(y), my_iter(color)};
+	auto& in_local = state.ts.iterators[fl::block_rank()];
 	auto out_local = iterator{-666.0, -666.0, -660.0};
 	auto selected_xform = state.flame.select_xform(my_xform_vote(), my_rand().rand01()); 
 
@@ -277,9 +277,7 @@ vec4<Real> flame_pass(unsigned int pass_idx) {
 		opacity = 0.0;
 	}
 
-	my_iter(x) = out_local.x;
-	my_iter(y) = out_local.y;
-	my_iter(color) = out_local.z;
+	state.ts.iterators[fl::block_rank()] = out_local;
 
 	fl::sync_block();
 	return vec4<Real>{out_local.x, out_local.y, out_local.z, opacity};

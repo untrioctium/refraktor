@@ -170,12 +170,14 @@ namespace roccu {
             ptr_(ptr),
             stream_(stream) {
 
+            auto dev_max = static_cast<std::size_t>(context::current().device().max_access_policy_window_size());
+            size = (std::min)(size, dev_max);
             CUlaunchAttributeValue attr{};
             attr.accessPolicyWindow.basePtr = ptr_;
             attr.accessPolicyWindow.numBytes = size;
             attr.accessPolicyWindow.hitRatio = ratio;
             attr.accessPolicyWindow.hitProp = CU_ACCESS_PROPERTY_PERSISTING;
-            attr.accessPolicyWindow.missProp = CU_ACCESS_PROPERTY_STREAMING;
+            attr.accessPolicyWindow.missProp = CU_ACCESS_PROPERTY_NORMAL;
 
             ROCCU_SAFE_CALL(cuStreamSetAttribute(stream_, CU_LAUNCH_ATTRIBUTE_ACCESS_POLICY_WINDOW, &attr));
         }
