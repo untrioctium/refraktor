@@ -38,6 +38,26 @@ using int32 = int;
 using int16 = short;
 using int8 = char;
 
+#ifdef ROCCU_CUDA
+using __half = unsigned short;
+
+__device__ __half __float2half(const float a) {
+	__half val;
+	asm("{  cvt.rn.f16.f32 %0, %1;}\n" : "=h"(val) : "f"(a));
+	return val;
+}
+
+float __half2float(__half v) {
+    float val;
+    asm("{cvt.f32.f16 %0, %1;}\n" : "=f"(val) : "h"(v));
+    return val;
+}
+#endif
+
+struct half4 {
+	__half x, y, z, w;
+};
+
 constexpr static uint32 palette_channel_size = 256;
 constexpr static uint32 num_channels = 3;
 constexpr static uint32 palette_size = num_channels * palette_channel_size;

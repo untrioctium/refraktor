@@ -403,6 +403,75 @@ __device__ void st_cg_evict_last(float4* addr, float4 val) {
     );
 }
 
+__device__ float4 ld_cg_evict_first(const float4* addr) {
+    float4 r;
+    asm volatile(
+        "{\n\t"
+        "  .reg .b64 policy;\n\t"
+        "  createpolicy.fractional.L2::evict_first.b64 policy, 1.0;\n\t"
+        "  ld.global.cg.L2::cache_hint.v4.f32 {%0, %1, %2, %3}, [%4], policy;\n\t"
+        "}"
+        : "=f"(r.x), "=f"(r.y), "=f"(r.z), "=f"(r.w)
+        : "l"(addr)
+        : "memory"
+    );
+    return r;
+}
+
+__device__ void st_cg_evict_first(float4* addr, float4 val) {
+    asm volatile(
+        "{\n\t"
+        "  .reg .b64 policy;\n\t"
+        "  createpolicy.fractional.L2::evict_first.b64 policy, 1.0;\n\t"
+        "  st.global.cg.L2::cache_hint.v4.f32 [%0], {%1, %2, %3, %4}, policy;\n\t"
+        "}"
+        :
+        : "l"(addr), "f"(val.x), "f"(val.y), "f"(val.z), "f"(val.w)
+        : "memory"
+    );
+}
+
+__device__ uint2 ld_cg_evict_last_u2(const uint2* addr) {
+    uint2 r;
+    asm volatile(
+        "{\n\t"
+        "  .reg .b64 policy;\n\t"
+        "  createpolicy.fractional.L2::evict_last.b64 policy, 1.0;\n\t"
+        "  ld.global.cg.L2::cache_hint.v2.u32 {%0, %1}, [%2], policy;\n\t"
+        "}"
+        : "=r"(r.x), "=r"(r.y)
+        : "l"(addr)
+        : "memory"
+    );
+    return r;
+}
+
+__device__ void st_cg_evict_last_u2(uint2* addr, uint2 val) {
+    asm volatile(
+        "{\n\t"
+        "  .reg .b64 policy;\n\t"
+        "  createpolicy.fractional.L2::evict_last.b64 policy, 1.0;\n\t"
+        "  st.global.cg.L2::cache_hint.v2.u32 [%0], {%1, %2}, policy;\n\t"
+        "}"
+        :
+        : "l"(addr), "r"(val.x), "r"(val.y)
+        : "memory"
+    );
+}
+
+__device__ void reduce_add_f32_evict_first(float* addr, float val) {
+    asm volatile(
+        "{\n\t"
+        "  .reg .b64 policy;\n\t"
+        "  createpolicy.fractional.L2::evict_first.b64 policy, 1.0;\n\t"
+        "  red.relaxed.gpu.global.L2::cache_hint.add.f32 [%0], %1, policy;\n\t"
+        "}"
+        :
+        : "l"(addr), "f"(val)
+        : "memory"
+    );
+}
+
 __device__ void write_bin(float4* __restrict__ bins, int bin_idx, float4 contribution) {
 	if(bin_idx >= 0) {
 		float4 bin = ld_cg_evict_last(bins + bin_idx);
@@ -478,10 +547,52 @@ __device__ void warp_aggregated_write(
     }
 }
 
+constexpr float drain_threshold = 64.0f;
+
+__device__ void write_bin_half4(
+    uint2* __restrict__ hot_bins,       // half4 reinterpreted as uint2 for 8-byte ld/st
+    float4* __restrict__ cold_bins,
+    int bin_idx,
+    float4 contribution)
+{
+    // Load 8 bytes (one 64-bit transaction, same pattern as your current ld_cg)
+    uint2 raw = ld_cg_evict_last_u2(hot_bins + bin_idx);
+
+    // Unpack to float for accumulation arithmetic
+    float4 val;
+    val.x = __half2float(reinterpret_cast<__half*>(&raw)[0]);
+    val.y = __half2float(reinterpret_cast<__half*>(&raw)[1]);
+    val.z = __half2float(reinterpret_cast<__half*>(&raw)[2]);
+    val.w = __half2float(reinterpret_cast<__half*>(&raw)[3]);
+
+    val.x += contribution.x;
+    val.y += contribution.y;
+    val.z += contribution.z;
+    val.w += contribution.w;
+
+    // If this bin is getting hot, drain to DRAM and reset
+    if (val.w > drain_threshold) {
+        auto bin = ld_cg_evict_first(cold_bins + bin_idx);
+        bin.x += val.x;
+        bin.y += val.y;
+        bin.z += val.z;
+        bin.w += val.w;
+        st_cg_evict_first(cold_bins + bin_idx, bin);
+        val = {0.0f, 0.0f, 0.0f, 0.0f};
+    }
+
+    // Pack back to half4 and store 8 bytes
+    __half packed[4] = {
+        __float2half(val.x), __float2half(val.y),
+        __float2half(val.z), __float2half(val.w)
+    };
+    st_cg_evict_last_u2(hot_bins + bin_idx, reinterpret_cast<uint2&>(packed));
+}
+
 constexpr static uint32 randomize_interval = 10000;
 constexpr static uint32 fusion_length = 32;
 
-__device__ unsigned int pass_and_draw(unsigned int pass_idx, float4* const __restrict__ bins, const uint32 bins_w, const uint32 bins_h) {
+__device__ unsigned int pass_and_draw(unsigned int pass_idx, float4* const __restrict__ cold_bins, uint2* const __restrict__ hot_bins, const uint32 bins_w, const uint32 bins_h) {
 	
 	const auto cycle_pos = (pass_idx + fusion_length) % randomize_interval;
 
@@ -524,7 +635,7 @@ __device__ unsigned int pass_and_draw(unsigned int pass_idx, float4* const __res
 		constexpr static float factor_float = 1.0f / 255.0f;
 		auto factor = float(transformed.w) * factor_float;
 
-		auto new_bin = ld_cg_evict_last(bins + bin_idx);
+		auto new_bin = float4{0.0f, 0.0f, 0.0f, 0.0f};
 
 		new_bin.x += (lower.x + mix * (upper.x - lower.x)) * factor;
 		new_bin.y += (lower.y + mix * (upper.y - lower.y)) * factor;
@@ -533,7 +644,11 @@ __device__ unsigned int pass_and_draw(unsigned int pass_idx, float4* const __res
 
 		hit = (unsigned int)(255.0f * transformed.w);
 
-		st_cg_evict_last(bins + bin_idx, new_bin);
+		#ifdef FLAG_HOT_COLD
+		write_bin_half4(hot_bins, cold_bins, bin_idx, new_bin);
+		#else
+		write_bin(cold_bins, bin_idx, new_bin);
+		#endif
 	} else {
 		bin_idx = -1;
 	}
@@ -558,7 +673,7 @@ void bin(
 	const uint64 quality_target,
 	const uint32 iter_bailout,
 	const uint64 time_bailout,
-	float4* const __restrict__ bins, const uint32 bins_w, const uint32 bins_h,
+	float4* const __restrict__ cold_bins, uint2* const __restrict__ hot_bins, const uint32 bins_w, const uint32 bins_h,
 	uint64* const __restrict__ quality_counter, uint64* const __restrict__ pass_counter,
 	volatile bool* __restrict__ stop_render,
 	const int32 temporal_multiplier,
@@ -602,7 +717,7 @@ void bin(
 			iter_info.loaded_sample = iter_info.current_sample;
 		}
 
-		unsigned int hit = pass_and_draw(iter_info.iter, bins, bins_w, bins_h);
+		unsigned int hit = pass_and_draw(iter_info.iter, cold_bins, hot_bins, bins_w, bins_h);
 		hit = fl::warp_reduce(hit);
 		if(fl::is_warp_leader()) {
 			atomicAdd(&state.tss_quality, hit);

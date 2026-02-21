@@ -48,7 +48,7 @@ template<typename T, typename U>
 static constexpr bool is_same = detail::is_same_t<T, U>::value;
 
 template<typename OutPixelType>
-__global__ void tonemap(const float4* __restrict__ bins, OutPixelType* __restrict__ image, unsigned int size, float gamma, float scale_constant, float brightness, float vibrancy, bool hdr) {
+__global__ void tonemap(const float4* __restrict__ cold_bins, const half4* __restrict__ hot_bins, OutPixelType* __restrict__ image, unsigned int size, float gamma, float scale_constant, float brightness, float vibrancy, bool hdr) {
 
 	constexpr static bool DoAlpha = requires { OutPixelType::w; };
 
@@ -64,7 +64,12 @@ __global__ void tonemap(const float4* __restrict__ bins, OutPixelType* __restric
 
 	if (bin_idx >= size) return;
 
-	float4 col = bins[bin_idx];
+	float4 col = cold_bins[bin_idx];
+	
+	col.x += __half2float(hot_bins[bin_idx].x);
+	col.y += __half2float(hot_bins[bin_idx].y);
+	col.z += __half2float(hot_bins[bin_idx].z);
+	col.w += __half2float(hot_bins[bin_idx].w);
 
 	if(col.w == 0.0) {
 		auto zero_value = to_out_channel_type(0.0);

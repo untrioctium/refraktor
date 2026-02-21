@@ -37,14 +37,15 @@ namespace rfkt {
 		block_size = s_block;
 	}
 
-	void tonemapper::run_impl(const std::string& kernel, CUdeviceptr bins, CUdeviceptr out, unsigned int size, const args_t& args, roccu::gpu_stream& stream) const {
+	void tonemapper::run_impl(const std::string& kernel, CUdeviceptr cold_bins, CUdeviceptr hot_bins, CUdeviceptr out, unsigned int size, const args_t& args, roccu::gpu_stream& stream) const {
 		auto nblocks = size / block_size;
 		if (size % block_size != 0) {
 			nblocks++;
 		}
 
 		ROCCU_SAFE_CALL(tm.kernel(kernel).launch(nblocks, block_size, stream)(
-			bins,
+			cold_bins,
+			hot_bins,
 			out,
 			size,
 			static_cast<float>(args.gamma),
@@ -55,20 +56,20 @@ namespace rfkt {
 			));
 	}
 
-	void tonemapper::run(roccu::gpu_image_view<float4> bins, roccu::gpu_image_view<half3> out, const args_t& args, roccu::gpu_stream& stream) const {
-		run_impl(std::format("tonemap<half3>", histogram_granularity), bins.ptr(), out.ptr(), bins.area(), args, stream);
+	void tonemapper::run(roccu::gpu_image_view<float4> cold_bins, roccu::gpu_image_view<half4> hot_bins, roccu::gpu_image_view<half3> out, const args_t& args, roccu::gpu_stream& stream) const {
+		run_impl(std::format("tonemap<half3>", histogram_granularity), cold_bins.ptr(), hot_bins.ptr(), out.ptr(), cold_bins.area(), args, stream);
 	}
 
-	void tonemapper::run(roccu::gpu_image_view<float4> bins, roccu::gpu_image_view<half4> out, const args_t& args, roccu::gpu_stream& stream) const {
-		run_impl(std::format("tonemap<half4>", histogram_granularity), bins.ptr(), out.ptr(), bins.area(), args, stream);
+	void tonemapper::run(roccu::gpu_image_view<float4> cold_bins, roccu::gpu_image_view<half4> hot_bins, roccu::gpu_image_view<half4> out, const args_t& args, roccu::gpu_stream& stream) const {
+		run_impl(std::format("tonemap<half4>", histogram_granularity), cold_bins.ptr(), hot_bins.ptr(), out.ptr(), cold_bins.area(), args, stream);
 	}
 
-	void tonemapper::run(roccu::gpu_image_view<float4> bins, roccu::gpu_image_view<float3> out, const args_t& args, roccu::gpu_stream& stream) const {
-		run_impl(std::format("tonemap<float3>", histogram_granularity), bins.ptr(), out.ptr(), bins.area(), args, stream);
+	void tonemapper::run(roccu::gpu_image_view<float4> cold_bins, roccu::gpu_image_view<half4> hot_bins, roccu::gpu_image_view<float3> out, const args_t& args, roccu::gpu_stream& stream) const {
+		run_impl(std::format("tonemap<float3>", histogram_granularity), cold_bins.ptr(), hot_bins.ptr(), out.ptr(), cold_bins.area(), args, stream);
 	}
 
-	void tonemapper::run(roccu::gpu_image_view<float4> bins, roccu::gpu_image_view<float4> out, const args_t& args, roccu::gpu_stream& stream) const {
-		run_impl(std::format("tonemap<float4>", histogram_granularity), bins.ptr(), out.ptr(), bins.area(), args, stream);
+	void tonemapper::run(roccu::gpu_image_view<float4> cold_bins, roccu::gpu_image_view<half4> hot_bins, roccu::gpu_image_view<float4> out, const args_t& args, roccu::gpu_stream& stream) const {
+		run_impl(std::format("tonemap<float4>", histogram_granularity), cold_bins.ptr(), hot_bins.ptr(), out.ptr(), cold_bins.area(), args, stream);
 	}
 
 }

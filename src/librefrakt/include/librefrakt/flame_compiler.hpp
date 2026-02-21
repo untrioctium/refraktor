@@ -35,7 +35,8 @@ namespace rfkt {
 		};
 
 		struct saved_state: public traits::noncopyable {
-			roccu::gpu_image<float4> bins = {};
+			roccu::gpu_image<float4> cold_bins = {};
+			roccu::gpu_image<half4> hot_bins = {};
 			double quality = 0.0;
 			int temporal_multiplier = 1;
 			roccu::gpu_buffer<> shared = {};
@@ -49,7 +50,8 @@ namespace rfkt {
 				(*this) = std::move(o);
 			}
 			saved_state& operator=(saved_state&& o) noexcept {
-				std::swap(bins, o.bins);
+				std::swap(cold_bins, o.cold_bins);
+				std::swap(hot_bins, o.hot_bins);
 				std::swap(shared, o.shared);
 				std::swap(quality, o.quality);
 				std::swap(stopper, o.stopper);
@@ -61,18 +63,21 @@ namespace rfkt {
 			}
 
 			saved_state(uint2 dims, std::size_t nbytes, int temporal_multiplier, std::future<double>&& warmup_time, CUstream stream) :
-				bins(dims.x, dims.y, stream),
+				cold_bins(dims.x, dims.y, stream),
+				hot_bins(dims.x, dims.y, stream),
 				temporal_multiplier(temporal_multiplier),
 				shared(nbytes * temporal_multiplier, stream),
 				warmup_hits(1, stream),
 				warmup_time(std::move(warmup_time)),
 				density_histogram(histogram_size, stream){
-				bins.clear(stream);
+				cold_bins.clear(stream);
+				hot_bins.clear(stream);
 				warmup_hits.clear(stream);
 			}
 
-			saved_state(decltype(saved_state::bins)&& bins, std::size_t nbytes, int temporal_multiplier, std::future<double>&& warmup_time, CUstream stream) :
-				bins(std::move(bins)),
+			saved_state(decltype(saved_state::cold_bins)&& bins, std::size_t nbytes, int temporal_multiplier, std::future<double>&& warmup_time, CUstream stream) :
+				cold_bins(std::move(bins)),
+				hot_bins(cold_bins.width(), cold_bins.height(), stream),
 				temporal_multiplier(temporal_multiplier),
 				shared(nbytes * temporal_multiplier, stream),
 				warmup_hits(1, stream),

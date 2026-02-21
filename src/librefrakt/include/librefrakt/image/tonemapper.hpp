@@ -16,15 +16,15 @@ namespace rfkt {
 			bool hdr;
 		};
 
-		void run(roccu::gpu_image_view<float4> bins, roccu::gpu_image_view<half3> out, const args_t& args, roccu::gpu_stream& stream) const;
-		void run(roccu::gpu_image_view<float4> bins, roccu::gpu_image_view<half4> out, const args_t& args, roccu::gpu_stream& stream) const;
+		void run(roccu::gpu_image_view<float4> cold_bins, roccu::gpu_image_view<half4> hot_bins, roccu::gpu_image_view<half3> out, const args_t& args, roccu::gpu_stream& stream) const;
+		void run(roccu::gpu_image_view<float4> cold_bins, roccu::gpu_image_view<half4> hot_bins, roccu::gpu_image_view<half4> out, const args_t& args, roccu::gpu_stream& stream) const;
 
-		void run(roccu::gpu_image_view<float4> bins, roccu::gpu_image_view<float3> out, const args_t& args, roccu::gpu_stream& stream) const;
-		void run(roccu::gpu_image_view<float4> bins, roccu::gpu_image_view<float4> out, const args_t& args, roccu::gpu_stream& stream) const;
+		void run(roccu::gpu_image_view<float4> cold_bins, roccu::gpu_image_view<half4> hot_bins, roccu::gpu_image_view<float3> out, const args_t& args, roccu::gpu_stream& stream) const;
+		void run(roccu::gpu_image_view<float4> cold_bins, roccu::gpu_image_view<half4> hot_bins, roccu::gpu_image_view<float4> out, const args_t& args, roccu::gpu_stream& stream) const;
 
 	private:
 
-		void run_impl(const std::string& kernel, CUdeviceptr bins, CUdeviceptr out, unsigned int size, const args_t& args, roccu::gpu_stream& stream) const;
+		void run_impl(const std::string& kernel, CUdeviceptr cold_bins, CUdeviceptr hot_bins, CUdeviceptr out, unsigned int size, const args_t& args, roccu::gpu_stream& stream) const;
 
 		ezrtc::cuda_module tm;
 		int block_size;

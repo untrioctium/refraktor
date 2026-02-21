@@ -97,7 +97,7 @@ rfkt::flame_kernel::bin_result render_image(const rfkt::flame& flame, std::strin
         .hdr = false
     };
 
-    ctx->tonemapper->run(state.bins, tonemapped, tm_args, *ctx->stream);
+    ctx->tonemapper->run(state.cold_bins, state.hot_bins, tonemapped, tm_args, *ctx->stream);
     if(denoise) {
         ctx->denoiser->denoise(tonemapped, denoised, *ctx->event);
     } else {
@@ -159,7 +159,7 @@ rfkt::flame_kernel::bin_result render_image_interpolated(const rfkt::interpolato
         .hdr = false
     };
 
-    ctx->tonemapper->run(state.bins, tonemapped, tm_args, *ctx->stream);
+    ctx->tonemapper->run(state.cold_bins, state.hot_bins, tonemapped, tm_args, *ctx->stream);
     if(denoise) {
         auto& dn = upscale ? ctx->upscaling_denoiser : ctx->denoiser;
         dn->denoise(tonemapped, denoised, *ctx->event);
@@ -196,7 +196,7 @@ auto make_histogram(const rfkt::flame& flame, unsigned int width, unsigned int h
     auto bin_result = compile_result.kernel->bin(*ctx->stream, state, {.millis = millis_bailout, .quality = quality_bailout}).get();
 
     auto local = new std::vector<rfkt::float4>(width * height);
-    state.bins.to_host(*local);
+    state.cold_bins.to_host(*local);
 
     auto capsule = py::capsule(local, [](void* ptr) { delete static_cast<std::vector<rfkt::float4>*>(ptr); });
     return {

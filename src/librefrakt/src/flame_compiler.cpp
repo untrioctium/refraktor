@@ -871,7 +871,7 @@ auto rfkt::flame_kernel::bin(roccu::gpu_stream& stream, flame_kernel::saved_stat
 
     stream_state->qpx_host[2] = std::numeric_limits<std::size_t>::max();
 
-    stream_state->total_bins = state.bins.area();
+    stream_state->total_bins = state.cold_bins.area();
     stream_state->num_threads = exec.first * exec.second;
 
     stream_state->qpx_dev = srt->dra.reserve<std::size_t>(num_counters);
@@ -880,7 +880,7 @@ auto rfkt::flame_kernel::bin(roccu::gpu_stream& stream, flame_kernel::saved_stat
     stream_state->warp_collisions = srt->dra.reserve<std::size_t>(1);
     stream_state->warp_collisions.clear(stream);
     stream_state->warp_collisions_host = srt->pra.reserve<std::uint64_t>(1);
-    stream_state->bin_dims = {state.bins.width(), state.bins.height()};
+    stream_state->bin_dims = {state.cold_bins.width(), state.cold_bins.height()};
     const auto ullmax = std::numeric_limits<std::size_t>::max();
     //cuMemcpyHtoDAsync(stream_state->qpx_dev.ptr() + counter_size * 2, &ullmax, counter_size, stream);
 
@@ -895,14 +895,14 @@ auto rfkt::flame_kernel::bin(roccu::gpu_stream& stream, flame_kernel::saved_stat
     });
 
     {
-        roccu::l2_persister persister{ state.bins.ptr(), state.bins.size_bytes(), 1.0f, stream};
+        //roccu::l2_persister persister{ state.bins.ptr(), state.bins.size_bytes(), 1.0f, stream};
 
         ROCCU_SAFE_CALL(klauncher(
             state.shared.ptr(),
             (std::size_t)(bo.quality * stream_state->total_bins * 255.0),
             bo.iters,
             static_cast<std::uint64_t>(bo.millis) * 1'000'000,
-            state.bins.ptr(), static_cast<unsigned int>(state.bins.width()), static_cast<unsigned int>(state.bins.height()),
+            state.cold_bins.ptr(), state.hot_bins.ptr(),static_cast<unsigned int>(state.cold_bins.width()), static_cast<unsigned int>(state.cold_bins.height()),
             stream_state->qpx_dev.ptr(),
             stream_state->qpx_dev.ptr() + counter_size,
             state.stopper.ptr(),
@@ -921,7 +921,7 @@ auto rfkt::flame_kernel::bin(roccu::gpu_stream& stream, flame_kernel::saved_stat
         stream_state->end = std::chrono::high_resolution_clock::now();
     });
 
-    auto bins_count = state.bins.area();
+    auto bins_count = state.cold_bins.area();
     auto num_blocks = bins_count / 256 + 1;
 
     /*state.density_histogram.clear(stream);
@@ -1095,7 +1095,7 @@ auto rfkt::flame_kernel::warmup(roccu::gpu_stream& stream, std::span<double> sam
         (
             nseg,
             segments_dev.ptr(),
-            seed, count, state.bins.width(), state.bins.height(),
+            seed, count, state.cold_bins.width(), state.cold_bins.height(),
             state.shared.ptr(),
             temporal_multiplier,
             state.warmup_hits.ptr()
