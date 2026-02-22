@@ -48,7 +48,7 @@ template<typename T, typename U>
 static constexpr bool is_same = detail::is_same_t<T, U>::value;
 
 template<typename OutPixelType>
-__global__ void tonemap(const float4* __restrict__ cold_bins, const half4* __restrict__ hot_bins, OutPixelType* __restrict__ image, unsigned int size, float gamma, float scale_constant, float brightness, float vibrancy, bool hdr) {
+__global__ void tonemap(const float4* __restrict__ cold_bins, const half4* __restrict__ hot_bins, OutPixelType* __restrict__ image, unsigned int img_width, unsigned int img_size, unsigned int scaling, float gamma, float scale_constant, float brightness, float vibrancy, bool hdr) {
 
 	constexpr static bool DoAlpha = requires { OutPixelType::w; };
 
@@ -60,23 +60,35 @@ __global__ void tonemap(const float4* __restrict__ cold_bins, const half4* __res
 		}
 	};
 
-	auto bin_idx = blockIdx.x * blockDim.x + threadIdx.x;
+	auto img_idx = blockIdx.x * blockDim.x + threadIdx.x;
 
-	if (bin_idx >= size) return;
+	if (img_idx >= img_size) return;
 
-	float4 col = cold_bins[bin_idx];
-	
-	col.x += __half2float(hot_bins[bin_idx].x);
-	col.y += __half2float(hot_bins[bin_idx].y);
-	col.z += __half2float(hot_bins[bin_idx].z);
-	col.w += __half2float(hot_bins[bin_idx].w);
+	auto img_x = img_idx % img_width;
+	auto img_y = img_idx / img_width;
+
+	const auto bins_width = img_width * scaling;
+	const auto bins_x = img_x * scaling;
+	const auto bins_y = img_y * scaling;
+
+	float4 col = {0.0f, 0.0f, 0.0f, 0.0f};
+
+	for(unsigned int dy = 0; dy < scaling; dy++) {
+		for(unsigned int dx = 0; dx < scaling; dx++) {
+			auto bin_idx_local = bins_x + dx + (bins_y + dy) * bins_width;
+			col.x += __half2float(hot_bins[bin_idx_local].x) + cold_bins[bin_idx_local].x;
+			col.y += __half2float(hot_bins[bin_idx_local].y) + cold_bins[bin_idx_local].y;
+			col.z += __half2float(hot_bins[bin_idx_local].z) + cold_bins[bin_idx_local].z;
+			col.w += __half2float(hot_bins[bin_idx_local].w) + cold_bins[bin_idx_local].w;
+		}
+	}
 
 	if(col.w == 0.0) {
 		auto zero_value = to_out_channel_type(0.0);
 		if constexpr (DoAlpha) {
-			image[bin_idx] = { zero_value, zero_value, zero_value, zero_value };
+			image[img_idx] = { zero_value, zero_value, zero_value, zero_value };
 		} else {
-			image[bin_idx] = { zero_value, zero_value, zero_value };
+			image[img_idx] = { zero_value, zero_value, zero_value };
 		}
 		return;
 	}
@@ -106,8 +118,8 @@ __global__ void tonemap(const float4* __restrict__ cold_bins, const half4* __res
 	}
 
 	if constexpr (DoAlpha) {
-		image[bin_idx] = { to_out_channel_type(col.x), to_out_channel_type(col.y), to_out_channel_type(col.z), to_out_channel_type(1.0f) };
+		image[img_idx] = { to_out_channel_type(col.x), to_out_channel_type(col.y), to_out_channel_type(col.z), to_out_channel_type(1.0f) };
 	} else {
-		image[bin_idx] = { to_out_channel_type(col.x), to_out_channel_type(col.y), to_out_channel_type(col.z) };
+		image[img_idx] = { to_out_channel_type(col.x), to_out_channel_type(col.y), to_out_channel_type(col.z) };
 	}
 }

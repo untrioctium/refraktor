@@ -64,10 +64,46 @@ static std::unique_ptr<context> ctx = nullptr;
         .def_readwrite("z", &T::z) \
         .def_readwrite("w", &T::w)
 
-rfkt::flame_kernel::bin_result render_image(const rfkt::flame& flame, std::string_view output_path, unsigned int width, unsigned int height, double t, double fps, double seconds_per_loop, double quality_bailout, unsigned int millis_bailout, bool denoise, std::set<std::string> flags) {
+rfkt::flame_kernel::bin_result render_image(const rfkt::flame& flame, std::string_view output_path, unsigned int width, unsigned int height, double t, double fps, double seconds_per_loop, double quality_bailout, unsigned int millis_bailout, bool denoise, std::set<std::string> flags, bool superscale) {
 
     py::gil_scoped_release release;
     ctx->cuda_ctx->make_current();
+
+
+    auto dev_l2 = roccu::context::current().device().l2_cache_size();
+    auto bins_width = width;
+    auto bins_height = height;
+
+    if(superscale) {
+        // find the largest integer multiple that fits in the L2 cache
+        constexpr static auto normal_bytes_per_bin = 16;
+        constexpr static auto hot_cold_bytes_per_bin = 8;
+
+        auto bins_size_normal = bins_width * bins_height * normal_bytes_per_bin;
+        auto bins_size_hot_cold = bins_width * bins_height * hot_cold_bytes_per_bin;
+
+        SPDLOG_INFO("Device L2: {:.2f}MB", dev_l2 / 1024.0 / 1024);
+        SPDLOG_INFO("Normal size: {:.2f}MB", bins_size_normal / 1024.0 / 1024);
+        SPDLOG_INFO("Hot/cold size: {:.2f}MB", bins_size_hot_cold / 1024.0 / 1024);
+
+        auto bins_normal_multiple = static_cast<unsigned int>(std::sqrt(dev_l2 / bins_size_normal));
+        auto bins_hot_cold_multiple = static_cast<unsigned int>(std::sqrt(dev_l2 / bins_size_hot_cold));
+
+        SPDLOG_INFO("Normal multiple: {}", bins_normal_multiple);
+        SPDLOG_INFO("Hot/cold multiple: {}", bins_hot_cold_multiple);
+
+        if(bins_hot_cold_multiple > bins_normal_multiple) {
+            bins_width *= bins_hot_cold_multiple;
+            bins_height *= bins_hot_cold_multiple;
+            flags.insert("HOT_COLD");
+        } else if(bins_normal_multiple > 0) {
+            bins_width *= bins_normal_multiple;
+            bins_height *= bins_normal_multiple;
+        }
+    }
+
+    SPDLOG_INFO("Bins size: {}x{}", bins_width, bins_height);
+
     auto compile_result = ctx->flame_compiler->get_flame_kernel(*ctx->flamedb, rfkt::precision::f32, flame, flags);
 
     if (!compile_result.kernel) {
@@ -80,17 +116,19 @@ rfkt::flame_kernel::bin_result render_image(const rfkt::flame& flame, std::strin
     auto packer = [&samples](double v) { samples.push_back(v); };
     auto invoker = ctx->functions->make_invoker();
     auto offset = 1.2 * loops_per_frame;
-    flame.pack_samples(packer, invoker, t - offset * loops_per_frame, offset, 4, width, height);
+    flame.pack_samples(packer, invoker, t - offset * loops_per_frame, offset, 4, bins_width, bins_height);
 
-    auto state = compile_result.kernel->warmup(*ctx->stream, samples, rfkt::uint2{width, height}, 0xdeadbeef, 100);
-    auto bin_result = compile_result.kernel->bin(*ctx->stream, state, {.millis = millis_bailout, .quality = quality_bailout}).get();
+    auto state = compile_result.kernel->warmup(*ctx->stream, samples, rfkt::uint2{bins_width, bins_height}, 0xdeadbeef, 100);
+
+    auto quality_scale = state.cold_bins.area() / (width * height);
+    auto bin_result = compile_result.kernel->bin(*ctx->stream, state, {.millis = millis_bailout, .quality = quality_bailout / quality_scale}).get();
 
     auto tonemapped = roccu::gpu_image<rfkt::half3>(width, height, *ctx->stream);
     auto denoised = roccu::gpu_image<rfkt::half3>(width, height, *ctx->stream);
     auto converted = roccu::gpu_image<rfkt::uchar3>(width, height, *ctx->stream);
 
     auto tm_args = rfkt::tonemapper::args_t{
-        .quality = bin_result.quality,
+        .quality = bin_result.quality * quality_scale,
         .gamma = flame.gamma.sample(t, invoker),
         .brightness = flame.brightness.sample(t, invoker),
         .vibrancy = flame.vibrancy.sample(t, invoker),
@@ -174,7 +212,7 @@ rfkt::flame_kernel::bin_result render_image_interpolated(const rfkt::interpolato
     return bin_result;
 }
 
-auto make_histogram(const rfkt::flame& flame, unsigned int width, unsigned int height, double t, double fps, double seconds_per_loop, double quality_bailout, unsigned int millis_bailout, std::uint32_t seed, std::set<std::string> flags) 
+auto make_histogram(const rfkt::flame& flame, unsigned int width, unsigned int height, double t, double fps, double seconds_per_loop, double quality_bailout, unsigned int millis_bailout, unsigned int iters_bailout, unsigned int warmup_iterations,std::uint32_t seed, std::set<std::string> flags) 
     -> std::tuple<py::array_t<float>, rfkt::flame_kernel::bin_result> {
 
         ctx->cuda_ctx->make_current();
@@ -192,8 +230,8 @@ auto make_histogram(const rfkt::flame& flame, unsigned int width, unsigned int h
     auto offset = 1.2 * loops_per_frame;
     flame.pack_samples(packer, invoker, t - offset * loops_per_frame, offset, 4, width, height);
 
-    auto state = compile_result.kernel->warmup(*ctx->stream, samples, rfkt::uint2{width, height}, 0xdeadbeef, 100);
-    auto bin_result = compile_result.kernel->bin(*ctx->stream, state, {.millis = millis_bailout, .quality = quality_bailout}).get();
+    auto state = compile_result.kernel->warmup(*ctx->stream, samples, rfkt::uint2{width, height}, 0xdeadbeef, warmup_iterations);
+    auto bin_result = compile_result.kernel->bin(*ctx->stream, state, {.millis = millis_bailout, .quality = quality_bailout, .iters = iters_bailout}).get();
 
     auto local = new std::vector<rfkt::float4>(width * height);
     state.cold_bins.to_host(*local);
@@ -201,8 +239,8 @@ auto make_histogram(const rfkt::flame& flame, unsigned int width, unsigned int h
     auto capsule = py::capsule(local, [](void* ptr) { delete static_cast<std::vector<rfkt::float4>*>(ptr); });
     return {
         py::array_t<float>(
-            {width * height * 4},
-            {sizeof(float)},
+            {height, width, 4u},
+            {width * 4 * sizeof(float), 4 * sizeof(float), sizeof(float)},
             (float*)local->data(),
             capsule
         ),
@@ -387,7 +425,8 @@ PYBIND11_MODULE(_pyrefrakt, m, py::mod_gil_not_used()) {
         py::arg("quality_bailout") = 128.0,
         py::arg("millis_bailout") = 2000,
         py::arg("denoise") = true,
-        py::arg("flags") = std::set<std::string>{}
+        py::arg("flags") = std::set<std::string>{},
+        py::arg("superscale") = false
     );
 
     m.def("render_image_interpolated", &render_image_interpolated,
@@ -415,6 +454,8 @@ PYBIND11_MODULE(_pyrefrakt, m, py::mod_gil_not_used()) {
         py::arg("seconds_per_loop") = 5.0,
         py::arg("quality_bailout") = 128.0,
         py::arg("millis_bailout") = 2000,
+        py::arg("iters_bailout") = 4'000'000'000,
+        py::arg("warmup_iterations") = 100,
         py::arg("seed") = 0xdeadbeef,
         py::arg("flags") = std::set<std::string>{});
 

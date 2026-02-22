@@ -472,6 +472,7 @@ __device__ void reduce_add_f32_evict_first(float* addr, float val) {
     );
 }
 
+#ifndef FLAG_ATOMIC
 __device__ void write_bin(float4* __restrict__ bins, int bin_idx, float4 contribution) {
 	if(bin_idx >= 0) {
 		float4 bin = ld_cg_evict_last(bins + bin_idx);
@@ -482,8 +483,8 @@ __device__ void write_bin(float4* __restrict__ bins, int bin_idx, float4 contrib
 		st_cg_evict_last(bins + bin_idx, bin);
 	}
 }
-
-__device__ void write_bin_atomic(float4* __restrict__ bins, int bin_idx, float4 contribution) {
+#else
+__device__ void write_bin(float4* __restrict__ bins, int bin_idx, float4 contribution) {
 	if(bin_idx >= 0) {
 		atomicAdd(&bins[bin_idx].x, contribution.x);
 		atomicAdd(&bins[bin_idx].y, contribution.y);
@@ -491,6 +492,7 @@ __device__ void write_bin_atomic(float4* __restrict__ bins, int bin_idx, float4 
 		atomicAdd(&bins[bin_idx].w, contribution.w);
 	}
 }
+#endif
 
 __device__ void warp_aggregated_write(
     float4* __restrict__ bins,
@@ -506,11 +508,7 @@ __device__ void warp_aggregated_write(
     
     if (__all_sync(active, match_count <= 1)) {
         if (bin_idx >= 0) {
-            #ifdef FLAG_ATOMIC
-            write_bin_atomic(bins, bin_idx, contribution);
-            #else
             write_bin(bins, bin_idx, contribution);
-            #endif
         }
         return;
     }
@@ -539,11 +537,7 @@ __device__ void warp_aggregated_write(
     const bool is_leader = ((threadIdx.x % 32) == leader);
     
     if (bin_idx >= 0 && is_leader) {
-        #ifdef FLAG_ATOMIC
-        write_bin_atomic(bins, bin_idx, sum);
-        #else
         write_bin(bins, bin_idx, sum);
-        #endif
     }
 }
 
@@ -589,7 +583,7 @@ __device__ void write_bin_half4(
     st_cg_evict_last_u2(hot_bins + bin_idx, reinterpret_cast<uint2&>(packed));
 }
 
-constexpr static uint32 randomize_interval = 10000;
+constexpr static uint32 randomize_interval = 500;
 constexpr static uint32 fusion_length = 32;
 
 __device__ unsigned int pass_and_draw(unsigned int pass_idx, float4* const __restrict__ cold_bins, uint2* const __restrict__ hot_bins, const uint32 bins_w, const uint32 bins_h) {
