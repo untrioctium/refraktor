@@ -21,6 +21,7 @@
 
 std::vector<double> string_to_doubles(std::string_view s) {
 	std::vector<double> ret{};
+	while(!s.empty() && s.back() == ' ') s = s.substr(0, s.size() - 1);
 	for (double v : s
 		| std::views::split(std::string_view{ " " })
 		| std::views::transform(

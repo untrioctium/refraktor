@@ -536,7 +536,7 @@ void rfkt::flame_compiler::add_to_hash(rfkt::hash::state_t& state)
     state.update(rfkt::fs::last_modified(rfkt::fs::assets_directory() / "kernels/include/refrakt/flamelib.h"));
 }
 
-auto rfkt::flame_compiler::prepare_flame_kernel(const flamedb& fdb, precision prec, const flame& f, flag_set_t flags) -> std::move_only_function<result()>
+auto rfkt::flame_compiler::prepare_flame_kernel(const flamedb& fdb, precision prec, const flame& f, flag_set_t flags, unsigned int min_warps_per_block) -> std::move_only_function<result()>
 {
     if (fdb.hash() != last_flamedb_hash) {
         compiled_common.clear();
@@ -545,7 +545,7 @@ auto rfkt::flame_compiler::prepare_flame_kernel(const flamedb& fdb, precision pr
     }
 
     auto src = make_source(fdb, f);
-    auto [most_blocks, opts] = make_opts(prec, f, flags);
+    auto [most_blocks, opts] = make_opts(prec, f, flags, min_warps_per_block);
     opts.header("flame_generated.h", src);
 
     auto rand_src = rfkt::fs::read_string(rfkt::fs::assets_directory() / "kernels/include/refrakt/random.h");
@@ -603,9 +603,9 @@ auto rfkt::flame_compiler::prepare_flame_kernel(const flamedb& fdb, precision pr
     };
 }
 
-auto rfkt::flame_compiler::get_flame_kernel(const flamedb& fdb, precision prec, const flame& f, flag_set_t flags) -> result
+auto rfkt::flame_compiler::get_flame_kernel(const flamedb& fdb, precision prec, const flame& f, flag_set_t flags, unsigned int min_warps_per_block) -> result
 {
-    return prepare_flame_kernel(fdb, prec, f, flags)();
+    return prepare_flame_kernel(fdb, prec, f, flags, min_warps_per_block)();
 }
 
 template<typename Contained>
@@ -751,7 +751,7 @@ rfkt::flame_compiler::flame_compiler(ezrtc::compiler* k_manager): km(k_manager)
 
 }
 
-auto rfkt::flame_compiler::make_opts(precision prec, const flame& f, flame_compiler::flag_set_t flags)->std::pair<roccu::execution_config, ezrtc::spec>
+auto rfkt::flame_compiler::make_opts(precision prec, const flame& f, flame_compiler::flag_set_t flags, unsigned int min_warps_per_block)->std::pair<roccu::execution_config, ezrtc::spec>
 {
     auto flame_real_count = f.size_reals();
     auto flame_size_bytes = ((prec == precision::f32) ? sizeof(float) : sizeof(double)) * flame_real_count;
@@ -769,12 +769,12 @@ auto rfkt::flame_compiler::make_opts(precision prec, const flame& f, flame_compi
     }
 
     // if chaos is not enabled, select a temporal sample config with at least
-    // four warps per block so that there is a diversity of executed xforms
+    // min_warps_per_block warps per block so that there is a diversity of executed xforms
     // per temporal sample. this is not necessary for chaos because the
     // threads within a warp are already divergent.
     if (!f.chaos_table.has_value()) {
         const auto warp_size = roccu::context::current().device().warp_size();
-        while (exec_configs[most_blocks_idx].block / warp_size < 4) most_blocks_idx--;
+        while (exec_configs[most_blocks_idx].block / warp_size < min_warps_per_block) most_blocks_idx--;
     }
     //most_blocks_idx = 0;
     auto& most_blocks = exec_configs[most_blocks_idx];

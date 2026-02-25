@@ -226,8 +226,8 @@ __device__ void memcpy_sync(const uint8* const __restrict__ src, uint8* const __
 }
 
 #ifndef USE_CHAOS
-__device__ 
-vec4<Real> flame_pass(unsigned int pass_idx) {
+#ifndef FLAG_DIVERGENT_WARPS
+__device__ vec4<Real> flame_pass(unsigned int pass_idx) {
 	
 	// every 32 passes, repopulate this warp's xid buffer
 	if(pass_idx % 32 == 0) {
@@ -257,6 +257,27 @@ vec4<Real> flame_pass(unsigned int pass_idx) {
 	return vec4<Real>{out_local.x, out_local.y, out_local.z, opacity};
 }
 #else
+__device__ vec4<Real> flame_pass(unsigned int pass_idx) {
+	auto& in_local = state.ts.iterators[fl::block_rank()];
+	auto out_local = iterator{-666.0, -666.0, -660.0};
+	auto selected_xform = state.flame.select_xform(my_rand().rand01());
+
+	Real opacity = state.flame.dispatch( 
+		selected_xform, 
+		in_local, out_local, &my_rand()
+	);
+
+	if(badvalue(out_local.x) || badvalue(out_local.y)) {
+		out_local.x = my_rand().rand01() * 2.0 - 1.0;
+		out_local.y = my_rand().rand01() * 2.0 - 1.0;
+		opacity = 0.0;
+	}
+
+	in_local = out_local;
+	return vec4<Real>{out_local.x, out_local.y, out_local.z, opacity};
+}
+#endif
+#else
 __device__
 vec4<Real> flame_pass(unsigned int pass_idx) {
 
@@ -279,7 +300,6 @@ vec4<Real> flame_pass(unsigned int pass_idx) {
 
 	state.ts.iterators[fl::block_rank()] = out_local;
 
-	fl::sync_block();
 	return vec4<Real>{out_local.x, out_local.y, out_local.z, opacity};
 }
 #endif
@@ -494,53 +514,6 @@ __device__ void write_bin(float4* __restrict__ bins, int bin_idx, float4 contrib
 }
 #endif
 
-__device__ void warp_aggregated_write(
-    float4* __restrict__ bins,
-    int bin_idx,           // -1 if this thread has no valid hit
-    float4 contribution    // the RGBA contribution to add
-) {
-    const uint32 active = __activemask();
-    
-    const int match_idx = (bin_idx >= 0) ? bin_idx : -1 - (int)threadIdx.x;
-    
-    const uint32 match_mask = __match_any_sync(active, match_idx);
-    const int match_count = __popc(match_mask);
-    
-    if (__all_sync(active, match_count <= 1)) {
-        if (bin_idx >= 0) {
-            write_bin(bins, bin_idx, contribution);
-        }
-        return;
-    }
-    
-    float4 sum = contribution;
-    
-    #pragma unroll
-    for (int delta = 1; delta < 32; delta *= 2) {
-        float4 other;
-        other.x = __shfl_xor_sync(match_mask, sum.x, delta);
-        other.y = __shfl_xor_sync(match_mask, sum.y, delta);
-        other.z = __shfl_xor_sync(match_mask, sum.z, delta);
-        other.w = __shfl_xor_sync(match_mask, sum.w, delta);
-        
-        // Only add if the other thread is in our match group
-        uint32 other_lane = (threadIdx.x % 32) ^ delta;
-        if (match_mask & (1u << other_lane)) {
-            sum.x += other.x;
-            sum.y += other.y;
-            sum.z += other.z;
-            sum.w += other.w;
-        }
-    }
-    
-    const int leader = __ffs(match_mask) - 1;
-    const bool is_leader = ((threadIdx.x % 32) == leader);
-    
-    if (bin_idx >= 0 && is_leader) {
-        write_bin(bins, bin_idx, sum);
-    }
-}
-
 constexpr float drain_threshold = 64.0f;
 
 __device__ void write_bin_half4(
@@ -583,7 +556,63 @@ __device__ void write_bin_half4(
     st_cg_evict_last_u2(hot_bins + bin_idx, reinterpret_cast<uint2&>(packed));
 }
 
-constexpr static uint32 randomize_interval = 500;
+__device__ void warp_aggregated_write(
+    uint2* __restrict__ hot_bins,
+	float4* __restrict__ cold_bins,
+    int bin_idx,           // -1 if this thread has no valid hit
+    float4 contribution    // the RGBA contribution to add
+) {
+    const uint32 active = __activemask();
+    
+    const int match_idx = (bin_idx >= 0) ? bin_idx : -1 - (int)threadIdx.x;
+    
+    const uint32 match_mask = __match_any_sync(active, match_idx);
+    const int match_count = __popc(match_mask);
+    
+    if (__all_sync(active, match_count <= 1)) {
+        if (bin_idx >= 0) {
+			#ifdef FLAG_HOT_COLD
+			write_bin_half4(hot_bins, cold_bins, bin_idx, contribution);
+			#else
+            write_bin(cold_bins, bin_idx, contribution);
+			#endif
+        }
+        return;
+    }
+    
+    float4 sum = contribution;
+    
+    #pragma unroll
+    for (int delta = 1; delta < 32; delta *= 2) {
+        float4 other;
+        other.x = __shfl_xor_sync(match_mask, sum.x, delta);
+        other.y = __shfl_xor_sync(match_mask, sum.y, delta);
+        other.z = __shfl_xor_sync(match_mask, sum.z, delta);
+        other.w = __shfl_xor_sync(match_mask, sum.w, delta);
+        
+        // Only add if the other thread is in our match group
+        uint32 other_lane = (threadIdx.x % 32) ^ delta;
+        if (match_mask & (1u << other_lane)) {
+            sum.x += other.x;
+            sum.y += other.y;
+            sum.z += other.z;
+            sum.w += other.w;
+        }
+    }
+    
+    const int leader = __ffs(match_mask) - 1;
+    const bool is_leader = ((threadIdx.x % 32) == leader);
+    
+    if (bin_idx >= 0 && is_leader) {
+		#ifdef FLAG_HOT_COLD
+		write_bin_half4(hot_bins, cold_bins, bin_idx, sum);
+		#else
+        write_bin(cold_bins, bin_idx, sum);
+		#endif
+    }
+}
+
+constexpr static uint32 randomize_interval = 1000;
 constexpr static uint32 fusion_length = 32;
 
 __device__ unsigned int pass_and_draw(unsigned int pass_idx, float4* const __restrict__ cold_bins, uint2* const __restrict__ hot_bins, const uint32 bins_w, const uint32 bins_h) {
@@ -638,10 +667,14 @@ __device__ unsigned int pass_and_draw(unsigned int pass_idx, float4* const __res
 
 		hit = (unsigned int)(255.0f * transformed.w);
 
+		#ifdef FLAG_WARP_AGGREGATED_WRITE
+		warp_aggregated_write(hot_bins, cold_bins, bin_idx, new_bin);
+		#else
 		#ifdef FLAG_HOT_COLD
 		write_bin_half4(hot_bins, cold_bins, bin_idx, new_bin);
 		#else
 		write_bin(cold_bins, bin_idx, new_bin);
+		#endif
 		#endif
 	} else {
 		bin_idx = -1;

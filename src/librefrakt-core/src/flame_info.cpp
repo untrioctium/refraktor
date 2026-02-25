@@ -313,7 +313,7 @@ namespace rfkt {
 			vd.weight = 0.0;
 		}
 
-		for (auto& vname : pad_tags_.at(pad_type::rotated)) {
+		/*for (auto& vname : pad_tags_.at(pad_type::rotated)) {
 			if(!vl.has_variation(vname)) continue;
 
 			if (!ret.has_variation("linear")) {
@@ -325,10 +325,11 @@ namespace rfkt {
 			ret.transform.e = -1.0;
 			
 			return ret;
-		}
+		}*/
 
 		int found = 0;
 
+		// keep variations that have identity parameter values, move towards identity instead
 		for (auto& vname : pad_tags_.at(pad_type::identity)) {
 			if (!vl.has_variation(vname)) continue;
 
@@ -342,14 +343,7 @@ namespace rfkt {
 			}
 		}
 
-		if (found > 0) {
-			for (auto& [name, vd] : ret) {
-				vd.weight.t0 /= found;
-			}
-
-			return ret;
-		}
-
+		// keep affine variations that are identity when the affine is identity
 		for (auto& vname : pad_tags_.at(pad_type::affine)) {
 			if (!vl.has_variation(vname)) continue;
 
@@ -357,27 +351,22 @@ namespace rfkt {
 			found++;
 		}
 
+		// weigh found variations evenly, otherwise just use linear
 		if (found > 0) {
 
-			ret.transform.a = 0.0;
-			ret.transform.d = 1.0;
-			ret.transform.b = 1.0;
-			ret.transform.e = 0.0;
-			ret.transform.c = 0.0;
-			ret.transform.f = 0.0;
 
 			for (auto& [name, vd] : ret) {
 				vd.weight.t0 /= found;
 			}
 
 			return ret;
+		} else {
+			if (!ret.has_variation("linear")) {
+				ret.add_variation(make_vardata("linear"));
+			}
+	
+			ret["linear"].weight = 1.0;
 		}
-
-		if (!ret.has_variation("linear")) {
-			ret.add_variation(make_vardata("linear"));
-		}
-
-		ret["linear"].weight = 1.0;
 
 		return ret;
 	}

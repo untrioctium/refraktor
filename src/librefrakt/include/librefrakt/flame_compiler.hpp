@@ -182,8 +182,8 @@ namespace rfkt {
 
 		static_assert(std::move_constructible<result>);
 
-		auto get_flame_kernel(const flamedb& fdb, precision prec, const flame& f, flag_set_t flags = {})-> result;
-		auto prepare_flame_kernel(const flamedb& fdb, precision prec, const flame& f, flag_set_t flags = {})-> std::move_only_function<result()>;
+		auto get_flame_kernel(const flamedb& fdb, precision prec, const flame& f, flag_set_t flags = {}, unsigned int min_warps_per_block = 4)-> result;
+		auto prepare_flame_kernel(const flamedb& fdb, precision prec, const flame& f, flag_set_t flags = {}, unsigned int min_warps_per_block = 4)-> std::move_only_function<result()>;
 		std::string make_source(const flamedb& fdb, const rfkt::flame& f);
 
 		explicit flame_compiler(ezrtc::compiler* k_manager);
@@ -215,7 +215,7 @@ namespace rfkt {
 			return smem_per_sample(prec, flame_real_count, threads_per_block) + iteration_info_size;
 		}
 
-		std::pair<roccu::execution_config, ezrtc::spec> make_opts(precision prec, const flame& f, flag_set_t flags);
+		std::pair<roccu::execution_config, ezrtc::spec> make_opts(precision prec, const flame& f, flag_set_t flags, unsigned int min_warps_per_block);
 
 		ezrtc::compiler* km = nullptr;
 

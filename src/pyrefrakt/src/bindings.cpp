@@ -64,7 +64,7 @@ static std::unique_ptr<context> ctx = nullptr;
         .def_readwrite("z", &T::z) \
         .def_readwrite("w", &T::w)
 
-rfkt::flame_kernel::bin_result render_image(const rfkt::flame& flame, std::string_view output_path, unsigned int width, unsigned int height, double t, double fps, double seconds_per_loop, double quality_bailout, unsigned int millis_bailout, bool denoise, std::set<std::string> flags, bool superscale) {
+rfkt::flame_kernel::bin_result render_image(const rfkt::flame& flame, std::string_view output_path, unsigned int width, unsigned int height, double t, double fps, double seconds_per_loop, double quality_bailout, unsigned int millis_bailout, bool denoise, std::set<std::string> flags, bool superscale, unsigned int min_warps_per_block) {
 
     py::gil_scoped_release release;
     ctx->cuda_ctx->make_current();
@@ -104,7 +104,7 @@ rfkt::flame_kernel::bin_result render_image(const rfkt::flame& flame, std::strin
 
     SPDLOG_INFO("Bins size: {}x{}", bins_width, bins_height);
 
-    auto compile_result = ctx->flame_compiler->get_flame_kernel(*ctx->flamedb, rfkt::precision::f32, flame, flags);
+    auto compile_result = ctx->flame_compiler->get_flame_kernel(*ctx->flamedb, rfkt::precision::f32, flame, flags, min_warps_per_block);
 
     if (!compile_result.kernel) {
         throw std::runtime_error(compile_result.log);
@@ -149,7 +149,7 @@ rfkt::flame_kernel::bin_result render_image(const rfkt::flame& flame, std::strin
     return bin_result;
 }
 
-rfkt::flame_kernel::bin_result render_image_interpolated(const rfkt::interpolator& interpolator, double mix, std::string_view output_path, unsigned int width, unsigned int height, double t, double fps, double seconds_per_loop, double quality_bailout, unsigned int millis_bailout, bool denoise, bool upscale, std::set<std::string> flags, std::uint32_t iter_bailout) {
+rfkt::flame_kernel::bin_result render_image_interpolated(const rfkt::interpolator& interpolator, double mix, std::string_view output_path, unsigned int width, unsigned int height, double t, double fps, double seconds_per_loop, double quality_bailout, unsigned int millis_bailout, bool denoise, bool upscale, std::set<std::string> flags, std::uint32_t iter_bailout, unsigned int min_warps_per_block) {
     py::gil_scoped_release release;
     ctx->cuda_ctx->make_current();
 
@@ -157,7 +157,7 @@ rfkt::flame_kernel::bin_result render_image_interpolated(const rfkt::interpolato
     auto cache_search = ctx->cached_kernels.find(hash);
 
     if(cache_search == ctx->cached_kernels.end()) {
-        auto compile_result = ctx->flame_compiler->get_flame_kernel(*ctx->flamedb, rfkt::precision::f32, interpolator.left_flame(), flags);
+        auto compile_result = ctx->flame_compiler->get_flame_kernel(*ctx->flamedb, rfkt::precision::f32, interpolator.left_flame(), flags, min_warps_per_block);
         if (!compile_result.kernel) {
             throw std::runtime_error(compile_result.log);
         }
@@ -212,11 +212,11 @@ rfkt::flame_kernel::bin_result render_image_interpolated(const rfkt::interpolato
     return bin_result;
 }
 
-auto make_histogram(const rfkt::flame& flame, unsigned int width, unsigned int height, double t, double fps, double seconds_per_loop, double quality_bailout, unsigned int millis_bailout, unsigned int iters_bailout, unsigned int warmup_iterations,std::uint32_t seed, std::set<std::string> flags) 
+auto make_histogram(const rfkt::flame& flame, unsigned int width, unsigned int height, double t, double fps, double seconds_per_loop, double quality_bailout, unsigned int millis_bailout, unsigned int iters_bailout, unsigned int warmup_iterations,std::uint32_t seed, std::set<std::string> flags, unsigned int min_warps_per_block) 
     -> std::tuple<py::array_t<float>, rfkt::flame_kernel::bin_result> {
 
         ctx->cuda_ctx->make_current();
-    auto compile_result = ctx->flame_compiler->get_flame_kernel(*ctx->flamedb, rfkt::precision::f32, flame, flags);
+    auto compile_result = ctx->flame_compiler->get_flame_kernel(*ctx->flamedb, rfkt::precision::f32, flame, flags, min_warps_per_block);
 
     if (!compile_result.kernel) {
         throw std::runtime_error(compile_result.log);
@@ -248,11 +248,11 @@ auto make_histogram(const rfkt::flame& flame, unsigned int width, unsigned int h
     };
 }
 
-auto make_benchmark_samples(const rfkt::flame& flame, unsigned int width, unsigned int height, double t, double fps, double seconds_per_loop, double quality_bailout, unsigned int millis_bailout, std::set<std::string> flags, int nsamples, std::size_t iter_bailout) -> std::vector<rfkt::flame_kernel::bin_result> {
+auto make_benchmark_samples(const rfkt::flame& flame, unsigned int width, unsigned int height, double t, double fps, double seconds_per_loop, double quality_bailout, unsigned int millis_bailout, std::set<std::string> flags, int nsamples, std::size_t iter_bailout, unsigned int min_warps_per_block) -> std::vector<rfkt::flame_kernel::bin_result> {
 
     py::gil_scoped_release release;
 
-    auto compile_result = ctx->flame_compiler->get_flame_kernel(*ctx->flamedb, rfkt::precision::f32, flame, flags);
+    auto compile_result = ctx->flame_compiler->get_flame_kernel(*ctx->flamedb, rfkt::precision::f32, flame, flags, min_warps_per_block);
 
     if (!compile_result.kernel) {
         throw std::runtime_error(compile_result.log);
@@ -351,8 +351,8 @@ PYBIND11_MODULE(_pyrefrakt, m, py::mod_gil_not_used()) {
         ctx->tonemapper = std::make_unique<rfkt::tonemapper>(*ctx->kernel_manager);
         ctx->converter = std::make_unique<rfkt::converter>(*ctx->kernel_manager);
 
-        ctx->denoiser = rfkt::denoiser::make("rfkt::null_denoise", uint2{1024, 1024}, rfkt::denoiser_flag::tiled, *ctx->stream);
-        ctx->upscaling_denoiser = rfkt::denoiser::make("rfkt::null_denoise", uint2{1024, 1024}, rfkt::denoiser_flag::upscale | rfkt::denoiser_flag::tiled, *ctx->stream);
+        ctx->denoiser = rfkt::denoiser::make("rfkt::optix_denoise", uint2{1024, 1024}, rfkt::denoiser_flag::tiled, *ctx->stream);
+        ctx->upscaling_denoiser = rfkt::denoiser::make("rfkt::optix_denoise", uint2{1024, 1024}, rfkt::denoiser_flag::upscale | rfkt::denoiser_flag::tiled, *ctx->stream);
         ctx->jpeg_encoder = rfkt::jpeg_encoder::make("rfkt::nvjpeg_encode", *ctx->stream);
 
         if(!ctx->jpeg_encoder) {
@@ -398,10 +398,10 @@ PYBIND11_MODULE(_pyrefrakt, m, py::mod_gil_not_used()) {
         return std::move(result.value());
     });
 
-    m.def("precompile", [](const rfkt::flame& flame, std::set<std::string> flags) {
+    m.def("precompile", [](const rfkt::flame& flame, std::set<std::string> flags, unsigned int min_warps_per_block) {
         py::gil_scoped_release release;
         ctx->cuda_ctx->make_current();
-        ctx->flame_compiler->get_flame_kernel(*ctx->flamedb, rfkt::precision::f32, flame, flags);
+        ctx->flame_compiler->get_flame_kernel(*ctx->flamedb, rfkt::precision::f32, flame, flags, min_warps_per_block);
     });
 
     m.def("interpolate", [](const rfkt::flame& left, const rfkt::flame& right, bool by_weight) {
@@ -426,7 +426,8 @@ PYBIND11_MODULE(_pyrefrakt, m, py::mod_gil_not_used()) {
         py::arg("millis_bailout") = 2000,
         py::arg("denoise") = true,
         py::arg("flags") = std::set<std::string>{},
-        py::arg("superscale") = false
+        py::arg("superscale") = false,
+        py::arg("min_warps_per_block") = 4
     );
 
     m.def("render_image_interpolated", &render_image_interpolated,
@@ -443,7 +444,8 @@ PYBIND11_MODULE(_pyrefrakt, m, py::mod_gil_not_used()) {
         py::arg("denoise") = true,
         py::arg("upscale") = false,
         py::arg("flags") = std::set<std::string>{},
-        py::arg("iter_bailout") = 4'000'000'000);
+        py::arg("iter_bailout") = 4'000'000'000,
+        py::arg("min_warps_per_block") = 4);
 
     m.def("make_histogram", &make_histogram,
         py::arg("flame"),
@@ -457,7 +459,8 @@ PYBIND11_MODULE(_pyrefrakt, m, py::mod_gil_not_used()) {
         py::arg("iters_bailout") = 4'000'000'000,
         py::arg("warmup_iterations") = 100,
         py::arg("seed") = 0xdeadbeef,
-        py::arg("flags") = std::set<std::string>{});
+        py::arg("flags") = std::set<std::string>{},
+        py::arg("min_warps_per_block") = 4);
 
     m.def("make_benchmark_samples", &make_benchmark_samples,
         py::arg("flame"),
@@ -470,7 +473,8 @@ PYBIND11_MODULE(_pyrefrakt, m, py::mod_gil_not_used()) {
         py::arg("millis_bailout") = 2000,
         py::arg("flags") = std::set<std::string>{},
         py::arg("nsamples") = 10,
-        py::arg("iter_bailout") = 4'000'000'000);
+        py::arg("iter_bailout") = 4'000'000'000,
+        py::arg("min_warps_per_block") = 4);
 
     EXPOSE_VECTOR2_TYPE(int, int2);
     EXPOSE_VECTOR3_TYPE(int, int3);
