@@ -798,8 +798,7 @@ auto rfkt::flame_compiler::make_opts(precision prec, const flame& f, flame_compi
         .define("FLAME_SIZE_BYTES", flame_size_bytes)
         .define("TOTAL_THREADS", most_blocks.grid * most_blocks.block)
         .kernel("warmup")
-        .kernel("bin")
-        .kernel("get_sample_state_size")
+        .kernel("bin");
         
         ;
 
@@ -817,24 +816,32 @@ auto rfkt::flame_compiler::make_opts(precision prec, const flame& f, flame_compi
 
 struct bin_args {
 
+    enum class counter_type {
+        quality = 0,
+        passes = 1,
+        warmup_hits = 2,
+        earliest_start = 3,
+        latest_stop = 4,
+
+        count = 5
+    };
+
     CUdeviceptr in_state;
     std::uint64_t quality_target;
     std::uint32_t iter_bailout;
     std::uint64_t time_bailout;
 
-    ezrtc::device_span<rfkt::float4> bins;
+    ezrtc::device_span<rfkt::float4> cold_bins;
+    ezrtc::device_span<rfkt::half4> hot_bins;
     std::uint64_t bins_width;
+    std::uint64_t bins_height;
 
-    ezrtc::device_span<std::uint64_t> quality_counter;
-    ezrtc::device_span<std::uint64_t> pass_counter;
+    ezrtc::device_span<std::uint64_t> counters;
     ezrtc::device_span<bool> stop_render;
 
     std::int32_t temporal_multiplier;
     std::int32_t temporal_slicing;
 
-    ezrtc::device_span<std::uint64_t> warmup_hits;
-    ezrtc::device_span<std::uint64_t> earliest_start;
-    ezrtc::device_span<std::uint64_t> latest_stop;
     ezrtc::device_span<unsigned int> sample_indices;
 
 };

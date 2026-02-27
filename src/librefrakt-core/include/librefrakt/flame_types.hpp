@@ -535,6 +535,11 @@ namespace rfkt {
 			p(plane_space.f.t0);
 			p(0.0); // space for weight sum
 
+			// space for CDF
+			for(int i = 0; i < xforms_.size(); i++) {
+				p(0.0);
+			}
+
 			auto order = canonical_xform_order();
 
 			if (chaos_table.has_value()) {

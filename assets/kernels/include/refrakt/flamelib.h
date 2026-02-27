@@ -6,7 +6,7 @@
 	#define M_PI 3.14159265358979323846264338327950288419
 	#define M_1_PI (1.0/3.14159265358979323846264338327950288419)
 	#define M_EPS (1e-20)
-	#define INTERP(a, b, mix) ((a) * (1.0 - (mix)) + (b) * (mix))
+	#define INTERP(a, b, mix) flamelib::fma(mix, b - a, a)
 	#define __sincos sincos
 	#define __pow pow
 	#define __fma fma
@@ -18,7 +18,7 @@
 	#define M_PI_2 (3.14159265358979323846264338327950288419f/2.0f)
 	#define M_2_PI (2.0f/3.14159265358979323846264338327950288419f)
 	#define M_EPS (1e-20f)
-	#define INTERP(a, b, mix) ((a) * (1.0f - (mix)) + (b) * (mix))
+	#define INTERP(a, b, mix) flamelib::fma(mix, b - a, a)
 	#define __sincos __sincosf
 	#define __pow __powf
 	#define __fma fmaf
@@ -140,7 +140,7 @@ namespace flamelib {
 	template<typename T, typename U>
 	static constexpr bool is_same = detail::is_same_t<T, U>::value;
 
-	__device__ constexpr auto warp_size() { return warpSize; }
+	__device__ constexpr auto warp_size() { return 32; }
 
 	__device__ inline void sync_warp() { 
 
@@ -179,6 +179,9 @@ namespace flamelib {
 
 	__device__ inline auto block_id() { return blockIdx.x; }
 	__device__ inline auto block_count() { return gridDim.x; }
+	__device__ inline auto block_size() { return blockDim.x; }
+	__device__ inline auto warp_count() { return block_size() / warp_size(); }
+	__device__ inline auto warp_id() { return block_rank() / warp_size(); }
 	
 	__device__ inline auto warp_start_in_block() { return block_rank() - warp_rank(); }
 
@@ -201,9 +204,19 @@ namespace flamelib {
 
 	template<typename FloatT, typename RandCtx, uint64 ThreadsPerBlock>
 	struct thread_states_t {
-		vec3<FloatT> iterators[ThreadsPerBlock];
+		iterators_t<FloatT, ThreadsPerBlock> iterators;
 		RandCtx rand_states[ThreadsPerBlock];
 		uint8 xform_vote[ThreadsPerBlock];
+
+		vec3<FloatT> get_iter(uint64 index) const {
+			return {iterators.x[index], iterators.y[index], iterators.color[index]};
+		}
+
+		void set_iter(uint64 index, const vec3<FloatT>& value) {
+			iterators.x[index] = value.x;
+			iterators.y[index] = value.y;
+			iterators.color[index] = value.z;
+		}
 	};
 
 	template<typename FlameT, typename FloatT, typename RandCtx, uint64 ThreadsPerBlock>
@@ -212,6 +225,7 @@ namespace flamelib {
 		uchar3 palette[palette_channel_size];
 		
 		unsigned long long tss_quality;
+		unsigned long long tss_quality_target;
 		unsigned long long tss_passes;
 
 		unsigned long long warmup_hits;

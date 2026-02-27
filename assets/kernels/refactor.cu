@@ -101,9 +101,9 @@ __device__ __forceinline__ constexpr uint32 feistel_round_fn(uint32 v, uint32 ke
 	return v;
 }
 
-template<uint32 rounds>
+template<uint32 rounds, uint32 size>
 __device__ constexpr uint32 feistel_permute(uint32 x, uint32 seed) {
-	constexpr uint32 half = isqrt_ceil(threads_per_block);
+	constexpr uint32 half = isqrt_ceil(size);
 
 	do {
 		uint32 L = x / half;
@@ -117,7 +117,7 @@ __device__ constexpr uint32 feistel_permute(uint32 x, uint32 seed) {
 		}
 
 		x = L * half + R;
-	} while (x >= threads_per_block);
+	} while (x >= size);
 
 	return x;
 }
@@ -145,7 +145,9 @@ __device__ void randomize_iterators(const uint32 bins_w, const uint32 bins_h) {
 	pos.y = (pos.y + Real(1.0)) / Real(2.0) * bins_h;
 	state.flame.plane_space.apply(pos);
 
-	state.ts.iterators[fl::block_rank()] = {pos.x, pos.y, my_rand().rand01()};
+	my_iter(x) = pos.x;
+	my_iter(y) = pos.y;
+	my_iter(color) = my_rand().rand01();
 
 	if constexpr(use_chaos) {
 		my_xform_vote() = static_cast<unsigned char>(255);
@@ -235,8 +237,8 @@ __device__ vec4<Real> flame_pass(unsigned int pass_idx) {
 		fl::sync_warp();
 	}
 
-	auto& in_local = state.ts.iterators[fl::block_rank()];
-	auto out_local = iterator{-666.0, -666.0, -660.0};
+	auto in_local = state.ts.get_iter(fl::block_rank());
+	auto out_local = vec3<Real>{-666.0, -666.0, -660.0};
 	auto selected_xform = state.ts.xform_vote[fl::warp_start_in_block() + pass_idx % 32];
 
 	Real opacity = state.flame.dispatch( 
@@ -249,10 +251,11 @@ __device__ vec4<Real> flame_pass(unsigned int pass_idx) {
 		out_local.y = my_rand().rand01() * 2.0 - 1.0;
 		opacity = 0.0;
 	}
-	
-	const auto shuf = feistel_permute<6>(fl::block_rank(), pass_idx);
+
+	uint32 new_index = feistel_permute<6, threads_per_block>(fl::block_rank(), pass_idx);
 	fl::sync_block();
-	state.ts.iterators[shuf] = out_local;
+
+	state.ts.set_iter(new_index, out_local);
 
 	return vec4<Real>{out_local.x, out_local.y, out_local.z, opacity};
 }
@@ -281,7 +284,7 @@ __device__ vec4<Real> flame_pass(unsigned int pass_idx) {
 __device__
 vec4<Real> flame_pass(unsigned int pass_idx) {
 
-	auto& in_local = state.ts.iterators[fl::block_rank()];
+	auto in_local = state.ts.get_iter(fl::block_rank());
 	auto out_local = iterator{-666.0, -666.0, -660.0};
 	auto selected_xform = state.flame.select_xform(my_xform_vote(), my_rand().rand01()); 
 
@@ -298,7 +301,7 @@ vec4<Real> flame_pass(unsigned int pass_idx) {
 		opacity = 0.0;
 	}
 
-	state.ts.iterators[fl::block_rank()] = out_local;
+	state.ts.set_iter(fl::block_rank(), out_local);
 
 	return vec4<Real>{out_local.x, out_local.y, out_local.z, opacity};
 }
@@ -410,7 +413,7 @@ __device__ float4 ld_cg_evict_last(const float4* addr) {
     return r;
 }
 
-__device__ void st_cg_evict_last(float4* addr, float4 val) {
+__device__ void st_cg_evict_last(float4* addr, const float4& val) {
     asm volatile(
         "{\n\t"
         "  .reg .b64 policy;\n\t"
@@ -438,7 +441,7 @@ __device__ float4 ld_cg_evict_first(const float4* addr) {
     return r;
 }
 
-__device__ void st_cg_evict_first(float4* addr, float4 val) {
+__device__ void st_cg_evict_first(float4* addr, const float4& val) {
     asm volatile(
         "{\n\t"
         "  .reg .b64 policy;\n\t"
@@ -466,7 +469,7 @@ __device__ uint2 ld_cg_evict_last_u2(const uint2* addr) {
     return r;
 }
 
-__device__ void st_cg_evict_last_u2(uint2* addr, uint2 val) {
+__device__ void st_cg_evict_last_u2(uint2* addr, const uint2& val) {
     asm volatile(
         "{\n\t"
         "  .reg .b64 policy;\n\t"
@@ -492,28 +495,57 @@ __device__ void reduce_add_f32_evict_first(float* addr, float val) {
     );
 }
 
+__device__ void reduce_add_f32_evict_last(float* addr, float val) {
+    asm volatile(
+        "{\n\t"
+        "  .reg .b64 policy;\n\t"
+        "  createpolicy.fractional.L2::evict_last.b64 policy, 1.0;\n\t"
+        "  red.relaxed.gpu.global.L2::cache_hint.add.f32 [%0], %1, policy;\n\t"
+        "}"
+        :
+        : "l"(addr), "f"(val)
+        : "memory"
+    );
+}
+
 #ifndef FLAG_ATOMIC
-__device__ void write_bin(float4* __restrict__ bins, int bin_idx, float4 contribution) {
+template<bool EvictLast = true>
+__device__ void write_bin(float4* __restrict__ bins, int bin_idx, const float4& contribution) {
 	if(bin_idx >= 0) {
-		float4 bin = ld_cg_evict_last(bins + bin_idx);
+		float4 bin = [&]() {
+			if constexpr(EvictLast) {
+				return ld_cg_evict_last(bins + bin_idx);
+			} else {
+				return ld_cg_evict_first(bins + bin_idx);
+			}
+		}();
 		bin.x += contribution.x;
 		bin.y += contribution.y;
 		bin.z += contribution.z;
 		bin.w += contribution.w;
-		st_cg_evict_last(bins + bin_idx, bin);
+		if constexpr(EvictLast) {
+			st_cg_evict_last(bins + bin_idx, bin);
+		} else {
+			st_cg_evict_first(bins + bin_idx, bin);
+		}
 	}
 }
 #else
-__device__ void write_bin(float4* __restrict__ bins, int bin_idx, float4 contribution) {
-	if(bin_idx >= 0) {
-		atomicAdd(&bins[bin_idx].x, contribution.x);
-		atomicAdd(&bins[bin_idx].y, contribution.y);
-		atomicAdd(&bins[bin_idx].z, contribution.z);
-		atomicAdd(&bins[bin_idx].w, contribution.w);
+template<bool EvictLast = true>
+__device__ void write_bin(float4* __restrict__ bins, int bin_idx, const float4& contribution) {
+	if constexpr(EvictLast) {
+		reduce_add_f32_evict_last(&bins[bin_idx].x, contribution.x);
+		reduce_add_f32_evict_last(&bins[bin_idx].y, contribution.y);
+		reduce_add_f32_evict_last(&bins[bin_idx].z, contribution.z);
+		reduce_add_f32_evict_last(&bins[bin_idx].w, contribution.w);
+	} else {
+		reduce_add_f32_evict_first(&bins[bin_idx].x, contribution.x);
+		reduce_add_f32_evict_first(&bins[bin_idx].y, contribution.y);
+		reduce_add_f32_evict_first(&bins[bin_idx].z, contribution.z);
+		reduce_add_f32_evict_first(&bins[bin_idx].w, contribution.w);
 	}
 }
 #endif
-
 constexpr float drain_threshold = 64.0f;
 
 __device__ void write_bin_half4(
@@ -522,10 +554,8 @@ __device__ void write_bin_half4(
     int bin_idx,
     float4 contribution)
 {
-    // Load 8 bytes (one 64-bit transaction, same pattern as your current ld_cg)
     uint2 raw = ld_cg_evict_last_u2(hot_bins + bin_idx);
 
-    // Unpack to float for accumulation arithmetic
     float4 val;
     val.x = __half2float(reinterpret_cast<__half*>(&raw)[0]);
     val.y = __half2float(reinterpret_cast<__half*>(&raw)[1]);
@@ -537,18 +567,11 @@ __device__ void write_bin_half4(
     val.z += contribution.z;
     val.w += contribution.w;
 
-    // If this bin is getting hot, drain to DRAM and reset
     if (val.w > drain_threshold) {
-        auto bin = ld_cg_evict_first(cold_bins + bin_idx);
-        bin.x += val.x;
-        bin.y += val.y;
-        bin.z += val.z;
-        bin.w += val.w;
-        st_cg_evict_first(cold_bins + bin_idx, bin);
+        write_bin<false>(cold_bins, bin_idx, val);
         val = {0.0f, 0.0f, 0.0f, 0.0f};
     }
 
-    // Pack back to half4 and store 8 bytes
     __half packed[4] = {
         __float2half(val.x), __float2half(val.y),
         __float2half(val.z), __float2half(val.w)
@@ -556,63 +579,7 @@ __device__ void write_bin_half4(
     st_cg_evict_last_u2(hot_bins + bin_idx, reinterpret_cast<uint2&>(packed));
 }
 
-__device__ void warp_aggregated_write(
-    uint2* __restrict__ hot_bins,
-	float4* __restrict__ cold_bins,
-    int bin_idx,           // -1 if this thread has no valid hit
-    float4 contribution    // the RGBA contribution to add
-) {
-    const uint32 active = __activemask();
-    
-    const int match_idx = (bin_idx >= 0) ? bin_idx : -1 - (int)threadIdx.x;
-    
-    const uint32 match_mask = __match_any_sync(active, match_idx);
-    const int match_count = __popc(match_mask);
-    
-    if (__all_sync(active, match_count <= 1)) {
-        if (bin_idx >= 0) {
-			#ifdef FLAG_HOT_COLD
-			write_bin_half4(hot_bins, cold_bins, bin_idx, contribution);
-			#else
-            write_bin(cold_bins, bin_idx, contribution);
-			#endif
-        }
-        return;
-    }
-    
-    float4 sum = contribution;
-    
-    #pragma unroll
-    for (int delta = 1; delta < 32; delta *= 2) {
-        float4 other;
-        other.x = __shfl_xor_sync(match_mask, sum.x, delta);
-        other.y = __shfl_xor_sync(match_mask, sum.y, delta);
-        other.z = __shfl_xor_sync(match_mask, sum.z, delta);
-        other.w = __shfl_xor_sync(match_mask, sum.w, delta);
-        
-        // Only add if the other thread is in our match group
-        uint32 other_lane = (threadIdx.x % 32) ^ delta;
-        if (match_mask & (1u << other_lane)) {
-            sum.x += other.x;
-            sum.y += other.y;
-            sum.z += other.z;
-            sum.w += other.w;
-        }
-    }
-    
-    const int leader = __ffs(match_mask) - 1;
-    const bool is_leader = ((threadIdx.x % 32) == leader);
-    
-    if (bin_idx >= 0 && is_leader) {
-		#ifdef FLAG_HOT_COLD
-		write_bin_half4(hot_bins, cold_bins, bin_idx, sum);
-		#else
-        write_bin(cold_bins, bin_idx, sum);
-		#endif
-    }
-}
-
-constexpr static uint32 randomize_interval = 1000;
+constexpr static uint32 randomize_interval = 4096;
 constexpr static uint32 fusion_length = 32;
 
 __device__ unsigned int pass_and_draw(unsigned int pass_idx, float4* const __restrict__ cold_bins, uint2* const __restrict__ hot_bins, const uint32 bins_w, const uint32 bins_h) {
@@ -630,8 +597,8 @@ __device__ unsigned int pass_and_draw(unsigned int pass_idx, float4* const __res
 	}
 
 	if constexpr(has_final_xform) {
-			vec3<Real> my_iter_copy = transformed;
-			state.flame.dispatch(num_xforms, my_iter_copy, transformed, &my_rand());
+		vec3<Real> my_iter_copy = transformed;
+		state.flame.dispatch(num_xforms, my_iter_copy, transformed, &my_rand());
 	}
 		
 	state.flame.screen_space.apply(transformed.as_vec2());
@@ -667,50 +634,43 @@ __device__ unsigned int pass_and_draw(unsigned int pass_idx, float4* const __res
 
 		hit = (unsigned int)(255.0f * transformed.w);
 
-		#ifdef FLAG_WARP_AGGREGATED_WRITE
-		warp_aggregated_write(hot_bins, cold_bins, bin_idx, new_bin);
-		#else
 		#ifdef FLAG_HOT_COLD
 		write_bin_half4(hot_bins, cold_bins, bin_idx, new_bin);
 		#else
 		write_bin(cold_bins, bin_idx, new_bin);
 		#endif
-		#endif
+
 	} else {
 		bin_idx = -1;
 	}
-
-	//#ifdef FLAG_WARP_AGGREGATED_WRITE
-	//warp_aggregated_write(bins, bin_idx, new_bin);
-	//#else
-	//#ifdef FLAG_ATOMIC
-	//write_bin_atomic(bins, bin_idx, new_bin);
-	//#else
-	//write_bin(bins, bin_idx, new_bin);
-	//#endif
-	//#endif
 
 	return hit;
 }
 
 __global__
 LAUNCH_BOUNDS(per_block, BLOCKS_PER_MP)
+//__launch_bounds__(per_block)
 void bin(
-	sample_state_t* const __restrict__ in_state,
-	const uint64 quality_target,
-	const uint32 iter_bailout,
-	const uint64 time_bailout,
-	float4* const __restrict__ cold_bins, uint2* const __restrict__ hot_bins, const uint32 bins_w, const uint32 bins_h,
-	uint64* const __restrict__ quality_counter, uint64* const __restrict__ pass_counter,
-	volatile bool* __restrict__ stop_render,
-	const int32 temporal_multiplier,
-	const int32 temporal_slicing,
-	const unsigned long long* const __restrict__ warmup_hits,
-	unsigned long long* const __restrict__ earliest_start,
-	unsigned long long* const __restrict__ latest_stop,
-	unsigned int* const __restrict__ sample_indices,
-	unsigned long long* const __restrict__ warp_collisions)
+	sample_state_t* const __restrict__ __grid_constant__ in_state,
+	const uint64 __grid_constant__ quality_target,
+	const uint32 __grid_constant__ iter_bailout,
+	const uint64 __grid_constant__ time_bailout,
+	float4* const __restrict__ __grid_constant__ cold_bins, 
+	uint2* const __restrict__ __grid_constant__ hot_bins, 
+	const __grid_constant__ uint32 bins_w, 
+	const __grid_constant__ uint32 bins_h,
+	uint64* const __restrict__ __grid_constant__ quality_counter, 
+	uint64* const __restrict__ __grid_constant__ pass_counter,
+	volatile bool* const __restrict__ __grid_constant__ stop_render,
+	const int32 __grid_constant__ temporal_multiplier,
+	const int32 __grid_constant__ temporal_slicing,
+	const unsigned long long* const __restrict__ __grid_constant__ warmup_hits,
+	unsigned long long* const __restrict__ __grid_constant__ earliest_start,
+	unsigned long long* const __restrict__ __grid_constant__ latest_stop,
+	unsigned int* const __restrict__ __grid_constant__ sample_indices,
+	unsigned long long* const __restrict__ __grid_constant__ warp_collisions)
 {
+	asm(".pragma \"enable_smem_spilling\";");
 	
 	decltype(clock64()) start_time;
 	if(fl::is_block_leader()) {
@@ -727,6 +687,7 @@ void bin(
 		auto& sample = in_state[iter_info.sample_indices[fl::block_rank()]];
 		sample.tss_quality = 0;
 		sample.tss_passes = 0;
+		sample.tss_quality_target = double(quality_target) / (temporal_multiplier * gridDim.x);
 	}
 	fl::sync_block();
 	
@@ -754,7 +715,7 @@ void bin(
 		//fl::sync_block();
 		if(fl::is_block_leader()) {
 
-			if(state.tss_quality >= double(quality_target) / (temporal_multiplier * gridDim.x)) {
+			if(state.tss_quality >= state.tss_quality_target) {
 				iter_info.mark_sample_done();
 			}
 

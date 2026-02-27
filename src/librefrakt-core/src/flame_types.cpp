@@ -863,7 +863,7 @@ std::size_t rfkt::flame::size_reals() const noexcept {
 	for (const auto& xf : xforms_) {
 		size += xf.size_reals();
 	}
-	return size + 13;
+	return size + 13 + xforms_.size();
 }
 
 std::vector<std::size_t> rfkt::flame::affine_indices() const {
@@ -872,7 +872,7 @@ std::vector<std::size_t> rfkt::flame::affine_indices() const {
 	ret.push_back(0);
 	ret.push_back(rfkt::affine::size_reals());
 
-	constexpr static std::size_t flame_offset = 13;
+	const std::size_t flame_offset = 13 + xforms_.size();
 	constexpr static std::size_t xform_base_reals = 4;
 
 	std::size_t index = chaos_table.has_value() ? xforms_.size() * (xforms_.size() + 1): 0;

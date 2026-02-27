@@ -962,6 +962,7 @@ ezrtc::compiler::result ezrtc::compiler::compile(const ezrtc::spec& s) {
 	compile_options.push_back("--std=c++20");
 	compile_options.push_back("--minimal");
 	compile_options.push_back("--split-compile=0");
+	compile_options.push_back("-no-cache");
 
 	if (rapi == ROCCU_API_CUDA) {
 

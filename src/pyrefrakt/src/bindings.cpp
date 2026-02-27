@@ -110,6 +110,10 @@ rfkt::flame_kernel::bin_result render_image(const rfkt::flame& flame, std::strin
         throw std::runtime_error(compile_result.log);
     }
 
+    if(compile_result.log.size() > 0) {
+        SPDLOG_ERROR("Compilation log: {}", compile_result.log);
+    }
+
     auto loops_per_frame = 1.0 / (fps * seconds_per_loop);
 
     auto samples = std::vector<double>{};
