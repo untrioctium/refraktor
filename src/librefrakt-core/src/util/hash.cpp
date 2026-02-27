@@ -20,7 +20,7 @@ rfkt::hash::state_t::~state_t() noexcept
 
 rfkt::hash_t rfkt::hash::state_t::digest() const noexcept {
 	auto xxh_hash = XXH3_128bits_digest((XXH3_state_t*)state_);
-	return hash_t{ xxh_hash.low64, xxh_hash.high64 };
+	return hash_t{ xxh_hash.high64, xxh_hash.low64 };
 }
 
 void rfkt::hash::state_t::update(const void* data, std::size_t len) noexcept {
@@ -29,7 +29,7 @@ void rfkt::hash::state_t::update(const void* data, std::size_t len) noexcept {
 
 auto rfkt::hash_t::str16() const noexcept -> std::string 
 {
-	return std::format("{:016X}{:016X}", bytes.second, bytes.first);
+	return std::format("{:016X}{:016X}", bytes.first, bytes.second);
 }
 
 auto rfkt::hash_t::str32() const noexcept -> std::string

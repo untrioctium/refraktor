@@ -389,7 +389,8 @@ std::string rfkt::flame_compiler::make_source(const flamedb& fdb, const rfkt::fl
         {"xforms", json::array()},
         {"num_standard_xforms", f.xforms().size()},
         {"use_chaos", f.chaos_table.has_value()},
-        {"affine_indices", json::array()}
+        {"affine_indices", json::array()},
+        {"final_idx", f.final_xform.has_value() ? f.xforms().size() : 0}
     });
 
     for(auto idx: f.affine_indices()) {
@@ -400,11 +401,14 @@ std::string rfkt::flame_compiler::make_source(const flamedb& fdb, const rfkt::fl
     auto& xfd = info["xform_definitions"];
 
     const auto shared_xforms = extract_duplicate_xforms(f);
+    const auto final_id = f.xforms().size();
 
     std::set<std::string_view> needed_variations;
 
     for (auto& [hash, children] : shared_xforms) {
         auto xf_def_js = json::object({
+            {"count", children.contains(final_id) ? children.size() - 1 : children.size()},
+            {"ids", json::array()},
             {"vchain", json::array()}
         });
 
@@ -461,18 +465,36 @@ std::string rfkt::flame_compiler::make_source(const flamedb& fdb, const rfkt::fl
             vc.push_back(std::move(vl_def_js));
         }
 
-        xfd[hash.str32()] = std::move(xf_def_js);
+        xfd[hash.str16()] = std::move(xf_def_js);
     }
 
     auto order = f.canonical_xform_order();
+    std::string last_hash = "";
+    int hash_count = 0;
     for (int i = 0; i <= f.xforms().size(); i++) {
         if (i == f.xforms().size() && !f.final_xform.has_value()) break;
         auto& xf = (i == f.xforms().size()) ? f.final_xform.value() : f.xforms()[order[i]];
 
+        auto hash = xf.hash().str16();
+        if(hash != last_hash) {
+            last_hash = hash;
+            hash_count = 0;
+        }
+        else {
+            hash_count++;
+        }
+
         xfs.push_back(json::object({
-            {"hash", xf.hash().str32()},
+            {"hash", hash},
             {"id", (i == f.xforms().size()) ? std::string{"final"} : std::format("{}", i)}
             }));
+
+        if(i < f.xforms().size()) {
+            xfd[xf.hash().str16()]["ids"].push_back(json::object({
+                {"global", i},
+                {"local", hash_count}
+            }));
+        }
     }
 
     for (auto& v : needed_variations) {

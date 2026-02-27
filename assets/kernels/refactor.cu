@@ -228,7 +228,7 @@ __device__ void memcpy_sync(const uint8* const __restrict__ src, uint8* const __
 }
 
 #ifndef USE_CHAOS
-#ifndef FLAG_DIVERGENT_WARPS
+
 __device__ vec4<Real> flame_pass(unsigned int pass_idx) {
 	
 	// every 32 passes, repopulate this warp's xid buffer
@@ -259,9 +259,9 @@ __device__ vec4<Real> flame_pass(unsigned int pass_idx) {
 
 	return vec4<Real>{out_local.x, out_local.y, out_local.z, opacity};
 }
-#else
-__device__ vec4<Real> flame_pass(unsigned int pass_idx) {
-	auto& in_local = state.ts.iterators[fl::block_rank()];
+
+__device__ vec4<Real> flame_pass_divergent(unsigned int pass_idx) {
+	auto in_local = state.ts.get_iter(fl::block_rank());
 	auto out_local = iterator{-666.0, -666.0, -660.0};
 	auto selected_xform = state.flame.select_xform(my_rand().rand01());
 
@@ -276,10 +276,9 @@ __device__ vec4<Real> flame_pass(unsigned int pass_idx) {
 		opacity = 0.0;
 	}
 
-	in_local = out_local;
+	state.ts.set_iter(fl::block_rank(), out_local);
 	return vec4<Real>{out_local.x, out_local.y, out_local.z, opacity};
 }
-#endif
 #else
 __device__
 vec4<Real> flame_pass(unsigned int pass_idx) {
@@ -304,6 +303,10 @@ vec4<Real> flame_pass(unsigned int pass_idx) {
 	state.ts.set_iter(fl::block_rank(), out_local);
 
 	return vec4<Real>{out_local.x, out_local.y, out_local.z, opacity};
+}
+
+__device__ vec4<Real> flame_pass_divergent(unsigned int pass_idx) {
+	return flame_pass(pass_idx);
 }
 #endif
 
@@ -363,7 +366,7 @@ void warmup(
 
 		randomize_iterators(bins_w, bins_h);
 		for(unsigned int pass = 0; pass < warmup_count; pass++) {
-			auto transformed = flame_pass(pass);
+			auto transformed = flame_pass_divergent(pass);
 
 			if constexpr(has_final_xform) {
 				vec3<Real> my_iter_copy = {transformed.x, transformed.y, transformed.z};

@@ -1,5 +1,5 @@
 constexpr static uint64 num_xforms = @num_standard_xforms@;
-constexpr static bool has_final_xform = @num_standard_xforms < length(xforms)@;
+constexpr static bool has_final_xform = @final_idx > 0@;
 constexpr static uint32 affine_indices[] = {@join(affine_indices, ", ")@};
 constexpr static uint32 num_affines = @length(affine_indices)@;
 
@@ -105,9 +105,16 @@ struct __align__(sizeof(FloatT)) flame_t {
     } chaos[@num_standard_xforms@];
     <# endif #>
 
-    <# for xform in xforms #>
-    xform_@xform.hash@_t<FloatT, RandCtx> xform_@xform.id@;
+    <# for hash, def in xform_definitions #>
+    <# if def.count > 0 #>
+    xform_@hash@_t<FloatT, RandCtx> xform_group_@hash@[@def.count@];
+    <# endif #>
     <# endfor #>
+
+    <# if final_idx > 0 #>
+    <# set final_xform = at(xforms, final_idx) #>
+    xform_@final_xform.hash@_t<FloatT, RandCtx> xform_final;
+    <# endif #>
 
     __device__ unsigned short select_xform(FloatT ratio) const {
         unsigned short lo = 0, hi = num_xforms - 1;
@@ -146,15 +153,28 @@ struct __align__(sizeof(FloatT)) flame_t {
     __device__ FloatT dispatch(unsigned short idx, vec3<Real>& inp, vec3<Real>& outp, RandCtx* rs) const {
         switch(idx) {
             default: __builtin_unreachable();
-
-            <# for xform in xforms #>
-            case @loop.index@:
-            {
-                xform_@xform.id@.apply(inp.as_vec2(), outp.as_vec2(), rs);
-                outp.z = INTERP(inp.z, xform_@xform.id@.color, xform_@xform.id@.color_speed);
-                return xform_@xform.id@.opacity;
-            }
+            
+            <# for hash, def in xform_definitions #>
+            <# if def.count > 0 #>
+            <# for id in def.ids #>
+            case @id.global@:
             <# endfor #>
+            {
+                const auto& xf = xform_group_@hash@[idx - @def.ids.0.global@];
+                xf.apply(inp.as_vec2(), outp.as_vec2(), rs);
+                outp.z = INTERP(inp.z, xf.color, xf.color_speed);
+                return xf.opacity;
+            }
+            <# endif #>
+            <# endfor #>
+
+            <# if final_idx > 0 #>
+            case @final_idx@: {
+                xform_final.apply(inp.as_vec2(), outp.as_vec2(), rs);
+                outp.z = INTERP(inp.z, xform_final.color, xform_final.color_speed);
+                return xform_final.opacity;
+            }
+            <# endif #>
         }
         __builtin_unreachable();
     }
@@ -165,8 +185,10 @@ struct __align__(sizeof(FloatT)) flame_t {
 
     __device__ void do_precalc(RandCtx* rs) {
         FloatT acc = FloatT(0.0);
-        <# for xid in range(num_standard_xforms) #>
-        acc += xform_@xid@.weight; cdf[@xid@] = acc;
+        <# for hash, def in xform_definitions #>
+        <# for id in def.ids #>
+        acc += xform_group_@hash@[@id.local@].weight; cdf[@id.global@] = acc;
+        <# endfor #>
         <# endfor #>
 
         weight_sum = acc;
@@ -189,11 +211,16 @@ struct __align__(sizeof(FloatT)) flame_t {
         screen_space.c += jitter.x;
         screen_space.f += jitter.y;
 
-        <# for xform in xforms #>
-        xform_@xform.id@.do_precalc(rs);
+        <# for hash, def in xform_definitions #>
+        <# for id in def.ids #>
+        xform_group_@hash@[@id.local@].do_precalc(rs);
         <# endfor #>
+        <# endfor #>
+
+        <# if final_idx > 0 #>
+        xform_final.do_precalc(rs);
+        <# endif #>
+
     }
     
 };
-
-//static_assert(sizeof(flame_t<Real>) == flame_size_bytes);

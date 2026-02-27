@@ -1,6 +1,8 @@
 #pragma once
 #include <span>
 #include <string_view>
+#include <string>
+#include <vector>
 #include <librefrakt/traits/noncopyable.hpp>
 
 namespace rfkt {
@@ -9,9 +11,16 @@ namespace rfkt {
 		using value_type = std::size_t;
 
 		constexpr hash_t() = default;
-		constexpr hash_t(value_type low, value_type high) : bytes(low, high) {}
+		constexpr hash_t(value_type high, value_type low) : bytes(high, low) {}
 
-		constexpr auto operator <=> (const rfkt::hash_t& o) const noexcept = default;
+		constexpr auto operator <=> (const rfkt::hash_t& o) const noexcept {
+			if(bytes.first != o.bytes.first) return bytes.first <=> o.bytes.first;
+			return bytes.second <=> o.bytes.second;
+		}
+
+		constexpr auto operator == (const rfkt::hash_t& o) const noexcept {
+			return bytes.first == o.bytes.first && bytes.second == o.bytes.second;
+		}
 
 		auto str16() const noexcept ->std::string;
 		auto str32() const noexcept ->std::string;
@@ -50,13 +59,13 @@ namespace rfkt {
 			return *this;
 		}
 
-		constexpr auto operator<<(std::size_t n) const noexcept -> rfkt::hash_t {
+		/*constexpr auto operator<<(std::size_t n) const noexcept -> rfkt::hash_t {
 			return { (bytes.first << n) | (bytes.second >> (64 - n)), (bytes.second << n) | (bytes.first >> (64 - n)) };
 		}
 
 		constexpr auto operator>>(std::size_t n) const noexcept -> rfkt::hash_t {
 			return { (bytes.first >> n) | (bytes.second << (64 - n)), (bytes.second >> n) | (bytes.first << (64 - n)) };
-		}
+		}*/
 
 	private:
 		std::pair<value_type, value_type> bytes = { 0, 0 };
