@@ -973,7 +973,7 @@ auto rfkt::flame_kernel::bin(roccu::gpu_stream& stream, flame_kernel::saved_stat
         auto megadraws_per_ms = (ss->qpx_host[0] / 255.0) / 1e6 / elapsed_ms;
         auto quality_per_ms = ss->qpx_host[0] / (ss->total_bins * 255.0) / elapsed_ms;
 
-        SPDLOG_INFO("{:.2f} megapasses/ms, {:.2f} megadraws/ms, {:.2f} quality/ms, {:.2f} ms", megapasses_per_ms, megadraws_per_ms, quality_per_ms, elapsed_ms);
+        //SPDLOG_INFO("{:.2f} megapasses/ms, {:.2f} megadraws/ms, {:.2f} quality/ms, {:.2f} ms", megapasses_per_ms, megadraws_per_ms, quality_per_ms, elapsed_ms);
         
         ss->promise.set_value(flame_kernel::bin_result{
             .quality = ss->qpx_host[0] / (ss->total_bins * 255.0),

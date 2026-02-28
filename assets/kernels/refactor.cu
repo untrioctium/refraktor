@@ -582,7 +582,7 @@ __device__ void write_bin_half4(
     st_cg_evict_last_u2(hot_bins + bin_idx, reinterpret_cast<uint2&>(packed));
 }
 
-constexpr static uint32 randomize_interval = 4096;
+constexpr static uint32 randomize_interval = 16384;
 constexpr static uint32 fusion_length = 32;
 
 __device__ unsigned int pass_and_draw(unsigned int pass_idx, float4* const __restrict__ cold_bins, uint2* const __restrict__ hot_bins, const uint32 bins_w, const uint32 bins_h) {
@@ -593,8 +593,11 @@ __device__ unsigned int pass_and_draw(unsigned int pass_idx, float4* const __res
 		randomize_iterators(bins_w, bins_h);
 	}
 
+	#ifndef FLAG_DIVERGENT_WARPS
 	auto transformed = flame_pass(pass_idx);
-
+	#else
+	auto transformed = flame_pass_divergent(pass_idx);
+	#endif
 	if(cycle_pos < fusion_length) {
 		return 0;
 	}

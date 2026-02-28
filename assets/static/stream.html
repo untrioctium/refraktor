@@ -1,0 +1,639 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8" />
+  <title>refraktor</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/jmuxer@2.0.4/dist/jmuxer.min.js"></script>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap" />
+  <style>
+    *, *::before, *::after {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    html, body {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: #000;
+      font-family: 'Inter', system-ui, sans-serif;
+      color: #e0e0e0;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+
+    #landing {
+      position: fixed;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      background: radial-gradient(ellipse at center, #0a0a12 0%, #000 80%);
+      z-index: 10;
+      transition: opacity 0.5s ease;
+    }
+
+    #landing.hidden {
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    #landing h1 {
+      font-weight: 300;
+      font-size: clamp(1.4rem, 4vw, 2.4rem);
+      letter-spacing: 0.25em;
+      text-transform: uppercase;
+      color: #aaa;
+      margin-bottom: clamp(2rem, 6vh, 4rem);
+    }
+
+    #play-btn {
+      position: relative;
+      width: clamp(80px, 18vmin, 140px);
+      height: clamp(80px, 18vmin, 140px);
+      border-radius: 50%;
+      border: 2px solid rgba(255, 255, 255, 0.15);
+      background: rgba(255, 255, 255, 0.04);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: transform 0.2s ease, border-color 0.3s ease, background 0.3s ease;
+      outline: none;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    #play-btn:hover {
+      transform: scale(1.08);
+      border-color: rgba(255, 255, 255, 0.35);
+      background: rgba(255, 255, 255, 0.08);
+    }
+
+    #play-btn:active {
+      transform: scale(0.96);
+    }
+
+    #play-btn svg {
+      width: 36%;
+      height: 36%;
+      margin-left: 6%;
+      fill: rgba(255, 255, 255, 0.8);
+      transition: fill 0.3s ease;
+    }
+
+    #play-btn:hover svg {
+      fill: #fff;
+    }
+
+    #play-btn .ring {
+      position: absolute;
+      inset: -8px;
+      border-radius: 50%;
+      border: 1px solid rgba(255, 255, 255, 0.06);
+    }
+
+    #info {
+      margin-top: clamp(1.5rem, 4vh, 3rem);
+      font-size: clamp(0.7rem, 1.6vw, 0.85rem);
+      color: #555;
+      letter-spacing: 0.05em;
+    }
+
+    #player-wrap {
+      position: fixed;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: #000;
+      z-index: 1;
+      touch-action: none;
+    }
+
+    #player {
+      display: block;
+      max-width: 100%;
+      max-height: 100%;
+      object-fit: contain;
+    }
+
+    #ff-btn {
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      z-index: 20;
+      width: 40px;
+      height: 40px;
+      border: none;
+      border-radius: 6px;
+      background: rgba(255, 255, 255, 0.08);
+      cursor: pointer;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      transition: background 0.2s ease;
+      outline: none;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    #ff-btn:hover {
+      background: rgba(255, 255, 255, 0.16);
+    }
+
+    #ff-btn:active {
+      background: rgba(255, 255, 255, 0.1);
+    }
+
+    #ff-btn svg {
+      width: 18px;
+      height: 18px;
+      fill: rgba(255, 255, 255, 0.6);
+    }
+
+    #ff-btn:hover svg {
+      fill: rgba(255, 255, 255, 0.9);
+    }
+
+    body.idle {
+      cursor: none;
+    }
+
+    body.idle #ff-btn,
+    body.idle #menu-btn {
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.4s ease;
+    }
+
+    #menu-btn {
+      position: fixed;
+      top: 16px;
+      left: 16px;
+      z-index: 30;
+      width: 36px;
+      height: 36px;
+      border: none;
+      border-radius: 6px;
+      background: rgba(255, 255, 255, 0.08);
+      cursor: pointer;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      flex-direction: column;
+      gap: 4px;
+      transition: background 0.2s ease, opacity 0.4s ease;
+      outline: none;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    #menu-btn:hover {
+      background: rgba(255, 255, 255, 0.16);
+    }
+
+    #menu-btn span {
+      display: block;
+      width: 16px;
+      height: 1.5px;
+      background: rgba(255, 255, 255, 0.6);
+      border-radius: 1px;
+      transition: background 0.2s ease;
+    }
+
+    #menu-btn:hover span {
+      background: rgba(255, 255, 255, 0.9);
+    }
+
+    #side-panel {
+      position: fixed;
+      top: 0;
+      left: 0;
+      bottom: 0;
+      z-index: 25;
+      width: auto;
+      min-width: 220px;
+      max-width: 320px;
+      background: rgba(18, 18, 22, 0.82);
+      -webkit-backdrop-filter: blur(20px) saturate(120%);
+      backdrop-filter: blur(20px) saturate(120%);
+      border-right: 1px solid rgba(255, 255, 255, 0.06);
+      padding: 60px 20px 20px;
+      transform: translateX(-100%);
+      transition: transform 0.28s ease;
+      overflow-y: auto;
+    }
+
+    #side-panel.open {
+      transform: translateX(0);
+    }
+
+    #side-panel h2 {
+      font-weight: 500;
+      font-size: 0.75rem;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: #666;
+      margin-bottom: 12px;
+    }
+
+    #side-panel .panel-group {
+      margin-bottom: 20px;
+    }
+
+    #side-panel .panel-btn {
+      display: block;
+      width: 100%;
+      padding: 8px 12px;
+      margin-bottom: 4px;
+      border: none;
+      border-radius: 4px;
+      background: rgba(255, 255, 255, 0.05);
+      color: #ccc;
+      font-family: inherit;
+      font-size: 0.8rem;
+      text-align: left;
+      cursor: pointer;
+      transition: background 0.15s ease;
+    }
+
+    #side-panel .panel-btn:hover {
+      background: rgba(255, 255, 255, 0.12);
+      color: #fff;
+    }
+
+    #side-panel .panel-label {
+      font-size: 0.78rem;
+      color: #888;
+      padding: 4px 0;
+    }
+  </style>
+</head>
+
+<body>
+  <div id="player-wrap">
+    <video autoplay muted id="player"></video>
+  </div>
+
+  <button id="ff-btn" aria-label="Fast-forward">
+    <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+      <polygon points="1,3 11,12 1,21" />
+      <polygon points="13,3 23,12 13,21" />
+    </svg>
+  </button>
+
+  <button id="menu-btn" aria-label="Menu">
+    <span></span><span></span><span></span>
+  </button>
+
+  <div id="side-panel">
+    <div class="panel-group">
+      <h2>Playback</h2>
+      <button class="panel-btn">Pause</button>
+      <button class="panel-btn">Next flame</button>
+      <button class="panel-btn">Random seed</button>
+    </div>
+    <div class="panel-group">
+      <h2>Parameters</h2>
+      <p class="panel-label">BPM: 120</p>
+      <p class="panel-label">Loop: 8s</p>
+      <p class="panel-label">Resolution: ---</p>
+    </div>
+    <div class="panel-group">
+      <h2>View</h2>
+      <button class="panel-btn">Reset camera</button>
+      <button class="panel-btn">Toggle embellish</button>
+    </div>
+  </div>
+
+  <div id="landing">
+    <h1>refraktor</h1>
+    <button id="play-btn" aria-label="Play">
+      <span class="ring"></span>
+      <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+        <polygon points="5,3 19,12 5,21" />
+      </svg>
+    </button>
+    <p id="info"></p>
+  </div>
+
+  <script>
+    const landing = document.getElementById('landing');
+    const playBtn = document.getElementById('play-btn');
+    const info = document.getElementById('info');
+    const playerWrap = document.getElementById('player-wrap');
+    const player = document.getElementById('player');
+    const ffBtn = document.getElementById('ff-btn');
+    const menuBtn = document.getElementById('menu-btn');
+    const sidePanel = document.getElementById('side-panel');
+    let panelOpen = false;
+
+    let streaming = false;
+    let ws = null;
+    let lastAreaW = 0;
+    let lastAreaH = 0;
+
+    function playerArea() {
+      const dpr = window.devicePixelRatio || 1;
+      const rect = playerWrap.getBoundingClientRect();
+      return {
+        w: Math.round(rect.width * dpr),
+        h: Math.round(rect.height * dpr)
+      };
+    }
+
+    function updateInfo() {
+      const { w, h } = playerArea();
+      info.textContent = `${w}\u00d7${h}`;
+    }
+
+    updateInfo();
+
+    // JMuxer does not handle resolution changes automatically. The SPS/PPS
+    // parsed from the first keyframe is cached and never refreshed. To change
+    // resolution mid-stream the server must re-encode at the new size and the
+    // client must call jmuxer.reset() (or jmuxer.remuxController.reset()) so
+    // the new SPS is accepted. Coordinate via WebSocket command.
+    function onPlayerAreaChanged(w, h) { // STUB
+      console.log(`Player area changed: ${w}\u00d7${h}`);
+    }
+
+    let resizeTimer = 0;
+    const resizeObserver = new ResizeObserver(function () {
+      updateInfo();
+      if (!streaming) return;
+      clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(function () {
+        const { w, h } = playerArea();
+        if (w !== lastAreaW || h !== lastAreaH) {
+          lastAreaW = w;
+          lastAreaH = h;
+          onPlayerAreaChanged(w, h);
+        }
+      }, 150);
+    });
+    resizeObserver.observe(playerWrap);
+
+    // --- Drag & pinch gestures (stubbed for backend) ---
+
+    function onDrag(dx, dy) { // STUB
+      console.log(`drag: dx=${dx}, dy=${dy}`);
+    }
+
+    function onPinch(scale, cx, cy) { // STUB
+      console.log(`pinch: scale=${scale.toFixed(3)}, center=(${cx}, ${cy})`);
+    }
+
+    (function initGestures() {
+      let pointers = new Map();
+      let lastSingleX = 0;
+      let lastSingleY = 0;
+      let lastPinchDist = 0;
+
+      let dragPending = null;
+      let pinchPending = null;
+      let rafScheduled = false;
+
+      function flushGestures() {
+        rafScheduled = false;
+        if (dragPending) {
+          onDrag(dragPending.dx, dragPending.dy);
+          dragPending = null;
+        }
+        if (pinchPending) {
+          onPinch(pinchPending.scale, pinchPending.cx, pinchPending.cy);
+          pinchPending = null;
+        }
+      }
+
+      function scheduleRaf() {
+        if (!rafScheduled) {
+          rafScheduled = true;
+          requestAnimationFrame(flushGestures);
+        }
+      }
+
+      function scheduleDrag(dx, dy) {
+        if (dragPending) { dragPending.dx += dx; dragPending.dy += dy; }
+        else { dragPending = { dx, dy }; }
+        scheduleRaf();
+      }
+
+      function schedulePinch(scale, cx, cy) {
+        if (pinchPending) { pinchPending.scale *= scale; pinchPending.cx = cx; pinchPending.cy = cy; }
+        else { pinchPending = { scale, cx, cy }; }
+        scheduleRaf();
+      }
+
+      function pointerDist() {
+        const pts = [...pointers.values()];
+        const dx = pts[1].x - pts[0].x;
+        const dy = pts[1].y - pts[0].y;
+        return Math.hypot(dx, dy);
+      }
+
+      function pointerCenter() {
+        const pts = [...pointers.values()];
+        return {
+          x: (pts[0].x + pts[1].x) / 2,
+          y: (pts[0].y + pts[1].y) / 2
+        };
+      }
+
+      playerWrap.addEventListener('pointerdown', function (e) {
+        if (!streaming) return;
+        pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+        playerWrap.setPointerCapture(e.pointerId);
+
+        if (pointers.size === 1) {
+          lastSingleX = e.clientX;
+          lastSingleY = e.clientY;
+        } else if (pointers.size === 2) {
+          lastPinchDist = pointerDist();
+        }
+      });
+
+      playerWrap.addEventListener('pointermove', function (e) {
+        if (!streaming || !pointers.has(e.pointerId)) return;
+        pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+        if (pointers.size === 1) {
+          const dx = e.clientX - lastSingleX;
+          const dy = e.clientY - lastSingleY;
+          lastSingleX = e.clientX;
+          lastSingleY = e.clientY;
+          if (dx !== 0 || dy !== 0) scheduleDrag(dx, dy);
+        } else if (pointers.size === 2) {
+          const dist = pointerDist();
+          if (lastPinchDist > 0) {
+            const scale = dist / lastPinchDist;
+            const c = pointerCenter();
+            schedulePinch(scale, Math.round(c.x), Math.round(c.y));
+          }
+          lastPinchDist = dist;
+        }
+      });
+
+      function removePointer(e) {
+        pointers.delete(e.pointerId);
+        if (pointers.size < 2) lastPinchDist = 0;
+        if (pointers.size === 1) {
+          const pt = [...pointers.values()][0];
+          lastSingleX = pt.x;
+          lastSingleY = pt.y;
+        }
+      }
+
+      playerWrap.addEventListener('pointerup', removePointer);
+      playerWrap.addEventListener('pointercancel', removePointer);
+
+      playerWrap.addEventListener('wheel', function (e) {
+        if (!streaming) return;
+        e.preventDefault();
+        const scale = e.deltaY < 0 ? 1.05 : 1 / 1.05;
+        schedulePinch(scale, Math.round(e.clientX), Math.round(e.clientY));
+      }, { passive: false });
+    })();
+
+    let idleTimer = 0;
+    function resetIdle() {
+      document.body.classList.remove('idle');
+      clearTimeout(idleTimer);
+      if (!streaming || panelOpen) return;
+      idleTimer = setTimeout(function () {
+        document.body.classList.add('idle');
+      }, 3000);
+    }
+    document.addEventListener('mousemove', resetIdle);
+    document.addEventListener('pointerdown', resetIdle);
+
+    let wakeLock = null;
+    async function acquireWakeLock() {
+      if (!('wakeLock' in navigator)) return;
+      try { wakeLock = await navigator.wakeLock.request('screen'); }
+      catch (_) {}
+    }
+    document.addEventListener('visibilitychange', function () {
+      if (streaming && document.visibilityState === 'visible') acquireWakeLock();
+    });
+
+    function tryFullscreen() {
+      const el = document.documentElement;
+      const rfs = el.requestFullscreen
+        || el.webkitRequestFullscreen
+        || el.msRequestFullscreen;
+      if (rfs) {
+        return rfs.call(el).catch(() => {});
+      }
+      return Promise.resolve();
+    }
+
+    const fps = 48;
+    const beats_per_minute = 120;
+    const beats_per_measure = 4;
+    const measures_per_loop = 4;
+    const seconds_per_beat = 60 / beats_per_minute;
+    const loop_length = seconds_per_beat * beats_per_measure * measures_per_loop;
+
+    let jmuxer = null;
+
+    function connect() {
+      const { w, h } = playerArea();
+      lastAreaW = w;
+      lastAreaH = h;
+      player.width = w;
+      player.height = h;
+
+      if (jmuxer) jmuxer.reset();
+      else {
+        jmuxer = new JMuxer({
+          node: 'player',
+          mode: 'video',
+          debug: false,
+          //flushingTime: 1000.0/fps,
+          fps: fps,
+          onError: function (data) {
+            console.log('Buffer error encountered', data);
+          }
+        });
+      }
+
+      const socketURL = 'ws://' + location.host + '/stream';
+      ws = new WebSocket(socketURL);
+      ws.binaryType = 'arraybuffer';
+
+      ws.addEventListener('message', function (event) {
+        jmuxer.feed({ video: new Uint8Array(event.data) });
+      });
+
+      ws.addEventListener('error', function () {
+        console.log('Socket Error');
+      });
+
+      ws.addEventListener('close', function () {
+        if (!streaming) return;
+        setTimeout(connect, 2000);
+      });
+
+      ws.addEventListener('open', function () {
+        const payload = JSON.stringify({
+          cmd: 'begin',
+          fps: fps,
+          width: w,
+          height: h,
+          loop_length: loop_length,
+          upscale: false,
+          embellish: true
+        });
+        console.log(payload);
+        ws.send(payload);
+      });
+    }
+
+    function beginStream() {
+      streaming = true;
+      acquireWakeLock();
+      connect();
+
+      /*setInterval(function () {
+        if (player.buffered.length === 0) return;
+        const liveEdge = player.buffered.end(player.buffered.length - 1);
+        const drift = liveEdge - player.currentTime;
+
+        if (drift > 1.0) {
+          player.currentTime = liveEdge;
+        } else if (drift > 0.15) {
+          player.playbackRate = 1.05;
+        } else if (drift < 0.03) {
+          player.playbackRate = 0.98;
+        } else {
+          player.playbackRate = 1.0;
+        }
+      }, 250);*/
+    }
+
+    playBtn.addEventListener('click', function () {
+      landing.classList.add('hidden');
+      ffBtn.style.display = 'flex';
+      menuBtn.style.display = 'flex';
+      tryFullscreen().then(() => beginStream());
+    });
+
+    menuBtn.addEventListener('click', function () {
+      panelOpen = !panelOpen;
+      sidePanel.classList.toggle('open', panelOpen);
+      if (panelOpen) {
+        document.body.classList.remove('idle');
+        clearTimeout(idleTimer);
+      } else {
+        resetIdle();
+      }
+    });
+
+    ffBtn.addEventListener('click', function () {}); // STUB
+  </script>
+</body>
+
+</html>

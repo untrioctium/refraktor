@@ -104,10 +104,10 @@ namespace eznve {
 				.dims = dims,
 				.fps = fps,
 				.codec = c,
-				.preset = quality_preset::fast,
+				.preset = quality_preset::high_quality,
 				.rc = rate_control::cbr,
 				.tune = tuning::low_latency,
-				.bitrate_kbps = 6000,
+				.bitrate_kbps = 25000,
 				.enable_bframes = false,
 				.enable_lookahead = false,
 			};

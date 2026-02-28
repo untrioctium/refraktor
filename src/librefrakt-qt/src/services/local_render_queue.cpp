@@ -126,7 +126,7 @@ QFuture<QImage> LocalRenderQueue::requestRenderToQImage(const rfkt::flame& f, co
             auto state = kernel.warmup(stream, samples, bin_dims, 0xdeadbeef, 100);
             auto bin_result = kernel.bin(stream, state, {.millis = params.maxRenderMillis, .quality = params.targetQuality}).get();
 
-            tm.run(state.bins, tonemapped, {bin_result.quality, gbv.gamma, gbv.brightness, gbv.vibrancy}, stream);
+            tm.run(state.cold_bins, state.hot_bins, tonemapped, {bin_result.quality, gbv.gamma, gbv.brightness, gbv.vibrancy}, stream);
 
             if (params.denoise) {
                 auto time = dn->denoise(tonemapped, denoised, dn_event).get();

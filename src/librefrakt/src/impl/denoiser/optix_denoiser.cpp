@@ -17,7 +17,7 @@ using CUstream = CUstream;
 #define CHECK_OPTIX(expr) \
 	do { \
 		if (auto result = expr; result != OPTIX_SUCCESS) { \
-			SPDLOG_CRITICAL("'{}' failed with '{}'", #expr, optixGetErrorName(result)); exit(1); \
+			SPDLOG_CRITICAL("'{}' failed with '{}'", #expr, optixGetErrorName(result)); throw std::runtime_error(std::format("'{}' failed with '{}'", #expr, optixGetErrorName(result))); \
 		} \
 	} while (0)
 

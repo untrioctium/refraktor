@@ -41,7 +41,7 @@ QFuture<rfkt::flame_compiler::result> KernelCompileQueue::requestCompile(
     const rfkt::flame& f,
     rfkt::precision prec)
 {
-    auto thunk = m_flameCompiler.prepare_flame_kernel(fdb, prec, f);
+    auto thunk = m_flameCompiler.prepare_flame_kernel(fdb, prec, f, {}, 2);
     return QtConcurrent::run(&m_compilePool, [thunk = std::move(thunk)]() mutable {
         return thunk();
     });

@@ -92,17 +92,10 @@ struct __align__(sizeof(FloatT)) flame_t {
     affine<FloatT> screen_space;
     affine<FloatT> plane_space;
     
-    FloatT weight_sum;
-
     FloatT cdf[@num_standard_xforms@];
 
     <# if use_chaos #>
-    struct __align__(sizeof(FloatT)) {
-
-        FloatT weight_sum;
-        FloatT weights[@num_standard_xforms@];
-
-    } chaos[@num_standard_xforms@];
+    FloatT chaos[@num_standard_xforms@][@num_standard_xforms@];
     <# endif #>
 
     <# for hash, def in xform_definitions #>
@@ -134,18 +127,16 @@ struct __align__(sizeof(FloatT)) flame_t {
     __device__ unsigned short select_xform(unsigned char last, FloatT ratio) const {
         if(last == static_cast<unsigned char>(255)) return select_xform(ratio);
 
-        const auto& weights = chaos[last].weights;
-        FloatT rsum = FloatT(0.0);
-        ratio *= chaos[last].weight_sum;
-        unsigned char last_nonzero = 0;
-        
-        <# for xid in range(num_standard_xforms) #>
-            <# if not loop.is_last #>
-        if( weights[@xid@] != FloatT(0.0) && (rsum + weights[@xid@]) >= ratio) return @loop.index@; else { rsum += weights[@xid@]; if(weights[@xid@] != FloatT(0.0)) last_nonzero=@loop.index@;}
-            <# else #>
-        return ( weights[@xid@] != FloatT(0.0))? @loop.index@ : last_nonzero;
-            <# endif #>
-        <# endfor #>
+        unsigned short lo = 0, hi = num_xforms - 1;
+        while(lo < hi) {
+            unsigned short mid = (lo + hi) >> 1;
+            if(chaos[last][mid] < ratio)
+                lo = mid + 1;
+            else
+                hi = mid;
+        }
+
+        return lo;
     }
 
     <# endif #>
@@ -191,18 +182,24 @@ struct __align__(sizeof(FloatT)) flame_t {
         <# endfor #>
         <# endfor #>
 
-        weight_sum = acc;
-
         for(uint32 i = 0; i < @num_standard_xforms@; i++)
-            cdf[i] /= weight_sum;
+            cdf[i] /= acc;
 
 
         <# if use_chaos #>
-        for(int i = 0; i < @num_standard_xforms@; i++) {
-            <# for xid2 in range(num_standard_xforms) #>
-            chaos[i].weights[@xid2@] *= xform_@xid2@.weight;
-            chaos[i].weight_sum += chaos[i].weights[@xid2@];
+        for(int r = 0; r < @num_standard_xforms@; r++) {
+            FloatT row_acc = FloatT(0.0);
+            <# for hash, def in xform_definitions #>
+            <# for id in def.ids #>
+            row_acc += chaos[r][@id.global@] * xform_group_@hash@[@id.local@].weight;
+            chaos[r][@id.global@] = row_acc;
             <# endfor #>
+            <# endfor #>
+
+            for(int c = 0; c < @num_standard_xforms@; c++) {
+                chaos[r][c] /= row_acc;
+            }
+
         }
         <# endif #>
 

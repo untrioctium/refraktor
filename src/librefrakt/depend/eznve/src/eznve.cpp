@@ -214,7 +214,7 @@ eznve::encoder::encoder(config cfg, CUcontext ctx, std::function<void(std::strin
 
 	apply_config(session, api, cfg, init_params, encoder_config);
 
-	int buffer_count = encoder_config.frameIntervalP + 8;
+	int buffer_count = encoder_config.frameIntervalP;
 
 	if(encoder_config.rcParams.enableLookahead) {
 		buffer_count += encoder_config.rcParams.lookaheadDepth;
@@ -234,7 +234,7 @@ eznve::encoder::encoder(config cfg, CUcontext ctx, std::function<void(std::strin
 	out_buf->version = NV_ENC_CREATE_BITSTREAM_BUFFER_VER;
 	CHECK_NVENC(api.funcs().nvEncCreateBitstreamBuffer(session, out_buf));
 
-	max_in_flight = buffer_count - 4;
+	max_in_flight = buffer_count;
 
 	logger(std::format("encoder initialized with {} buffers", buffer_count));
 }

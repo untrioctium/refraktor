@@ -854,16 +854,12 @@ std::vector<std::size_t> rfkt::flame::canonical_xform_order() const {
 }
 
 std::size_t rfkt::flame::size_reals() const noexcept {
-	auto size = final_xform ? final_xform->size_reals() : 0;
+	std::size_t size = 0;
+	pack_sample([&](double v) { size ++; }, [](auto&&...) { return 0.0; }, 0.0, 1, 1);
 
-	if (chaos_table.has_value()) {
-		size += xforms_.size() * (xforms_.size() + 1);
-	}
+	size -= palette.size() * 3;
 
-	for (const auto& xf : xforms_) {
-		size += xf.size_reals();
-	}
-	return size + 13 + xforms_.size();
+	return size;
 }
 
 std::vector<std::size_t> rfkt::flame::affine_indices() const {
@@ -872,10 +868,10 @@ std::vector<std::size_t> rfkt::flame::affine_indices() const {
 	ret.push_back(0);
 	ret.push_back(rfkt::affine::size_reals());
 
-	const std::size_t flame_offset = 13 + xforms_.size();
+	const std::size_t flame_offset = 12 + xforms_.size();
 	constexpr static std::size_t xform_base_reals = 4;
 
-	std::size_t index = chaos_table.has_value() ? xforms_.size() * (xforms_.size() + 1): 0;
+	std::size_t index = chaos_table.has_value() ? xforms_.size() * xforms_.size(): 0;
 	index += flame_offset;
 
 	auto order = canonical_xform_order();

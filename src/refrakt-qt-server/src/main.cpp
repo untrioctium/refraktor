@@ -3,10 +3,12 @@
 #include <QHttpServerRouterRule>
 #include <QHttpServer>
 #include <QHttpServerResponse>
+#include <QHttpServerWebSocketUpgradeResponse>
 #include <QHostAddress>
 #include <QJsonObject>
 #include <QJsonArray>
 #include <QBuffer>
+#include <QWebSocket>
 
 #include <spdlog/spdlog.h>
 
@@ -17,6 +19,8 @@
 #include <services/variation_database.hpp>
 #include <services/animation_database.hpp>
 #include <services/local_flame_directory.hpp>
+
+#include "stream_session.hpp"
 
 void qtMessageHandler(QtMsgType type, const QMessageLogContext&, const QString& msg)
 {
@@ -144,10 +148,29 @@ int main(int argc, char* argv[])
         });
 
 
+    server.route("/bananas", []() {
+        auto html = rfkt::fs::read_string("assets/static/stream.html");
+        return QHttpServerResponse("text/html", QByteArray::fromStdString(std::string(html)));
+    });
+
     server.route("/health", []() {
         return QHttpServerResponse(QJsonObject{
             {"status", "ok"}
         });
+    });
+
+    server.addWebSocketUpgradeVerifier(
+        &server, [](const QHttpServerRequest& request) {
+            if (request.url().path() == u"/stream")
+                return QHttpServerWebSocketUpgradeResponse::accept();
+            return QHttpServerWebSocketUpgradeResponse::passToNext();
+        });
+
+    QObject::connect(&server, &QHttpServer::newWebSocketConnection, [&server, ctx]() {
+        auto socket = server.nextPendingWebSocketConnection();
+        if (!socket) return;
+
+        new StreamSession(std::move(socket), ctx, &server);
     });
 
     constexpr static auto port = 3000;

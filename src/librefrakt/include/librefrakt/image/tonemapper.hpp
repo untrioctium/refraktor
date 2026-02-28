@@ -1,3 +1,5 @@
+#pragma once
+
 #include <ezrtc.hpp>
 #include <roccu_cpp_types.hpp>
 

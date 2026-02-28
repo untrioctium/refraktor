@@ -79,7 +79,7 @@ namespace rfkt {
 		anima(double t0, call_info_t&& args) noexcept : t0(t0), call_info(std::move(args)) {}
 
 		template<typename Func>
-		double sample(double t, Func& invoker) const {
+		double sample(double t, Func&& invoker) const {
 			if (!call_info) return t0;
 
 			return invoker(call_info->name, t, t0, call_info->args);
@@ -213,7 +213,7 @@ namespace rfkt {
 		}
 
 		template<typename Packer, typename Invoker>
-		auto pack_sample(Packer& p, Invoker& i, double t) const {
+		auto pack_sample(Packer&& p, Invoker&& i, double t) const {
 			p(weight.sample(t, i));
 
 			for (const auto& [_, value] : parameters_) {
@@ -226,7 +226,9 @@ namespace rfkt {
 		}
 
 		auto size_reals() const noexcept {
-			return parameters_.size() + precalc_count_ + 1;
+			std::size_t size = 0;
+			pack_sample([&size](double v) { size ++; }, [](auto&&...) { return 0.0; }, 0.0);
+			return size;
 		}
 
 		auto size_parameters() const noexcept {
@@ -331,7 +333,7 @@ namespace rfkt {
 		}
 
 		template<typename Packer, typename Invoker>
-		void pack_sample(Packer& p, Invoker& i, double t) const {
+		void pack_sample(Packer&& p, Invoker&& i, double t) const {
 			
 			auto sampled_aff = 
 				rfkt::affine{
@@ -363,11 +365,8 @@ namespace rfkt {
 		}
 
 		auto size_reals() const noexcept {
-			auto size = transform.size_reals();
-
-			for (const auto& [_, v] : variations_) {
-				size += v.size_reals();
-			}
+			std::size_t size = 0;
+			pack_sample([&size](double v) { size ++; }, [](auto&&...) { return 0.0; }, 0.0);
 			return size;
 		}
 
@@ -421,7 +420,7 @@ namespace rfkt {
 		}
 
 		template<typename Packer, typename Invoker>
-		void pack_sample(Packer& p, Invoker& i, double t) const {
+		void pack_sample(Packer&& p, Invoker&& i, double t) const {
 			p(weight.sample(t, i));
 			p(color.sample(t, i));
 			p(color_speed.sample(t, i));
@@ -433,10 +432,8 @@ namespace rfkt {
 		}
 
 		auto size_reals() const noexcept {
-			std::size_t size = 4;
-			for (const auto& vl : vchain) {
-				size += vl.size_reals();
-			}
+			std::size_t size = 0;
+			pack_sample([&size](double v) { size ++; }, [](auto&&...) { return 0.0; }, 0.0);
 			return size;
 		}
 
@@ -516,7 +513,7 @@ namespace rfkt {
 		}
 
 		template<typename Packer, typename Invoker>
-		void pack_sample(Packer& p, Invoker& i, double t, int w, int h) const {
+		void pack_sample(Packer&& p, Invoker&& i, double t, int w, int h) const {
 
 			auto screen_space = make_screen_space_affine(w, h, t, i);
 			auto plane_space = make_plane_space_affine(w, h, t, i);
@@ -533,7 +530,6 @@ namespace rfkt {
 			p(plane_space.e.t0);
 			p(plane_space.c.t0);
 			p(plane_space.f.t0);
-			p(0.0); // space for weight sum
 
 			// space for CDF
 			for(int i = 0; i < xforms_.size(); i++) {
@@ -544,7 +540,6 @@ namespace rfkt {
 
 			if (chaos_table.has_value()) {
 				for(std::size_t row = 0; row < order.size(); row++) {
-					p(0.0); // space for weight sum
 					for(std::size_t col = 0; col < order.size(); col++) {
 						p(chaos_table.value()[order[row]][order[col]].sample(t, i));
 					}
