@@ -66,6 +66,8 @@ void StreamSession::onTextMessage(const QString& message)
 
     if (cmd == u"begin") {
         onBegin(obj);
+    } else if (cmd == u"next_flame") {
+        if (m_worker) m_worker->requestSkip();
     }
 }
 
@@ -81,6 +83,9 @@ void StreamSession::onBegin(const QJsonObject& data)
     auto upscale = data.value("upscale").toBool(false);
     auto secondsPerLoop = data.value("loop_length").toDouble(5.0);
     auto embellish = data.value("embellish").toBool(false);
+    auto displayLoops = data.value("display_loops").toDouble(4.0);
+    auto transitionLoops = data.value("transition_loops").toDouble(1.0);
+    auto bitrateKbps = static_cast<unsigned int>(data.value("bitrate_kbps").toInt(25000));
 
     m_fps = static_cast<unsigned int>(data.value("fps").toInt(30));
     auto loopsPerFrame = 1.0 / (secondsPerLoop * m_fps);
@@ -89,28 +94,8 @@ void StreamSession::onBegin(const QJsonObject& data)
     auto& fdb = VariationDatabase::instance()->db();
     auto& ft = AnimationDatabase::instance()->table();
 
-    auto flamePath = [&]() -> rfkt::fs::path {
-        auto flameField = data.value("flame").toString();
-        if (flameField.isEmpty()) {
-            auto localFlames = rfkt::fs::list(
-                "assets/flames_test", rfkt::fs::filter::has_extension(".flam3"));
-            return localFlames[std::rand() % localFlames.size()];
-        }
-        return std::format(
-            "assets/flames_test/electricsheep.{}.flam3",
-            flameField.toStdString());
-    }();
-
-    auto flameResult = rfkt::import_flam3(fdb, rfkt::fs::read_string(flamePath));
-    if (!flameResult) {
-        SPDLOG_WARN("Could not import {}: {}", flamePath.string(), flameResult.error());
-        return;
-    }
-
-    auto flame = std::move(flameResult.value());
-
-    if (embellish) {
-        flame.for_each_xform([&](auto xid, rfkt::xform& xf) {
+    auto embellishFlame = [&](rfkt::flame& f) {
+        f.for_each_xform([&](auto xid, rfkt::xform& xf) {
             if (xid == -1) return;
             for (auto& vlink : xf.vchain) {
                 if (!vlink.mod_rotate.call_info) {
@@ -120,12 +105,46 @@ void StreamSession::onBegin(const QJsonObject& data)
                 }
             }
         });
-    }
+    };
 
-    SPDLOG_INFO("Compiling kernel for {} ({}x{})", flamePath.string(), width, height);
+    auto loadFlame = [&](const rfkt::fs::path& path) -> std::optional<rfkt::flame> {
+        auto result = rfkt::import_flam3(fdb, rfkt::fs::read_string(path));
+        if (!result) {
+            SPDLOG_WARN("Could not import {}: {}", path.string(), result.error());
+            return std::nullopt;
+        }
+        auto f = std::move(result.value());
+        if (embellish) embellishFlame(f);
+        return f;
+    };
+
+    auto localFlames = rfkt::fs::list(
+        "assets/flames_stream", rfkt::fs::filter::has_extension(".flam3"));
+
+    auto flamePath = [&]() -> rfkt::fs::path {
+        auto flameField = data.value("flame").toString();
+        if (flameField.isEmpty()) {
+            return localFlames[std::rand() % localFlames.size()];
+        }
+        return std::format(
+            "assets/flames_stream/electricsheep.{}.flam3",
+            flameField.toStdString());
+    }();
+
+    auto flame = loadFlame(flamePath);
+    if (!flame) return;
+
+    auto nextFlamePath = localFlames[std::rand() % localFlames.size()];
+    auto nextFlame = loadFlame(nextFlamePath);
+    if (!nextFlame) return;
+
+    auto interp = rfkt::interpolator(*flame, *nextFlame, fdb, false);
+
+    SPDLOG_INFO("Compiling transition kernel for {} -> {} ({}x{})",
+                flamePath.string(), nextFlamePath.string(), width, height);
 
     auto future = KernelCompileQueue::instance()->requestCompile(
-        fdb, flame, rfkt::precision::f32);
+        fdb, interp.left_flame(), rfkt::precision::f32);
 
     rfkt::uint2 outputDims{width, height};
     rfkt::uint2 binDims = outputDims;
@@ -135,12 +154,17 @@ void StreamSession::onBegin(const QJsonObject& data)
     }
 
     future.then(this, [this,
-                       flame = std::move(flame),
+                       flame = std::move(*flame),
+                       nextFlame = std::move(*nextFlame),
+                       interp = std::move(interp),
                        outputDims,
                        binDims,
                        loopsPerFrame,
                        maxBinTime,
-                       upscale](rfkt::flame_compiler::result result) mutable {
+                       upscale,
+                       embellish,
+                       displayLoops,
+                       transitionLoops, bitrateKbps](rfkt::flame_compiler::result result) mutable {
 
         if (!result.kernel.has_value()) {
             SPDLOG_WARN("Kernel compilation failed:\n{}", result.log);
@@ -151,7 +175,9 @@ void StreamSession::onBegin(const QJsonObject& data)
                      binDims.x, binDims.y, outputDims.x, outputDims.y, m_fps);
 
         StreamRenderWorker::Config config{
-            .flame = std::move(flame),
+            .currentFlame = std::move(flame),
+            .pendingFlame = std::move(nextFlame),
+            .interpolator = std::move(interp),
             .kernel = std::move(result.kernel.value()),
             .ctx = m_ctx,
             .outputDims = outputDims,
@@ -160,6 +186,10 @@ void StreamSession::onBegin(const QJsonObject& data)
             .loopsPerFrame = loopsPerFrame,
             .maxBinTime = maxBinTime,
             .upscale = upscale,
+            .embellish = embellish,
+            .displayLoops = displayLoops,
+            .transitionLoops = transitionLoops,
+            .bitrateKbps = bitrateKbps,
         };
 
         m_worker = std::make_unique<StreamRenderWorker>(
@@ -205,14 +235,121 @@ StreamRenderWorker::StreamRenderWorker(
 {
 }
 
+void StreamRenderWorker::requestSkip()
+{
+    m_skipRequested.store(true, std::memory_order_release);
+}
+
 StreamRenderWorker::~StreamRenderWorker()
 {
     SPDLOG_INFO("Render worker destroyed");
 }
 
+rfkt::flame StreamRenderWorker::loadRandomFlame()
+{
+    auto& fdb = VariationDatabase::instance()->db();
+    auto& ft = AnimationDatabase::instance()->table();
+
+    auto localFlames = rfkt::fs::list(
+        "assets/flames_stream", rfkt::fs::filter::has_extension(".flam3"));
+    auto flamePath = localFlames[std::rand() % localFlames.size()];
+
+    auto flameResult = rfkt::import_flam3(fdb, rfkt::fs::read_string(flamePath));
+    if (!flameResult) {
+        SPDLOG_WARN("Could not import {}: {}", flamePath.string(), flameResult.error());
+        return m_currentFlame;
+    }
+
+    auto flame = std::move(flameResult.value());
+
+    if (m_config.embellish) {
+        flame.for_each_xform([&](auto xid, rfkt::xform& xf) {
+            if (xid == -1) return;
+            for (auto& vlink : xf.vchain) {
+                if (!vlink.mod_rotate.call_info) {
+                    vlink.mod_rotate.call_info = ft.make_default("increase");
+                    vlink.mod_rotate.call_info->args["per_loop"] =
+                        5.0 * ((rand() & 1) ? -1 : 1);
+                }
+            }
+        });
+    }
+
+    SPDLOG_INFO("Loaded next flame: {}", flamePath.string());
+    return flame;
+}
+
+void StreamRenderWorker::beginNextFlamePreparation()
+{
+    auto& fdb = VariationDatabase::instance()->db();
+
+    auto nextFlame = loadRandomFlame();
+    auto interp = rfkt::interpolator(m_currentFlame, nextFlame, fdb, false);
+
+    auto kernelFuture = KernelCompileQueue::instance()->requestCompile(
+        fdb, interp.left_flame(), rfkt::precision::f32);
+
+    m_nextPrep = NextFlamePrep{
+        .originalFlame = std::move(nextFlame),
+        .interpolator = std::move(interp),
+        .kernelFuture = std::move(kernelFuture),
+    };
+
+    SPDLOG_INFO("Began preparation for next flame transition");
+}
+
+void StreamRenderWorker::advancePhase(double t)
+{
+    if (m_nextPrep && m_nextPrep->kernelFuture.isFinished()) {
+        auto result = m_nextPrep->kernelFuture.takeResult();
+        if (result.kernel.has_value()) {
+            m_pendingFlame = std::move(m_nextPrep->originalFlame);
+            m_activeKernel = std::move(result.kernel.value());
+            m_interpolator = std::move(m_nextPrep->interpolator);
+            m_mix = 0.0;
+            SPDLOG_INFO("Transition kernel ready, swapped (mix=0, seamless)");
+        } else {
+            SPDLOG_WARN("Transition kernel compilation failed:\n{}", result.log);
+        }
+        m_nextPrep.reset();
+    }
+
+    if (m_phase == Phase::Display) {
+        bool skip = m_skipRequested.load(std::memory_order_acquire);
+        bool timeElapsed = (t - m_phaseStartT) >= m_config.displayLoops;
+        if ((timeElapsed || skip) && m_pendingFlame) {
+            if (skip) m_skipRequested.store(false, std::memory_order_release);
+            m_phase = Phase::Transition;
+            m_phaseStartT = t;
+            m_targetQuality.reset();
+            SPDLOG_INFO("Entering transition phase at t={:.4}{}", t, skip ? " (skip requested)" : "");
+        }
+    } else {
+        auto linear = std::clamp((t - m_phaseStartT) / m_config.transitionLoops, 0.0, 1.0);
+        m_mix = linear * linear * linear * (linear * (linear * 6.0 - 15.0) + 10.0);
+
+        if (m_mix >= 1.0) {
+            if (m_pendingFlame) {
+                m_currentFlame = std::move(*m_pendingFlame);
+                m_pendingFlame.reset();
+            }
+            m_phase = Phase::Display;
+            m_phaseStartT = t;
+            m_targetQuality.reset();
+            SPDLOG_INFO("Transition complete, entering display phase at t={:.4}", t);
+            beginNextFlamePreparation();
+        }
+    }
+}
+
 void StreamRenderWorker::run()
 {
     m_config.ctx.make_current_if_not();
+
+    m_currentFlame = std::move(m_config.currentFlame);
+    m_pendingFlame = std::move(m_config.pendingFlame);
+    m_interpolator = std::move(m_config.interpolator);
+    m_activeKernel = std::move(m_config.kernel);
 
     auto* km = KernelCompileQueue::kernelManagerInstance();
     m_tonemapper.emplace(*km);
@@ -223,20 +360,21 @@ void StreamRenderWorker::run()
         : rfkt::denoiser_flag::none;
 
     m_denoiser = rfkt::denoiser::make(
-        "rfkt::optix_denoise", m_config.binDims, dnFlags, m_stream);
+        "rfkt::optix_denoise", m_config.outputDims, dnFlags, m_ppStream);
 
     m_tonemapped = roccu::gpu_image<rfkt::half3>(
         m_config.binDims.x, m_config.binDims.y, m_stream);
     m_denoised = roccu::gpu_image<rfkt::half3>(
         m_config.outputDims.x, m_config.outputDims.y, m_stream);
 
+    auto encConfig = eznve::config::for_streaming(
+        eznve::uint2{m_config.outputDims.x, m_config.outputDims.y},
+        eznve::uint2{m_config.fps, 1},
+        eznve::codec::h264);
+    encConfig.bitrate_kbps = m_config.bitrateKbps;
+
     m_encoder = std::make_unique<eznve::encoder>(
-        eznve::config::for_streaming(
-            eznve::uint2{m_config.outputDims.x, m_config.outputDims.y},
-            eznve::uint2{m_config.fps, 1},
-            eznve::codec::h264),
-        m_config.ctx,
-        [](std::string_view msg) {});
+        encConfig, m_config.ctx, [](std::string_view msg) {});
 
     m_start = std::chrono::high_resolution_clock::now();
 
@@ -250,23 +388,48 @@ void StreamRenderWorker::run()
 void StreamRenderWorker::renderLoop()
 {
     const auto t = m_totalFrames * m_config.loopsPerFrame;
+
+    advancePhase(t);
+
     auto& ft = AnimationDatabase::instance()->table();
     auto invoker = ft.make_invoker();
 
+    // 1. Launch post-processing for previous frame (async on m_ppStream)
+    if (m_prevFrame) {
+        m_tonemapper->run(
+            m_prevFrame->cold_bins, m_prevFrame->hot_bins, m_tonemapped,
+            {m_prevFrame->quality, m_prevFrame->gamma, m_prevFrame->brightness, m_prevFrame->vibrancy},
+            m_ppStream);
+
+        roccu::gpu_image_view<rfkt::uchar4> encoderView{
+            m_encoder->buffer(),
+            m_encoder->width(),
+            m_encoder->height()
+        };
+
+        if (m_denoiser) {
+            m_denoiser->denoise(m_tonemapped, m_denoised, m_dnEvent);
+            m_converter->to_uchar4(m_denoised, encoderView, m_ppStream);
+        } else {
+            m_converter->to_uchar4(m_tonemapped, encoderView, m_ppStream);
+        }
+    }
+
+    // 2. Warmup + bin current frame on m_stream (concurrent with step 1)
     std::vector<double> samples;
     auto packer = [&samples](double v) { samples.push_back(v); };
-    m_config.flame.pack_samples(
+
+    m_interpolator->pack_samples(
         packer, invoker,
         t - 1.0 * m_config.loopsPerFrame,
         1.0 * m_config.loopsPerFrame,
         4,
         static_cast<int>(m_config.binDims.x),
-        static_cast<int>(m_config.binDims.y));
+        static_cast<int>(m_config.binDims.y),
+        m_mix);
 
-    auto state = m_config.kernel.warmup(
+    auto state = m_activeKernel.warmup(
         m_stream, samples, m_config.binDims, 0xdeadbeef, 64);
-
-    auto effectiveMaxBinTime = m_config.maxBinTime - m_ppTimeEstimate;
 
     auto frameQuality = 0.0;
     auto subpasses = 0;
@@ -275,12 +438,17 @@ void StreamRenderWorker::renderLoop()
         if (subpasses > 0) {
             SPDLOG_INFO("Repairing frame ({}/10 buffered, wanted {:.4}, got {:.4})",
                         m_chunks.size_approx(), m_targetQuality.value(), frameQuality);
+
+            if(m_chunks.size_approx() <= 4) {
+                SPDLOG_INFO("Skipping repair; buffer is too small");
+                break;
+            }
         }
 
-        auto result = m_config.kernel.bin(m_stream, state, {
+        auto result = m_activeKernel.bin(m_stream, state, {
             .iters = 1'000'000,
-            .millis = static_cast<std::uint32_t>(std::max(1.0, effectiveMaxBinTime)),
-            .quality = m_targetQuality.value_or(1000) - frameQuality
+            .millis = static_cast<std::uint32_t>(std::max(1.0, m_config.maxBinTime - m_syncWaitEstimate)),
+            .quality = subpasses == 0 ? m_targetQuality.value_or(100) * 1.2 : m_targetQuality.value_or(1000) - frameQuality
         }).get();
 
         if (m_totalFrames % m_config.fps == 0) {
@@ -303,64 +471,63 @@ void StreamRenderWorker::renderLoop()
         else                    m_targetQuality.value() *= .995;
     }
 
-    rfkt::timer ppTimer;
+    // 3. Sync post-processing and encode previous frame
+    if (m_prevFrame) {
+        rfkt::timer syncTimer;
+        m_ppStream.sync();
 
-    auto gamma = m_config.flame.gamma.sample(t, invoker);
-    auto brightness = m_config.flame.brightness.sample(t, invoker);
-    auto vibrancy = m_config.flame.vibrancy.sample(t, invoker);
+        auto idrFlag = m_prevFrame->frameNumber % m_config.fps == 0
+            ? eznve::frame_flag::idr
+            : eznve::frame_flag::none;
 
-    m_tonemapper->run(
-        state.cold_bins, state.hot_bins, m_tonemapped,
-        {frameQuality, gamma, brightness, vibrancy},
-        m_stream);
+        auto chunks = m_encoder->submit_frame(idrFlag);
 
-    if (m_denoiser) {
-        m_denoiser->denoise(m_tonemapped, m_denoised, m_dnEvent).get();
-    } else {
-        m_denoised = std::move(m_tonemapped);
-        m_tonemapped = roccu::gpu_image<rfkt::half3>(
-            m_config.binDims.x, m_config.binDims.y, m_stream);
+        auto syncMs = syncTimer.count() * 1000.0;
+        m_syncWaitEstimate = m_syncWaitEstimate * 0.9 + syncMs * 0.1;
+
+        if (!chunks.empty()) {
+            QByteArray aggregated;
+            for (auto& c : chunks) {
+                aggregated.append(c.data.data(), static_cast<qsizetype>(c.data.size()));
+            }
+
+            if (!m_chunks.try_enqueue(std::move(aggregated))) {
+                if (m_targetQuality.has_value()
+                    && m_targetQuality.value() < 200) {
+                    m_targetQuality.value() *= 1.05;
+                }
+                while (!m_chunks.wait_enqueue_timed(aggregated, 100)) {
+                    if (m_stopFlag.load(std::memory_order_acquire)) return;
+                }
+            }
+        }
     }
 
-    roccu::gpu_image_view<rfkt::uchar4> encoderView{
-        m_encoder->buffer(),
-        m_encoder->width(),
-        m_encoder->height()
+    // 4. Save current frame for next iteration
+    auto gamma = m_interpolator->interp_anima(&rfkt::flame::gamma, invoker, t, m_mix);
+    auto brightness = m_interpolator->interp_anima(&rfkt::flame::brightness, invoker, t, m_mix);
+    auto vibrancy = m_interpolator->interp_anima(&rfkt::flame::vibrancy, invoker, t, m_mix);
+
+    m_prevFrame = PrevFrame{
+        .cold_bins = std::move(state.cold_bins),
+        .hot_bins = std::move(state.hot_bins),
+        .quality = frameQuality,
+        .gamma = gamma,
+        .brightness = brightness,
+        .vibrancy = vibrancy,
+        .frameNumber = m_totalFrames,
     };
-
-    m_converter->to_uchar4(m_denoised, encoderView, m_stream);
-    m_stream.sync();
-
-    auto chunks = m_encoder->submit_frame(m_totalFrames % m_config.fps == 0 ? eznve::frame_flag::idr : eznve::frame_flag::none);
-
-    auto ppTimeMs = ppTimer.count() * 1000.0;
-    m_ppTimeEstimate = m_ppTimeEstimate * 0.9 + ppTimeMs * 0.1;
-
-    if (!chunks.empty()) {
-        QByteArray aggregated;
-        for (auto& c : chunks) {
-            aggregated.append(c.data.data(), static_cast<qsizetype>(c.data.size()));
-        }
-
-        if (!m_chunks.try_enqueue(std::move(aggregated))) {
-            if (m_targetQuality.has_value() && subpasses == 1
-                && m_targetQuality.value() < 200) {
-                m_targetQuality.value() *= 1.01;
-            }
-            while (!m_chunks.wait_enqueue_timed(aggregated, 100)) {
-                if (m_stopFlag.load(std::memory_order_acquire)) return;
-            }
-        }
-    }
 
     m_totalFrames++;
 
     if (m_totalFrames % m_config.fps == 0 && m_totalFrames > 0) {
-        SPDLOG_INFO("buffer: {}/10, target: {:.4}, {:.4} mbps, pp: {:.2}ms",
+        SPDLOG_INFO("buffer: {}/10, target: {:.4}, {:.4} mbps, sync: {:.2}ms, phase: {}, mix: {:.3}",
                     m_chunks.size_approx(),
                     m_targetQuality.value_or(0),
                     m_encoder->total_bytes() / secsSinceStart() / 1'000'000.0 * 8.0,
-                    m_ppTimeEstimate);
+                    m_syncWaitEstimate,
+                    m_phase == Phase::Display ? "display" : "transition",
+                    m_mix);
     }
 }
 

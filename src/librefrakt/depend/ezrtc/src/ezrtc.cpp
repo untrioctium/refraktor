@@ -641,12 +641,14 @@ std::optional<ezrtc::cuda_module> ezrtc::cuda_module::from_cubin(std::span<const
 		|| cubin[2] != 'L'
 		|| cubin[3] != 'F'
 		) {
+		printf("header doesn't match\n");
 		return std::nullopt;
 	}
 
 	auto mod = cuda_module{};
 	if (const auto status = cuModuleLoadData(&mod.handle, cubin.data());
 		status != CUDA_SUCCESS) {
+		EZRTC_CHECK_ROCCU(status);
 		return std::nullopt;
 	}
 	return mod;

@@ -5,6 +5,7 @@
 #include <QWebSocket>
 #include <QByteArray>
 #include <QJsonObject>
+#include <QFuture>
 
 #include <atomic>
 #include <optional>
@@ -28,7 +29,9 @@
 class StreamRenderWorker {
 public:
     struct Config {
-        rfkt::flame flame;
+        rfkt::flame currentFlame;
+        rfkt::flame pendingFlame;
+        std::optional<rfkt::interpolator> interpolator;
         rfkt::flame_kernel kernel;
         roccu::context ctx;
         rfkt::uint2 outputDims;
@@ -38,6 +41,10 @@ public:
         double maxBinTime = 30.0;
         bool upscale = false;
         bool denoise = true;
+        bool embellish = false;
+        double displayLoops = 4.0;
+        double transitionLoops = 1.0;
+        unsigned int bitrateKbps = 25000;
     };
 
     StreamRenderWorker(
@@ -53,14 +60,36 @@ public:
     StreamRenderWorker& operator=(StreamRenderWorker&&) = delete;
 
     void run();
+    void requestSkip();
 
 private:
     void renderLoop();
+    void advancePhase(double t);
+    rfkt::flame loadRandomFlame();
+    void beginNextFlamePreparation();
     double secsSinceStart() const;
 
     Config m_config;
 
+    enum class Phase { Display, Transition };
+    Phase m_phase = Phase::Display;
+    double m_phaseStartT = 0.0;
+    double m_mix = 0.0;
+
+    rfkt::flame m_currentFlame;
+    rfkt::flame_kernel m_activeKernel;
+    std::optional<rfkt::interpolator> m_interpolator;
+    std::optional<rfkt::flame> m_pendingFlame;
+
+    struct NextFlamePrep {
+        rfkt::flame originalFlame;
+        std::optional<rfkt::interpolator> interpolator;
+        QFuture<rfkt::flame_compiler::result> kernelFuture;
+    };
+    std::optional<NextFlamePrep> m_nextPrep;
+
     roccu::gpu_stream m_stream{};
+    roccu::gpu_stream m_ppStream{};
     std::optional<rfkt::tonemapper> m_tonemapper;
     std::unique_ptr<rfkt::denoiser> m_denoiser;
     std::optional<rfkt::converter> m_converter;
@@ -70,12 +99,24 @@ private:
     roccu::gpu_image<rfkt::half3> m_denoised;
     roccu::gpu_event m_dnEvent{};
 
+    struct PrevFrame {
+        roccu::gpu_image<rfkt::float4> cold_bins;
+        roccu::gpu_image<rfkt::half4> hot_bins;
+        double quality = 0.0;
+        double gamma = 0.0;
+        double brightness = 0.0;
+        double vibrancy = 0.0;
+        std::int64_t frameNumber = 0;
+    };
+    std::optional<PrevFrame> m_prevFrame;
+
     moodycamel::BlockingReaderWriterCircularBuffer<QByteArray>& m_chunks;
     std::atomic_bool& m_stopFlag;
 
     std::int64_t m_totalFrames = 0;
     std::optional<double> m_targetQuality;
-    double m_ppTimeEstimate = 8.0;
+    double m_syncWaitEstimate = 0.0;
+    std::atomic_bool m_skipRequested{false};
 
     std::chrono::high_resolution_clock::time_point m_start;
 };

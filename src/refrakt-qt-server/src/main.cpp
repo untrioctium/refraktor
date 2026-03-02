@@ -10,6 +10,8 @@
 #include <QBuffer>
 #include <QWebSocket>
 
+#include <ctime>
+
 #include <spdlog/spdlog.h>
 
 #include <librefrakt/util/cuda.hpp>
@@ -37,6 +39,7 @@ void qtMessageHandler(QtMsgType type, const QMessageLogContext&, const QString& 
 
 int main(int argc, char* argv[])
 {
+    std::srand(std::time(nullptr));
     // print working directory
     qDebug() << "Working directory: " << rfkt::fs::working_directory().string();
     qInstallMessageHandler(qtMessageHandler);

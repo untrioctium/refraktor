@@ -180,7 +180,7 @@
       border-radius: 6px;
       background: rgba(255, 255, 255, 0.08);
       cursor: pointer;
-      display: none;
+      display: flex;
       align-items: center;
       justify-content: center;
       flex-direction: column;
@@ -243,31 +243,36 @@
       margin-bottom: 20px;
     }
 
-    #side-panel .panel-btn {
+    #side-panel label {
       display: block;
+      font-size: 0.78rem;
+      color: #888;
+      margin-bottom: 6px;
+    }
+
+    #side-panel select {
       width: 100%;
-      padding: 8px 12px;
-      margin-bottom: 4px;
-      border: none;
+      padding: 7px 10px;
+      border: 1px solid rgba(255, 255, 255, 0.1);
       border-radius: 4px;
-      background: rgba(255, 255, 255, 0.05);
+      background: rgba(255, 255, 255, 0.06);
       color: #ccc;
       font-family: inherit;
       font-size: 0.8rem;
-      text-align: left;
+      outline: none;
+      appearance: none;
+      -webkit-appearance: none;
       cursor: pointer;
-      transition: background 0.15s ease;
+      transition: border-color 0.15s ease;
     }
 
-    #side-panel .panel-btn:hover {
-      background: rgba(255, 255, 255, 0.12);
-      color: #fff;
+    #side-panel select:hover:not(:disabled) {
+      border-color: rgba(255, 255, 255, 0.25);
     }
 
-    #side-panel .panel-label {
-      font-size: 0.78rem;
-      color: #888;
-      padding: 4px 0;
+    #side-panel select:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
     }
   </style>
 </head>
@@ -290,21 +295,17 @@
 
   <div id="side-panel">
     <div class="panel-group">
-      <h2>Playback</h2>
-      <button class="panel-btn">Pause</button>
-      <button class="panel-btn">Next flame</button>
-      <button class="panel-btn">Random seed</button>
-    </div>
-    <div class="panel-group">
-      <h2>Parameters</h2>
-      <p class="panel-label">BPM: 120</p>
-      <p class="panel-label">Loop: 8s</p>
-      <p class="panel-label">Resolution: ---</p>
-    </div>
-    <div class="panel-group">
-      <h2>View</h2>
-      <button class="panel-btn">Reset camera</button>
-      <button class="panel-btn">Toggle embellish</button>
+      <h2>Encoder</h2>
+      <label for="bitrate-select">Bitrate</label>
+      <select id="bitrate-select">
+        <option value="5000">5 Mbps</option>
+        <option value="10000">10 Mbps</option>
+        <option value="15000">15 Mbps</option>
+        <option value="20000">20 Mbps</option>
+        <option value="25000" selected>25 Mbps</option>
+        <option value="35000">35 Mbps</option>
+        <option value="50000">50 Mbps</option>
+      </select>
     </div>
   </div>
 
@@ -328,6 +329,7 @@
     const ffBtn = document.getElementById('ff-btn');
     const menuBtn = document.getElementById('menu-btn');
     const sidePanel = document.getElementById('side-panel');
+    const bitrateSelect = document.getElementById('bitrate-select');
     let panelOpen = false;
 
     let streaming = false;
@@ -584,8 +586,9 @@
           width: w,
           height: h,
           loop_length: loop_length,
-          upscale: false,
-          embellish: true
+          upscale: true,
+          embellish: false,
+          bitrate_kbps: parseInt(bitrateSelect.value, 10)
         });
         console.log(payload);
         ws.send(payload);
@@ -617,7 +620,7 @@
     playBtn.addEventListener('click', function () {
       landing.classList.add('hidden');
       ffBtn.style.display = 'flex';
-      menuBtn.style.display = 'flex';
+      bitrateSelect.disabled = true;
       tryFullscreen().then(() => beginStream());
     });
 
@@ -632,7 +635,11 @@
       }
     });
 
-    ffBtn.addEventListener('click', function () {}); // STUB
+    ffBtn.addEventListener('click', function () {
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ cmd: 'next_flame' }));
+      }
+    });
   </script>
 </body>
 
