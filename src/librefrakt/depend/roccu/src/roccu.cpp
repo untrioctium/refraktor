@@ -36,7 +36,7 @@ inline const static auto roccu_load_info_list = std::array{
 #else
 
 inline const static auto roccu_load_info_list = std::array{
-    roccu_load_info{ROCCU_API_CUDA, "libcuda.so.1", "libnvrtc.so.13.1.115"},
+    roccu_load_info{ROCCU_API_CUDA, "libcuda.so.1", "libnvrtc.so"},
     roccu_load_info{ROCCU_API_ROCM, "amdhip64.so", "hiprtc0507.so"}
 };
 #endif

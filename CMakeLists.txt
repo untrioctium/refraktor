@@ -106,9 +106,15 @@ foreach(target_name ${all_targets})
 	if(NOT ${is_first_party} STREQUAL true)
 		set_property(TARGET ${target_name} PROPERTY FOLDER "Dependencies")
 	else()
-		set_target_properties(${target_name} PROPERTIES
-    CXX_CLANG_TIDY "clang-tidy"
-		)
+    if(WIN32)
+      set_target_properties(${target_name} PROPERTIES
+        CXX_CLANG_TIDY "clang-tidy"
+      )
+    else()
+      set_target_properties(${target_name} PROPERTIES
+        CXX_CLANG_TIDY "clang-tidy-21"
+      )
+    endif()
 	endif()
 endforeach()
 

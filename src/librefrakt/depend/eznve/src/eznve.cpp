@@ -83,7 +83,7 @@ public:
 	const auto& funcs() const { return funcs_; }
 
 private:
-	dylib lib_{ is_posix() ? "libnvidia-encode.so" : "nvEncodeAPI64", false };
+	dylib lib_{ is_posix() ? "libnvidia-encode.so.1" : "nvEncodeAPI64", false };
 	NV_ENCODE_API_FUNCTION_LIST funcs_{};
 };
 

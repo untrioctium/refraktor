@@ -17,8 +17,6 @@
 
 #include <sqlite3.h>
 
-#include <print>
-
 namespace py = pybind11;
 
 struct context {

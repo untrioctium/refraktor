@@ -51,7 +51,7 @@ namespace rfkt {
 			size,
 			scaling,
 			static_cast<float>(args.gamma),
-			std::powf(10.0f, -std::log10f(args.quality) - 0.5f),
+			powf(10.0f, -log10f(args.quality) - 0.5f),
 			static_cast<float>(args.brightness),
 			static_cast<float>(args.vibrancy),
 			args.hdr
