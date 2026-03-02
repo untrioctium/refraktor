@@ -2,7 +2,7 @@
 
 #include <chrono>
 #include <random>
-#include <format>
+#include <fmt/format.h>
 #include <span>
 #include <array>
 
@@ -16,7 +16,7 @@ namespace rfkt {
 	inline std::string stacktrace(const decltype(std::stacktrace::current())& trace = std::stacktrace::current()) {
 		std::string ret;
 		for (const auto& st: trace) {
-			ret += std::format("{}({}): {}\n", st.source_file(), st.source_line(), st.description());
+			ret += fmt::format("{}({}): {}\n", st.source_file(), st.source_line(), st.description());
 		}
 		return ret;
 	}
@@ -55,7 +55,7 @@ namespace rfkt {
 		}
 
 		std::string to_string() const {
-			return std::format(
+			return fmt::format(
 				"{:02X}{:02X}{:02X}{:02X}-{:02X}{:02X}-{:02X}{:02X}-{:02X}{:02X}-{:02X}{:02X}{:02X}{:02X}{:02X}{:02X}",
 				data[0], data[1], data[2], data[3], data[4], data[5], data[6], data[7], 
 				data[8], data[9], data[10], data[11], data[12], data[13], data[14], data[15]

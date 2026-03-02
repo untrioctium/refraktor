@@ -1,5 +1,7 @@
 #include <reproc++/reproc.hpp>
 
+#include <fmt/format.h>
+
 #include <librefrakt/interface/mp4_muxer.hpp>
 #include <librefrakt/util/filesystem.hpp>
 
@@ -10,7 +12,7 @@ namespace rfkt {
 			: path(std::move(path)), fps(fps) {
 		
 			std::vector<std::string> args = {
-				std::format("{}\\bin\\ffmpeg.exe", rfkt::fs::working_directory().string()),
+				fmt::format("{}\\bin\\ffmpeg.exe", rfkt::fs::working_directory().string()),
 				"-hide_banner", "-loglevel", "error",
 				"-y","-i", "-",
 				"-c", "copy",

@@ -5,7 +5,7 @@
 
 #include <functional>
 #include <span>
-#include <format>
+#include <fmt/format.h>
 #include <array>
 #include <memory>
 #include <queue>
@@ -146,7 +146,7 @@ namespace eznve {
 		std::vector<chunk> flush();
 
 		CUdeviceptr buffer() const noexcept {
-			logger(std::format("giving buffer {}", free_buffers.front()));
+			logger(fmt::format("giving buffer {}", free_buffers.front()));
 			return buffers[free_buffers.front()].ptr;
 		}
 

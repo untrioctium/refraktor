@@ -83,8 +83,9 @@ set_target_properties(librefrakt PROPERTIES FIRST_PARTY true)
 #add_library(zip ${zip_SOURCE_DIR}/src/zip.c ${zip_SOURCE_DIR}/src/zip.h ${zip_SOURCE_DIR}/src/miniz.h)
 #target_include_directories(zip PUBLIC ${zip_SOURCE_DIR}/src)
 
-
-target_compile_definitions(librefrakt PUBLIC EZRTC_USE_ZLIB EZRTC_USE_SQLITE)
+set(EZRTC_USE_FMTLIB ON CACHE BOOL "" FORCE)
+set(EZRTC_USE_ZLIB ON CACHE BOOL "" FORCE)
+set(EZRTC_USE_SQLITE ON CACHE BOOL "" FORCE)
 
 add_subdirectory(depend/ezrtc)
 add_subdirectory(depend/eznve)

@@ -364,7 +364,7 @@ PYBIND11_MODULE(_pyrefrakt, m, py::mod_gil_not_used()) {
         }
 
         sqlite3* dbptr = nullptr;
-        if(sqlite3_open(std::format("{}/sheep.db", assets_path).c_str(), &dbptr) != SQLITE_OK) {
+        if(sqlite3_open(fmt::format("{}/sheep.db", assets_path).c_str(), &dbptr) != SQLITE_OK) {
             throw std::runtime_error("Failed to open database");
         }
         ctx->db = {dbptr, &sqlite3_close};
@@ -390,7 +390,7 @@ PYBIND11_MODULE(_pyrefrakt, m, py::mod_gil_not_used()) {
         sqlite3_bind_int(stmt, 1, gen);
         sqlite3_bind_int(stmt, 2, idx);
         if(sqlite3_step(stmt) != SQLITE_ROW) {
-            throw std::runtime_error(std::format("No flame found for generation {} and id {}", gen, idx));
+            throw std::runtime_error(fmt::format("No flame found for generation {} and id {}", gen, idx));
         }
 
 

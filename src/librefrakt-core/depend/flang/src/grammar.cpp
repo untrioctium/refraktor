@@ -354,7 +354,7 @@ std::expected<flang::vtype, flang::semantic_error> flang::type_of_expression(con
 		}
 		// no overload exists
 		return std::unexpected{
-			semantic_error{ node,std::format("cannot find suitable overload, types are {}", str_args) } };
+			semantic_error{ node,fmt::format("cannot find suitable overload, types are {}", str_args) } };
 	}
 
 	// cannot determine type of expression
@@ -403,7 +403,7 @@ std::optional<flang::semantic_error> flang::validate(const ast_node* n, const va
 		const auto& name = n->nth(0)->content();
 
 		if (var_exists(name, globals, scopes)) {
-			return semantic_error{ n, std::format("variable `{}` is already declared", name) };
+			return semantic_error{ n, fmt::format("variable `{}` is already declared", name) };
 		}
 
 		if (n->parent()->is_type<grammar::if_statement>()) {
@@ -422,11 +422,11 @@ std::optional<flang::semantic_error> flang::validate(const ast_node* n, const va
 		case vtype::integer: scopes.front().members[name] = type_desc::integer{}; break;
 		case vtype::vec2: scopes.front().members[name] = type_desc::vec2{}; break;
 		case vtype::vec3: scopes.front().members[name] = type_desc::vec3{}; break;
-		default: return semantic_error{ n, std::format("cannot declare variable of type `{}`", vtype_to_string(*type)) };
+		default: return semantic_error{ n, fmt::format("cannot declare variable of type `{}`", vtype_to_string(*type)) };
 		}
 
 		if (not is_referenced(n->parent(), name, scopes)) {
-			return semantic_error{ n, std::format("variable `{}` is never used", name) };
+			return semantic_error{ n, fmt::format("variable `{}` is never used", name) };
 		}
 
 		return std::nullopt;
@@ -444,7 +444,7 @@ std::optional<flang::semantic_error> flang::validate(const ast_node* n, const va
 			return condition_type.error();
 		}
 		if (*condition_type != vtype::boolean) {
-			return semantic_error{ n->nth(0), std::format("expression must be a boolean, actual type `{}`", vtype_to_string(condition_type.value())) };
+			return semantic_error{ n->nth(0), fmt::format("expression must be a boolean, actual type `{}`", vtype_to_string(condition_type.value())) };
 		}
 
 		for (int i = 1; i < n->size(); i++) {

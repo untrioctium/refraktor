@@ -211,7 +211,7 @@ private:
 		menu_item* selected = nullptr;
 		auto cursor_before = ImGui::GetCursorScreenPos();
 		const char* shortcut = (item->shortcut)? shortcut_to_string(item->shortcut->first, item->shortcut->second).data() : nullptr;  
-		if (ImGui::MenuItem(std::format("{}{}     ", std::string(num_spaces, ' '), item->name).c_str(), shortcut, nullptr, enabled) && item->action) {
+		if (ImGui::MenuItem(fmt::format("{}{}     ", std::string(num_spaces, ' '), item->name).c_str(), shortcut, nullptr, enabled) && item->action) {
 			selected = item;
 		}
 		
@@ -449,7 +449,7 @@ void about_window() {
 			ImGui::GetWindowDrawList()->AddLine(min, max, 0xFFB59550, 1.0f);
 
 			if (ImGui::IsItemHovered()) ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
-			if (ImGui::IsItemClicked(0)) ImFtw::OpenBrowser(std::format("https://{}", std::get<1>(info)));
+			if (ImGui::IsItemClicked(0)) ImFtw::OpenBrowser(fmt::format("https://{}", std::get<1>(info)));
 
 			ImGui::TableNextColumn();
 			ImGui::TextUnformatted(std::get<2>(info).data());
@@ -582,7 +582,7 @@ namespace rfkt {
 
 			auto flames = json::object();
 			for (const auto& [id, f] : flames_) {
-				flames[std::format("{}", id)] = f.serialize();
+				flames[fmt::format("{}", id)] = f.serialize();
 			}
 			ret["flames"] = flames;
 

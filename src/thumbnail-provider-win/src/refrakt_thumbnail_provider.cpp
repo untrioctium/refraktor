@@ -56,7 +56,7 @@ void write_log(const char* format, Args... args)
 	}
 }
 
-#define CHECK_ROCCU_THROWING(expr) do { if (auto ret = expr; ret != CUDA_SUCCESS) throw std::runtime_error(std::format("error executing `{}`: {}", #expr, ret)); } while (0)
+#define CHECK_ROCCU_THROWING(expr) do { if (auto ret = expr; ret != CUDA_SUCCESS) throw std::runtime_error(fmt::format("error executing `{}`: {}", #expr, ret)); } while (0)
 
 auto render_flame(shared_state& state, std::string_view fxml, uint2 dims) -> std::vector<uchar4> {
 	
@@ -120,7 +120,7 @@ auto create_state() -> std::unique_ptr<shared_state> {
 	write_log("Module path: %s", module_path.string().c_str());
 	rfkt::fs::set_working_directory(module_path);
 
-	auto sink = std::make_shared<spdlog::sinks::basic_file_sink_st>(std::format("C:\\Users\\Public\\flam3-thumb-{}.log", GetCurrentProcessId()), true);
+	auto sink = std::make_shared<spdlog::sinks::basic_file_sink_st>(fmt::format("C:\\Users\\Public\\flam3-thumb-{}.log", GetCurrentProcessId()), true);
 	spdlog::default_logger_raw()->sinks().push_back(sink);
 	spdlog::flush_on(spdlog::level::info);
 
@@ -270,7 +270,7 @@ HRESULT Flam3ThumbProvider::GetThumbnail(UINT cx, HBITMAP* phbmp, WTS_ALPHATYPE*
 	}
 
 	//auto xml_hash = rfkt::hash::calc(xml_data);
-	//auto out_path = std::format("C:\\Users\\Public\\flam3-thumb-{}-{}.png", GetCurrentProcessId(), xml_hash.str32());
+	//auto out_path = fmt::format("C:\\Users\\Public\\flam3-thumb-{}-{}.png", GetCurrentProcessId(), xml_hash.str32());
 
 	//rfkt::stbi::write_file(ret.data(), cx, cx, out_path);
 

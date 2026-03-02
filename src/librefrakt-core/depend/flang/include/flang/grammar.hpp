@@ -4,7 +4,7 @@
 #include <map>
 #include <vector>
 #include <expected>
-#include <format>
+#include <fmt/format.h>
 #include <optional>
 #include <list> 
 #include <utility>
@@ -192,7 +192,7 @@ namespace flang {
 
 		template<detail::StringLiteral2 format_string, typename... Args>
 		static std::unexpected<semantic_error> make(const ast_node* ref, Args&&... args) {
-			return std::unexpected{ semantic_error{ref, std::format(format_string.value, std::forward<Args>(args)...)} };
+			return std::unexpected{ semantic_error{ref, fmt::format(format_string.value, std::forward<Args>(args)...)} };
 		}
 
 	private:
@@ -203,13 +203,13 @@ namespace flang {
 }
 
 template<>
-struct std::formatter<flang::vtype> {
-	constexpr auto parse(const std::format_parse_context& ctx) const {
+struct fmt::formatter<flang::vtype> {
+	constexpr auto parse(fmt::format_parse_context& ctx) const {
 		return ctx.begin();
 	}
 
-	auto format(const flang::vtype& vt, std::format_context& ctx) {
-		return std::format_to(ctx.out(), "{}", flang::vtype_to_string(vt));
+	auto format(const flang::vtype& vt, fmt::format_context& ctx) const {
+		return fmt::format_to(ctx.out(), "{}", flang::vtype_to_string(vt));
 	}
 };
 

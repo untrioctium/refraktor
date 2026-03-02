@@ -37,7 +37,7 @@ struct StringLiteral {
 
 template<StringLiteral code, StringLiteral desc>
 void end_error(uWS::HttpResponse<true>* res, uWS::HttpRequest* req = nullptr) {
-	res->writeStatus(std::format("{} {}", code.value, desc.value));
+	res->writeStatus(fmt::format("{} {}", code.value, desc.value));
 	res->end();
 
 	if (req) SPDLOG_INFO("{} {} {}", code.value, req->getMethod(), req->getUrl());
@@ -329,7 +329,7 @@ namespace rfkt {
 					auto local_flames = rfkt::fs::list("assets/flames_test", rfkt::fs::filter::has_extension(".flam3"));
 					return local_flames[std::rand() % local_flames.size()];
 				}
-				return std::format("assets/flames_test/electricsheep.{}.flam3", data["flame"].get<std::string>());
+				return fmt::format("assets/flames_test/electricsheep.{}.flam3", data["flame"].get<std::string>());
 			}();
 
 			auto upscale = data.value("upscale", false);
@@ -714,7 +714,7 @@ int main(int argc, char** argv) {
 		auto t = rfkt::denoiser_old::benchmark(dims, upscale, 10, jpeg_stream);
 		auto megapixels_per_sec = dims.x * dims.y / (t / 1000) / 1'000'000.0;
 
-		std::cout << std::format("{}\t{}\n", dims.x * dims.y, int(megapixels_per_sec));
+		std::cout << fmt::format("{}\t{}\n", dims.x * dims.y, int(megapixels_per_sec));
 	};
 
 	auto jpeg_executor = runtime.make_worker_thread_executor();
@@ -911,7 +911,7 @@ int main(int argc, char** argv) {
 			cd->defer([data = std::move(data), meta=std::move(metadata)](auto& cd) {
 				if (!cd.aborted()) {
 					for (const auto& [k, v] : meta) {
-						cd.response()->writeHeader(k, std::format("{}", v));
+						cd.response()->writeHeader(k, fmt::format("{}", v));
 					}
 					cd.response()->writeHeader("Content-Type", "image/jpeg");
 					cd.response()->tryEnd({(char*)data.data(), data.size()});

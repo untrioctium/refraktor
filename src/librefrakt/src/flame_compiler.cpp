@@ -59,19 +59,19 @@ auto make_table() {
             auto add_lhs = create_source(name, n->nth(1 - multiply_child));
 
             if (n->is_type<op::plus>()) {
-                return std::format("fl::fma<FloatT>({}, {}, {})", mul_lhs, mul_rhs, add_lhs);
+                return fmt::format("fl::fma<FloatT>({}, {}, {})", mul_lhs, mul_rhs, add_lhs);
             }
             else if (n->is_type<op::minus>()) {
                 if (multiply_child == 0)
-                    return std::format("fl::fma<FloatT>({}, {}, -({}))", mul_lhs, mul_rhs, add_lhs);
+                    return fmt::format("fl::fma<FloatT>({}, {}, -({}))", mul_lhs, mul_rhs, add_lhs);
                 else
-                    return std::format("fl::fma<FloatT>({}, -({}), {})", mul_lhs, mul_rhs, add_lhs);
+                    return fmt::format("fl::fma<FloatT>({}, -({}), {})", mul_lhs, mul_rhs, add_lhs);
             }
             else if (n->is_type<op::plus_assign>()) {
-                return std::format("{} = fl::fma<FloatT>({}, {}, {})", add_lhs, mul_lhs, mul_rhs, add_lhs);
+                return fmt::format("{} = fl::fma<FloatT>({}, {}, {})", add_lhs, mul_lhs, mul_rhs, add_lhs);
             }
             else {
-                return std::format("{} = fl::fma<FloatT>({}, -({}), {})", add_lhs, mul_lhs, mul_rhs, add_lhs);
+                return fmt::format("{} = fl::fma<FloatT>({}, -({}), {})", add_lhs, mul_lhs, mul_rhs, add_lhs);
             }
         }
     );
@@ -87,16 +87,16 @@ auto make_table() {
             const auto& group = n->nth(0)->content();
             const auto& member = n->nth(1)->content();
             if (group == "aff") {
-                return std::format("aff.{}", member);
+                return fmt::format("aff.{}", member);
             }
             else if (group == "param") {
-                return std::format("p_{}_{}", name, member);
+                return fmt::format("p_{}_{}", name, member);
             }
             else if (group == "math") {
-                return std::format("fl::math::{}<FloatT>", member);
+                return fmt::format("fl::math::{}<FloatT>", member);
             }
             else {
-                return std::format("common_{}", member);
+                return fmt::format("common_{}", member);
             }
         }
     );
@@ -107,33 +107,33 @@ auto make_table() {
         [](std::string_view name, const flang::ast_node* n) {
             auto child_statements = std::string{};
             for (auto i = 0; i < n->size(); ++i) {
-                child_statements += std::format("{}", create_source(name, n->nth(i)));
+                child_statements += fmt::format("{}", create_source(name, n->nth(i)));
                 if (i + 1 != n->size()) {
                     child_statements += "\n";
                 }
             }
             if (n->type() == "root") {
                 if (n->has_descendent(of_type<break_statement>)) {
-                    return std::format("do {{\n{}\n}} while(0);", expand_tabs(child_statements));
+                    return fmt::format("do {{\n{}\n}} while(0);", expand_tabs(child_statements));
                 }
                 if (n->has_descendent(of_type<declaration_statement>)) {
-                    return std::format("{{\n{}\n}}", expand_tabs(child_statements));
+                    return fmt::format("{{\n{}\n}}", expand_tabs(child_statements));
                 }
                 return child_statements;
             }
-            return std::format("{{\n{}\n}}", expand_tabs(child_statements));
+            return fmt::format("{{\n{}\n}}", expand_tabs(child_statements));
         });
 
     // assignment
     table.emplace_back(of_type<assignment_statement>,
         [](std::string_view name, const flang::ast_node* n) {
-            return std::format("{};", create_source(name, n->first()));
+            return fmt::format("{};", create_source(name, n->first()));
         });
 
     // declaration
     table.emplace_back(of_type<declaration_statement>,
         [](std::string_view name, const flang::ast_node* n) {
-            auto lhs = std::format("u_{}__", n->nth(0)->content());
+            auto lhs = fmt::format("u_{}__", n->nth(0)->content());
             auto rhs = create_source(name, n->nth(1));
 
             const auto variable_assigned = [&vname = n->nth(0)->content()](const flang::ast_node* n) {
@@ -146,10 +146,10 @@ auto make_table() {
             };
 
             if (n->parent()->has_descendent(variable_assigned)) {
-                return std::format("auto {} = {};", lhs, rhs);
+                return fmt::format("auto {} = {};", lhs, rhs);
 			}
 
-            return std::format("const auto {} = {};", lhs, rhs);
+            return fmt::format("const auto {} = {};", lhs, rhs);
         });
 
     table.emplace_back(of_type<if_statement>,
@@ -164,7 +164,7 @@ auto make_table() {
                 branch_src = "\n    " + branch_src;
             }
 
-            auto str = std::format("if {} {}", condition_src, branch_src);
+            auto str = fmt::format("if {} {}", condition_src, branch_src);
             if (n->size() == 3) {
                 auto else_branch = n->nth(2);
                 auto else_src = create_source(name, else_branch);
@@ -172,7 +172,7 @@ auto make_table() {
                     else_src = "\n    " + else_src;
                 }
 
-                str += std::format("\nelse {}", else_src);
+                str += fmt::format("\nelse {}", else_src);
             }
 
             return str;
@@ -180,7 +180,7 @@ auto make_table() {
 
     table.emplace_back(of_type<expr::parenthesized>,
         [](std::string_view name, const flang::ast_node* n) {
-            return std::format("({})", create_source(name, n->first()));
+            return fmt::format("({})", create_source(name, n->first()));
         });
 
     table.emplace_back(of_type<break_statement>,
@@ -212,7 +212,7 @@ auto make_table() {
     table.emplace_back(
         [](const flang::ast_node* node) { return op_map.contains(node->type()); },
         [](std::string_view name, const flang::ast_node* node) {
-            return std::format("{} {} {}", create_source(name, node->nth(0)), op_map.at(node->type()), create_source(name, node->nth(1)));
+            return fmt::format("{} {} {}", create_source(name, node->nth(0)), op_map.at(node->type()), create_source(name, node->nth(1)));
         }
     );
 
@@ -220,7 +220,7 @@ auto make_table() {
     table.emplace_back(
         of_type<op::un_negative, op::un_b_not>,
         [](std::string_view name, const flang::ast_node* node) {
-            return std::format("{}{}", (node->is_type<op::un_negative>()) ? "-" : "!", create_source(name, node->first()));
+            return fmt::format("{}{}", (node->is_type<op::un_negative>()) ? "-" : "!", create_source(name, node->first()));
         }
     );
 
@@ -228,7 +228,7 @@ auto make_table() {
     table.emplace_back(
         of_type<lit::decimal, lit::integer, lit::boolean>,
         [](std::string_view name, const flang::ast_node* node) {
-            if (node->is_type<lit::decimal>()) return std::format("static_cast<FloatT>({})", node->content());
+            if (node->is_type<lit::decimal>()) return fmt::format("static_cast<FloatT>({})", node->content());
             return node->content();
         }
     );
@@ -237,7 +237,7 @@ auto make_table() {
     table.emplace_back(
         of_type<member_access>,
         [](std::string_view name, const flang::ast_node* node) {
-            return std::format("{}.{}", create_source(name, node->nth(0)), create_source(name, node->nth(1)));
+            return fmt::format("{}.{}", create_source(name, node->nth(0)), create_source(name, node->nth(1)));
         }
     );
 
@@ -246,7 +246,7 @@ auto make_table() {
         of_type<variable> and with_content<"result", "p", "weight">,
         [](std::string_view name, const flang::ast_node* node) -> std::string {
             if (node->content() == "result") return "outp";
-            if (node->content() == "weight") return std::format("v_{}", name);
+            if (node->content() == "weight") return fmt::format("v_{}", name);
             return "inp";
         }
     );
@@ -256,7 +256,7 @@ auto make_table() {
         of_type<expr::call>
         and with_child(with_content<"rand01", "randgauss", "randbit">),
         [](std::string_view name, const flang::ast_node* node) {
-            return std::format("rs->{}()", node->first()->content());
+            return fmt::format("rs->{}()", node->first()->content());
         }
     );
 
@@ -268,10 +268,10 @@ auto make_table() {
             auto y = create_source(name, node->nth(2));
             if (node->content() == "vec3") {
                 auto z = create_source(name, node->nth(3));
-                return std::format("vec3<FloatT>{{{}, {}, {}}}", x, y, z);
+                return fmt::format("vec3<FloatT>{{{}, {}, {}}}", x, y, z);
             }
 
-            return std::format("vec2<FloatT>{{{}, {}}}", x, y);
+            return fmt::format("vec2<FloatT>{{{}, {}}}", x, y);
         }
     );
 
@@ -297,10 +297,10 @@ auto make_table() {
             };
 
             if (integer_functions.contains(func_name)) {
-                return std::format("fl::{}({})", func_name, args);
+                return fmt::format("fl::{}({})", func_name, args);
             }
 
-            return std::format("fl::{}<FloatT>({})", func_name, args);
+            return fmt::format("fl::{}<FloatT>({})", func_name, args);
         }
     );
 
@@ -320,7 +320,7 @@ auto make_table() {
     table.emplace_back(
         of_type<variable>,
         [](std::string_view name, const flang::ast_node* node) -> std::string {
-            return std::format("u_{}__", node->content());
+            return fmt::format("u_{}__", node->content());
         }
     );
 
@@ -336,7 +336,7 @@ std::string create_source(std::string_view name, const flang::ast_node* node) {
 	}
 
     SPDLOG_ERROR("no formatter defined for `{}`", node->type());
-    return std::format("@{}@", node->type());
+    return fmt::format("@{}@", node->type());
 }
 
 std::string strip_tabs(const std::string& src) {
@@ -486,7 +486,7 @@ std::string rfkt::flame_compiler::make_source(const flamedb& fdb, const rfkt::fl
 
         xfs.push_back(json::object({
             {"hash", hash},
-            {"id", (i == f.xforms().size()) ? std::string{"final"} : std::format("{}", i)}
+            {"id", (i == f.xforms().size()) ? std::string{"final"} : fmt::format("{}", i)}
             }));
 
         if(i < f.xforms().size()) {
@@ -542,13 +542,13 @@ std::string rfkt::flame_compiler::make_source(const flamedb& fdb, const rfkt::fl
 std::string annotate_source(std::string src) {
     int linecount = 2;
     for (auto i = src.find("\n"); i != std::string::npos; i = src.find("\n", i)) {
-        auto linenum = std::format("{:>4}| ", linecount);
+        auto linenum = fmt::format("{:>4}| ", linecount);
         src.insert(i + 1, linenum);
         i += linenum.size();
         linecount++;
     }
 
-    return std::format("{:>4}| ", 1) + src;
+    return fmt::format("{:>4}| ", 1) + src;
 }
 
 void rfkt::flame_compiler::add_to_hash(rfkt::hash::state_t& state)
@@ -666,13 +666,13 @@ rfkt::flame_compiler::flame_compiler(ezrtc::compiler* k_manager): km(k_manager)
     auto base_src = rfkt::fs::read_string(rfkt::fs::assets_directory() / "kernels/size_info.cu");
     std::size_t idx = 1;
     for(auto& c: exec_configs) {
-		check_kernel_name += std::format("_{}", c.block);
-        base_src += std::format("\tsizes[{}] = calc_size<{}, float>();\n", idx, c.block);
+		check_kernel_name += fmt::format("_{}", c.block);
+        base_src += fmt::format("\tsizes[{}] = calc_size<{}, float>();\n", idx, c.block);
         idx++;
 	}
    
     for (auto& c : exec_configs) {
-        base_src += std::format("\tsizes[{}] = calc_size<{}, double>();\n", idx, c.block);
+        base_src += fmt::format("\tsizes[{}] = calc_size<{}, double>();\n", idx, c.block);
         idx++;
     }
 
@@ -739,7 +739,7 @@ rfkt::flame_compiler::flame_compiler(ezrtc::compiler* k_manager): km(k_manager)
         exit(1);
     }
     
-    std::string histogram_name = std::format("calculate_histogram<{}>", histogram_granularity);
+    std::string histogram_name = fmt::format("calculate_histogram<{}>", histogram_granularity);
 
     auto histogram_result = km->compile(
         ezrtc::spec::source_file("histogram", (rfkt::fs::assets_directory() / "kernels/density_histo.cu").string())
@@ -802,10 +802,10 @@ auto rfkt::flame_compiler::make_opts(precision prec, const flame& f, flame_compi
     auto& most_blocks = exec_configs[most_blocks_idx];
 
 
-    auto name = std::format("flame_{}_f{}_t{}_s{}", flame_hash.str64(), (prec == precision::f32) ? "32" : "64", most_blocks.grid, flame_real_count);
+    auto name = fmt::format("flame_{}_f{}_t{}_s{}", flame_hash.str64(), (prec == precision::f32) ? "32" : "64", most_blocks.grid, flame_real_count);
 
     for (const auto& flag : flags) {
-        name += std::format("_{}", flag);
+        name += fmt::format("_{}", flag);
     }
 
     auto opts = ezrtc::spec::source_file(name, (rfkt::fs::assets_directory() / "kernels/refactor.cu").string());
@@ -825,7 +825,7 @@ auto rfkt::flame_compiler::make_opts(precision prec, const flame& f, flame_compi
         ;
 
     for (const auto& flag : flags) {
-        opts.define(std::format("FLAG_{}", flag));
+        opts.define(fmt::format("FLAG_{}", flag));
     }
 
     if (f.chaos_table.has_value()) opts.define("USE_CHAOS");

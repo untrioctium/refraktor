@@ -112,7 +112,7 @@ std::expected<rfkt::xform, std::string> from_flam3_xml(const rfkt::flamedb& fdb,
 				cur_vl.add_variation(fdb.make_vardata(vname));
 			}
 			if(!fdb.is_parameter(vname, pname)) {
-				return std::unexpected(std::format("Unknown xform parameter: {}/{}", vname, pname));
+				return std::unexpected(fmt::format("Unknown xform parameter: {}/{}", vname, pname));
 			}
 			cur_vl[vname][pname] = attr.as_double();
 		}
@@ -120,7 +120,7 @@ std::expected<rfkt::xform, std::string> from_flam3_xml(const rfkt::flamedb& fdb,
 			if (attr.as_double() == 1) vlinks[1].mod_rotate.call_info = { "increase", {{"per_loop", 360.0}} };
 		}
 		else if (aname != "chaos") {
-			return std::unexpected(std::format("Unknown xform attribute: {}", aname));
+			return std::unexpected(fmt::format("Unknown xform attribute: {}", aname));
 		}
 	}
 
@@ -197,7 +197,7 @@ auto rfkt::import_flam3(const flamedb& fdb, std::string_view content) noexcept -
 		}
 		xid++;
 		if(auto xf = from_flam3_xml(fdb, node); !xf) {
-			return std::unexpected(std::format("Could not parse xform {}: {}", xid, xf.error()));
+			return std::unexpected(fmt::format("Could not parse xform {}: {}", xid, xf.error()));
 		} else {
 			ret.add_xform(std::move(*xf));
 		}
@@ -205,7 +205,7 @@ auto rfkt::import_flam3(const flamedb& fdb, std::string_view content) noexcept -
 
 	if(auto fnode = flame_node.child("finalxform"); fnode) {
 		if(auto xf = from_flam3_xml(fdb, fnode); !xf) {
-			return std::unexpected(std::format("Could not parse final xform: {}", xf.error()));
+			return std::unexpected(fmt::format("Could not parse final xform: {}", xf.error()));
 		} else {
 			ret.final_xform = std::move(*xf);
 		}

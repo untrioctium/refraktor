@@ -59,19 +59,19 @@ namespace rfkt {
 	}
 
 	void tonemapper::run(roccu::gpu_image_view<float4> cold_bins, roccu::gpu_image_view<half4> hot_bins, roccu::gpu_image_view<half3> out, const args_t& args, roccu::gpu_stream& stream) const {
-		run_impl(std::format("tonemap<half3>", histogram_granularity), cold_bins.ptr(), hot_bins.ptr(), out.ptr(), out.width(), out.area(), cold_bins.width()/out.width(), args, stream);
+		run_impl(fmt::format("tonemap<half3>", histogram_granularity), cold_bins.ptr(), hot_bins.ptr(), out.ptr(), out.width(), out.area(), cold_bins.width()/out.width(), args, stream);
 	}
 
 	void tonemapper::run(roccu::gpu_image_view<float4> cold_bins, roccu::gpu_image_view<half4> hot_bins, roccu::gpu_image_view<half4> out, const args_t& args, roccu::gpu_stream& stream) const {
-		run_impl(std::format("tonemap<half4>", histogram_granularity), cold_bins.ptr(), hot_bins.ptr(), out.ptr(), out.width(), out.area(), cold_bins.width()/out.width(), args, stream);
+		run_impl(fmt::format("tonemap<half4>", histogram_granularity), cold_bins.ptr(), hot_bins.ptr(), out.ptr(), out.width(), out.area(), cold_bins.width()/out.width(), args, stream);
 	}
 
 	void tonemapper::run(roccu::gpu_image_view<float4> cold_bins, roccu::gpu_image_view<half4> hot_bins, roccu::gpu_image_view<float3> out, const args_t& args, roccu::gpu_stream& stream) const {
-		run_impl(std::format("tonemap<float3>", histogram_granularity), cold_bins.ptr(), hot_bins.ptr(), out.ptr(), out.width(), out.area(), cold_bins.width()/out.width(), args, stream);
+		run_impl(fmt::format("tonemap<float3>", histogram_granularity), cold_bins.ptr(), hot_bins.ptr(), out.ptr(), out.width(), out.area(), cold_bins.width()/out.width(), args, stream);
 	}
 
 	void tonemapper::run(roccu::gpu_image_view<float4> cold_bins, roccu::gpu_image_view<half4> hot_bins, roccu::gpu_image_view<float4> out, const args_t& args, roccu::gpu_stream& stream) const {
-		run_impl(std::format("tonemap<float4>", histogram_granularity), cold_bins.ptr(), hot_bins.ptr(), out.ptr(), out.width(), out.area(), cold_bins.width()/out.width(), args, stream);
+		run_impl(fmt::format("tonemap<float4>", histogram_granularity), cold_bins.ptr(), hot_bins.ptr(), out.ptr(), out.width(), out.area(), cold_bins.width()/out.width(), args, stream);
 	}
 
 }

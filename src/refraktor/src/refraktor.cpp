@@ -391,9 +391,9 @@ int main() {
 		try {
 			line = line.substr(line.find_first_not_of(" \t"));
 			if (line.starts_with("?")) {
-				line = std::format("return {}", line.substr(1));
+				line = fmt::format("return {}", line.substr(1));
 			}
-			line = std::format("print((function() {} end)())", line);
+			line = fmt::format("print((function() {} end)())", line);
 			lua.safe_script(line);
 		}
 		catch(const sol::error& e) {
@@ -513,7 +513,7 @@ int main() {
 		for (int j = 0; j < render_sample_counts.size(); j++) {
 			auto start_time = std::chrono::high_resolution_clock::now();
 			auto count = render_sample_counts[j];
-			auto out_path = std::format("{}/{}_newweights_{:06d}spp.ldr.exr", out_dir, fname.stem().string(), count);
+			auto out_path = fmt::format("{}/{}_newweights_{:06d}spp.ldr.exr", out_dir, fname.stem().string(), count);
 
 			if(rfkt::fs::exists(out_path)) {
 				SPDLOG_INFO("Skipping existing file: {}", out_path);
@@ -608,7 +608,7 @@ int main() {
 		//auto vec = je->encode_image(out, 100, stream).get()();
 
 
-		//auto basename = std::format("frame_{:04d}.jpg", i);
+		//auto basename = fmt::format("frame_{:04d}.jpg", i);
 		//rfkt::fs::write("testrender/" + basename, (const char*)vec.data(), vec.size(), false);
 
 		bins = std::move(state.bins);

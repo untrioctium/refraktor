@@ -224,13 +224,13 @@ int ImFtw::Run(std::string_view app_name, std::string_view ini_path, int argc, c
 	ctx.app_name = std::string(app_name);
 
 #ifdef WIN32
-	ctx.app_mutex = CreateMutexA(nullptr, TRUE, std::format("{}::AppMutex", app_name).c_str());
+	ctx.app_mutex = CreateMutexA(nullptr, TRUE, fmt::format("{}::AppMutex", app_name).c_str());
 	if (GetLastError() == ERROR_ALREADY_EXISTS) {
 
 		auto base = std::filesystem::temp_directory_path();
 		
 		// create a file that can only be written to by this process
-		auto file = base / std::format("{}.ipc", app_name);
+		auto file = base / fmt::format("{}.ipc", app_name);
 
 		auto handle = CreateFileA(file.string().c_str(), GENERIC_READ | GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
 
@@ -395,7 +395,7 @@ void ImFtw::BeginFrame(ImVec4 clear_color) {
 
 	// check for ipc
 #ifdef WIN32
-	auto ipc_file_path = std::filesystem::temp_directory_path() / std::format("{}.ipc", ctx.app_name);
+	auto ipc_file_path = std::filesystem::temp_directory_path() / fmt::format("{}.ipc", ctx.app_name);
 
 	if(std::filesystem::exists(ipc_file_path)) {
 		auto handle = CreateFileA(ipc_file_path.string().c_str(), GENERIC_READ, 0, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);

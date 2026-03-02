@@ -13,6 +13,7 @@
 #include <variant>
 #include <expected>
 
+#include <fmt/format.h>
 #include <nlohmann/json.hpp>
 
 #include <librefrakt/traits/hashable.hpp>
@@ -670,7 +671,7 @@ namespace rfkt {
 			}
 
 			std::string to_string() const {
-				return std::format("{}", detail::ptr_name(p));
+				return fmt::format("{}", detail::ptr_name(p));
 			}
 
 			constexpr std::strong_ordering operator<=>(const flame& o) const noexcept {
@@ -696,7 +697,7 @@ namespace rfkt {
 			}
 
 			std::string to_string() const {
-				return std::format("xform/{}/{}", xid, detail::ptr_name(p));
+				return fmt::format("xform/{}/{}", xid, detail::ptr_name(p));
 			}
 
 			constexpr std::strong_ordering operator<=>(const xform& o) const noexcept {
@@ -726,7 +727,7 @@ namespace rfkt {
 			}
 
 			std::string to_string() const {
-				return std::format("xform/{}/vlink/{}/{}", xid, vid, detail::ptr_name(p));
+				return fmt::format("xform/{}/vlink/{}/{}", xid, vid, detail::ptr_name(p));
 			}
 
 			constexpr std::strong_ordering operator<=>(const vlink& o) const noexcept {
@@ -758,7 +759,7 @@ namespace rfkt {
 			}
 
 			std::string to_string() const {
-				return std::format("xform/{}/vlink/{}/transform/{}", xid, vid, detail::ptr_name(p));
+				return fmt::format("xform/{}/vlink/{}/transform/{}", xid, vid, detail::ptr_name(p));
 			}
 
 			constexpr std::strong_ordering operator<=>(const transform& o) const noexcept {
@@ -792,7 +793,7 @@ namespace rfkt {
 			}
 
 			std::string to_string() const {
-				return std::format("xform/{}/vlink/{}/variation/{}/{}", xid, vid, var_name, detail::ptr_name(p));
+				return fmt::format("xform/{}/vlink/{}/variation/{}/{}", xid, vid, var_name, detail::ptr_name(p));
 			}
 
 			constexpr std::strong_ordering operator<=>(const vardata& o) const noexcept {
@@ -828,7 +829,7 @@ namespace rfkt {
 			}
 
 			std::string to_string() const {
-				return std::format("xform/{}/vlink/{}/variation/{}/parameter/{}", xid, vid, var_name, param_name);
+				return fmt::format("xform/{}/vlink/{}/variation/{}/parameter/{}", xid, vid, var_name, param_name);
 			}
 
 			constexpr std::strong_ordering operator<=>(const parameter& o) const noexcept {

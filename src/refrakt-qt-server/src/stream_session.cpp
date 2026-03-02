@@ -126,7 +126,7 @@ void StreamSession::onBegin(const QJsonObject& data)
         if (flameField.isEmpty()) {
             return localFlames[std::rand() % localFlames.size()];
         }
-        return std::format(
+        return fmt::format(
             "assets/flames_stream/electricsheep.{}.flam3",
             flameField.toStdString());
     }();

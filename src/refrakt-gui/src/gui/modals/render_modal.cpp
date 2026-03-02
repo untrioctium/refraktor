@@ -16,7 +16,7 @@
 #include <iostream>
 
 std::string make_mux_command(const rfkt::fs::path& in, const rfkt::fs::path& out, int fps) {
-	return std::format(R"(""{}/bin/ffmpeg.exe" -y -i "{}" -c copy "{}")", rfkt::fs::working_directory().string().c_str(), in.string().c_str(), out.string().c_str());
+	return fmt::format(R"(""{}/bin/ffmpeg.exe" -y -i "{}" -c copy "{}")", rfkt::fs::working_directory().string().c_str(), in.string().c_str(), out.string().c_str());
 }
 
 void rfkt::gui::render_modal::frame_logic(const rfkt::flame& flame) {

@@ -158,6 +158,7 @@ target_link_libraries(librefrakt-core PRIVATE
 
 target_link_libraries(librefrakt-core PUBLIC
     flang
+    fmt::fmt
     spdlog
     lua_static
     sol2

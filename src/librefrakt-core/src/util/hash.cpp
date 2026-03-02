@@ -1,5 +1,5 @@
 #include <xxhash.h>
-#include <format>
+#include <fmt/format.h>
 
 #include <base32_crockford.hpp>
 #include <base64_url_unpadded.hpp>
@@ -29,7 +29,7 @@ void rfkt::hash::state_t::update(const void* data, std::size_t len) noexcept {
 
 auto rfkt::hash_t::str16() const noexcept -> std::string 
 {
-	return std::format("{:016X}{:016X}", bytes.first, bytes.second);
+	return fmt::format("{:016X}{:016X}", bytes.first, bytes.second);
 }
 
 auto rfkt::hash_t::str32() const noexcept -> std::string

@@ -17,7 +17,7 @@
 #include <algorithm>
 #include <functional>
 
-#include <format>
+#include <fmt/format.h>
 
 #define SPDLOG_ACTIVE_LEVEL SPDLOG_LEVEL_DEBUG
 #include <spdlog/spdlog.h>

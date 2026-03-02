@@ -13,6 +13,19 @@ add_library(eznve STATIC
 
 target_include_directories(eznve PUBLIC include)
 
+if(EZRTC_USE_FMTLIB)
+  target_compile_definitions(eznve PUBLIC EZRTC_USE_FMTLIB)
+  target_link_libraries(eznve PUBLIC fmt::fmt)
+endif()
+
+if(EZRTC_USE_ZLIB)
+  target_compile_definitions(eznve PUBLIC EZRTC_USE_ZLIB)
+endif()
+
+if(EZRTC_USE_SQLITE)
+  target_compile_definitions(eznve PUBLIC EZRTC_USE_SQLITE)
+endif()
+
 # ffmpeg's mirror of nvenc headers
 FetchContent_Declare(
   nv-codec-headers
@@ -23,5 +36,5 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(nv-codec-headers)
 target_include_directories(eznve PRIVATE ${nv-codec-headers_SOURCE_DIR}/include)
 
-target_link_libraries(eznve PUBLIC dylib roccu)
+target_link_libraries(eznve PUBLIC dylib roccu fmt::fmt)
 set_target_properties(eznve PROPERTIES FIRST_PARTY true)

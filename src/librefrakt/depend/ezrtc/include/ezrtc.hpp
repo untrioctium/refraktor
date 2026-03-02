@@ -10,7 +10,7 @@
 #endif
 
 #ifdef EZRTC_USE_FMTLIB
-#include <fmt/fmt.h>
+#include <fmt/format.h>
 #define EZRTC_FMT_IMPL fmt::format
 #else
 #include <format>

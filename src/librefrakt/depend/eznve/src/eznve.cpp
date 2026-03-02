@@ -1,5 +1,5 @@
 #include <unordered_map>
-#include <format>
+#include <fmt/format.h>
 
 #include <ffnvcodec/nvEncodeAPI.h>
 #include <dylib.hpp>
@@ -12,7 +12,7 @@
 #define CHECK_NVENC(expr) \
 do { \
 	if(auto ret = expr; ret != NV_ENC_SUCCESS) { \
-		std::string error = std::format("{} failed with {} ({}@{})", #expr, get_error(ret), __FILE__, __LINE__); \
+		std::string error = fmt::format("{} failed with {} ({}@{})", #expr, get_error(ret), __FILE__, __LINE__); \
 		std::cerr << api.funcs().nvEncGetLastErrorString(session) << std::endl; \
 		std::cerr << error << std::endl; \
 		throw std::runtime_error{ error }; \
@@ -236,7 +236,7 @@ eznve::encoder::encoder(config cfg, CUcontext ctx, std::function<void(std::strin
 
 	max_in_flight = buffer_count;
 
-	logger(std::format("encoder initialized with {} buffers", buffer_count));
+	logger(fmt::format("encoder initialized with {} buffers", buffer_count));
 }
 
 eznve::encoder::~encoder() {
@@ -259,12 +259,12 @@ eznve::encoder::~encoder() {
 
 std::vector<eznve::chunk> eznve::encoder::submit_frame(frame_flag flag) {
 
-	logger(std::format("submitting frame {} ({} free, {} used)", frames_encoded, free_buffers.size(), used_buffers.size()));
+	logger(fmt::format("submitting frame {} ({} free, {} used)", frames_encoded, free_buffers.size(), used_buffers.size()));
 
 	const auto& funcs = api.funcs();
 
 	auto buffer_index = free_buffers.front();
-	logger(std::format("using buffer {}", buffer_index));
+	logger(fmt::format("using buffer {}", buffer_index));
 	auto& buf = buffers[buffer_index];
 	free_buffers.pop();
 	used_buffers.push(buffer_index);
@@ -293,7 +293,7 @@ std::vector<eznve::chunk> eznve::encoder::submit_frame(frame_flag flag) {
 
 	std::vector<chunk> chunks;
 
-	logger(std::format("frame status: {}", get_error(frame_status)));
+	logger(fmt::format("frame status: {}", get_error(frame_status)));
 
 	if(frame_status != NV_ENC_ERR_NEED_MORE_INPUT) {
 		CHECK_NVENC(frame_status);
@@ -306,7 +306,7 @@ std::vector<eznve::chunk> eznve::encoder::submit_frame(frame_flag flag) {
 		if(chunk.data.size() == 0) {
 			return chunks;
 		}
-		logger(std::format("submitted frame {} and got {} bytes of output", frames_encoded, chunk.data.size()));
+		logger(fmt::format("submitted frame {} and got {} bytes of output", frames_encoded, chunk.data.size()));
 
 		chunks.emplace_back(std::move(chunk));
 		oldest_buffer.unlock(session);
@@ -322,7 +322,7 @@ std::vector<eznve::chunk> eznve::encoder::submit_frame(frame_flag flag) {
 std::vector<eznve::chunk> eznve::encoder::flush() {
 
 
-	logger(std::format("processed {} frames before flushing", frames_encoded));
+	logger(fmt::format("processed {} frames before flushing", frames_encoded));
 
 	bytes_encoded = 0;
 	frames_encoded = 0;

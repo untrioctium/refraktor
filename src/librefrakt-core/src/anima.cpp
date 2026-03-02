@@ -20,7 +20,7 @@ rfkt::function_table::function_table() {
 }
 
 bool rfkt::function_table::add_or_update(std::string_view name, func_info&& info) {
-	auto name_hash = std::format("af_{}", rfkt::hash::calc(name).str32());
+	auto name_hash = fmt::format("af_{}", rfkt::hash::calc(name).str32());
 	auto source = create_function_source(name_hash, info);
 	auto result = vm.safe_script(source, sol::script_throw_on_error);
 	if (!result.valid()) {
@@ -39,17 +39,17 @@ double rfkt::function_table::call_impl(std::string_view name, double t, double i
 	if (name == "mix") {
 		double left_value = iv;
 
-		if (auto left_func_iter = args.find(std::format("{}{}", prefix, "left.function")); left_func_iter != args.end()) {
+		if (auto left_func_iter = args.find(fmt::format("{}{}", prefix, "left.function")); left_func_iter != args.end()) {
 
 			if (!std::holds_alternative<std::string>(left_func_iter->second)) {
 				SPDLOG_ERROR("left.function is not a string");
 				return iv;
 			}
 
-			left_value = call_impl(std::get<std::string>(left_func_iter->second), t, iv, args, std::format("{}{}", prefix, "left."));
+			left_value = call_impl(std::get<std::string>(left_func_iter->second), t, iv, args, fmt::format("{}{}", prefix, "left."));
 		}
 
-		auto right_value_iter = args.find(std::format("{}{}", prefix, "right.value"));
+		auto right_value_iter = args.find(fmt::format("{}{}", prefix, "right.value"));
 		if (right_value_iter == args.end()) {
 			SPDLOG_ERROR("right.value not found");
 			return iv;
@@ -62,18 +62,18 @@ double rfkt::function_table::call_impl(std::string_view name, double t, double i
 
 		double right_value = std::get<double>(right_value_iter->second);
 
-		if (auto right_func_iter = args.find(std::format("{}{}", prefix, "right.function")); right_func_iter != args.end()) {
+		if (auto right_func_iter = args.find(fmt::format("{}{}", prefix, "right.function")); right_func_iter != args.end()) {
 
 			if (!std::holds_alternative<std::string>(right_func_iter->second)) {
 				SPDLOG_ERROR("right.function is not a string");
 				return iv;
 			}
 
-			right_value = call_impl(std::get<std::string>(right_func_iter->second), t, right_value, args, std::format("{}{}", prefix, "right."));
+			right_value = call_impl(std::get<std::string>(right_func_iter->second), t, right_value, args, fmt::format("{}{}", prefix, "right."));
 		}
 
 		double start_time = 0;
-		if (auto start_time_iter = args.find(std::format("{}{}", prefix, "start_time")); start_time_iter != args.end()) {
+		if (auto start_time_iter = args.find(fmt::format("{}{}", prefix, "start_time")); start_time_iter != args.end()) {
 			if (!std::holds_alternative<double>(start_time_iter->second)) {
 				SPDLOG_ERROR("start_time is not a double");
 				return iv;
@@ -87,7 +87,7 @@ double rfkt::function_table::call_impl(std::string_view name, double t, double i
 		}
 
 		double length = 0;
-		if (auto length_iter = args.find(std::format("{}{}", prefix, "length")); length_iter != args.end()) {
+		if (auto length_iter = args.find(fmt::format("{}{}", prefix, "length")); length_iter != args.end()) {
 			if (!std::holds_alternative<double>(length_iter->second)) {
 				SPDLOG_ERROR("length is not a double");
 				return iv;
@@ -118,7 +118,7 @@ double rfkt::function_table::call_impl(std::string_view name, double t, double i
 
 	std::vector<rfkt::anima::arg_t> call_args{};
 	for (const auto& [arg_name, arg_type] : def_args) {
-		std::string full_arg_name = std::format("{}{}", prefix, arg_name);
+		std::string full_arg_name = fmt::format("{}{}", prefix, arg_name);
 		auto arg_value_iter = args.find(full_arg_name);
 
 		if (arg_value_iter == args.end()) {
@@ -183,5 +183,5 @@ std::string rfkt::function_table::create_function_source(std::string_view func_n
 		i++;
 	}
 
-	return std::format("function {}(t, iv, {})\n{}\nend", func_name, args, fi.source);
+	return fmt::format("function {}(t, iv, {})\n{}\nend", func_name, args, fi.source);
 }

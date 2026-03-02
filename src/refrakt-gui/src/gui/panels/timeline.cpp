@@ -98,19 +98,19 @@ namespace rfkt::gui::panel::timeline {
 
 		const auto handle_size = ImVec2(10, seg_rect.Max.y - seg_rect.Min.y);
 		ImGui::SetCursorPos(seg_rect.Min);
-		ImGui::InvisibleButton(std::format("{}_left", id_name).c_str(), handle_size);
+		ImGui::InvisibleButton(fmt::format("{}_left", id_name).c_str(), handle_size);
 		auto segment_left_hovered = ImGui::IsItemHovered();
 		auto segment_left_active = ImGui::IsItemActive();
 		auto segment_left_dragging = dragging_id == ImGui::GetItemID();
 
 		ImGui::SetCursorPos({ seg_rect.Max.x - handle_size.x, seg_rect.Min.y });
-		ImGui::InvisibleButton(std::format("{}_right", id_name).c_str(), handle_size);
+		ImGui::InvisibleButton(fmt::format("{}_right", id_name).c_str(), handle_size);
 		auto segment_right_hovered = ImGui::IsItemHovered();
 		auto segment_right_active = ImGui::IsItemActive();
 		auto segment_right_dragging = dragging_id == ImGui::GetItemID();
 
 		ImGui::SetCursorPos(seg_rect.Min + ImVec2(handle_size.x, 0));
-		ImGui::InvisibleButton(std::format("{}_middle", id_name).c_str(), seg_rect.GetSize() - ImVec2(2 * handle_size.x, 0));
+		ImGui::InvisibleButton(fmt::format("{}_middle", id_name).c_str(), seg_rect.GetSize() - ImVec2(2 * handle_size.x, 0));
 		auto segment_middle_hovered = ImGui::IsItemHovered();
 		auto segment_middle_active = ImGui::IsItemActive();
 		auto segment_middle_dragging = dragging_id == ImGui::GetItemID();
@@ -283,7 +283,7 @@ namespace rfkt::gui::panel::timeline {
 		int minutes = (int)seconds / 60;
 		int round_sec = std::floor((seconds - minutes * 60));
 		int ms = std::floor((seconds - minutes * 60 - round_sec) * 1000);
-		return std::format("{}:{:02}.{:03}", minutes, round_sec, ms);
+		return fmt::format("{}:{:02}.{:03}", minutes, round_sec, ms);
 	}
 
 	bool show(interface* iseq, time_span::int_t& current_frame, int fps_snap) {
@@ -316,7 +316,7 @@ namespace rfkt::gui::panel::timeline {
 
 		auto mouse_delta_frames = io.MouseDelta.x / pixels_per_frame;
 
-		auto span_info = std::format("{} - {}", format_time(frame_span.start / double(time_span::framerate)),
+		auto span_info = fmt::format("{} - {}", format_time(frame_span.start / double(time_span::framerate)),
 						format_time(frame_span.end / double(time_span::framerate))
 				);
 
@@ -396,7 +396,7 @@ namespace rfkt::gui::panel::timeline {
 			timeline_draw.add_rect_filled(table_rect, get_color(tid % 2 == 0 ? ImGuiCol_TableRowBg : ImGuiCol_TableRowBgAlt));
 
 			if (payload_type == iseq->item_type(tid)) {
-				if (ImGui::BeginDragDropTargetCustom(timeline_draw.to_screen(table_rect), ImGui::GetID(std::format("{}", tid).c_str()))) {
+				if (ImGui::BeginDragDropTargetCustom(timeline_draw.to_screen(table_rect), ImGui::GetID(fmt::format("{}", tid).c_str()))) {
 					auto payload = ImGui::AcceptDragDropPayload(iseq->drag_drop_payload_name(payload_type).data());
 
 					if (payload) {
@@ -420,7 +420,7 @@ namespace rfkt::gui::panel::timeline {
 
 					auto seg_rect = ImRect(ImVec2(seg_start, item_height * (tid)), ImVec2(seg_start + seg_width, item_height * (tid + 1)));
 
-					segment_logic(timeline_draw, segment, iseq->item_segment_name(tid, sid), std::format("##segment_{}_{}", tid, sid), seg_rect, frame_movement_size, dragging_id, drag_buildup);
+					segment_logic(timeline_draw, segment, iseq->item_segment_name(tid, sid), fmt::format("##segment_{}_{}", tid, sid), seg_rect, frame_movement_size, dragging_id, drag_buildup);
 				}
 			}
 		}
