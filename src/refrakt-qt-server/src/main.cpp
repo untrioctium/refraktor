@@ -173,7 +173,7 @@ int main(int argc, char* argv[])
         auto socket = server.nextPendingWebSocketConnection();
         if (!socket) return;
 
-        new StreamSession(std::move(socket), ctx, &server);
+        new StreamSession(std::move(socket), ctx, ctx, &server);
     });
 
     constexpr static auto port = 3000;

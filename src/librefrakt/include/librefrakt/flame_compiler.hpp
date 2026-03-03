@@ -39,6 +39,7 @@ namespace rfkt {
 			roccu::gpu_image<half4> hot_bins = {};
 			double quality = 0.0;
 			int temporal_multiplier = 1;
+			int num_blocks = 0;
 			roccu::gpu_buffer<> shared = {};
 			roccu::gpu_span<bool> stopper;
 			roccu::gpu_buffer<std::size_t> warmup_hits = {};
@@ -56,17 +57,19 @@ namespace rfkt {
 				std::swap(quality, o.quality);
 				std::swap(stopper, o.stopper);
 				std::swap(temporal_multiplier, o.temporal_multiplier);
+				std::swap(num_blocks, o.num_blocks);
 				std::swap(warmup_hits, o.warmup_hits);
 				std::swap(warmup_time, o.warmup_time);
 				std::swap(density_histogram, o.density_histogram);
 				return *this;
 			}
 
-			saved_state(uint2 dims, std::size_t nbytes, int temporal_multiplier, std::future<double>&& warmup_time, CUstream stream) :
+			saved_state(uint2 dims, std::size_t sample_bytes, int num_blocks, int temporal_multiplier, std::future<double>&& warmup_time, CUstream stream) :
 				cold_bins(dims.x, dims.y, stream),
 				hot_bins(dims.x, dims.y, stream),
 				temporal_multiplier(temporal_multiplier),
-				shared(nbytes * temporal_multiplier, stream),
+				num_blocks(num_blocks),
+				shared(sample_bytes * num_blocks * temporal_multiplier, stream),
 				warmup_hits(1, stream),
 				warmup_time(std::move(warmup_time)),
 				density_histogram(histogram_size, stream){
@@ -75,11 +78,12 @@ namespace rfkt {
 				warmup_hits.clear(stream);
 			}
 
-			saved_state(decltype(saved_state::cold_bins)&& bins, std::size_t nbytes, int temporal_multiplier, std::future<double>&& warmup_time, CUstream stream) :
+			saved_state(decltype(saved_state::cold_bins)&& bins, std::size_t sample_bytes, int num_blocks, int temporal_multiplier, std::future<double>&& warmup_time, CUstream stream) :
 				cold_bins(std::move(bins)),
 				hot_bins(cold_bins.width(), cold_bins.height(), stream),
 				temporal_multiplier(temporal_multiplier),
-				shared(nbytes * temporal_multiplier, stream),
+				num_blocks(num_blocks),
+				shared(sample_bytes * num_blocks * temporal_multiplier, stream),
 				warmup_hits(1, stream),
 				warmup_time(std::move(warmup_time)),
 				density_histogram(histogram_size, stream){
@@ -101,8 +105,11 @@ namespace rfkt {
 		};
 
 		auto bin(roccu::gpu_stream& stream, flame_kernel::saved_state& state, const bailout_args&, int temporal_slicing = 100) const-> std::future<bin_result>;
-		auto warmup(roccu::gpu_stream& stream, std::span<double> samples, uint2 dims, std::uint32_t seed, std::uint32_t count, int temporal_multiplier = 1) const->flame_kernel::saved_state;
-		auto warmup(roccu::gpu_stream& stream, std::span<double> samples, roccu::gpu_image<float4>&& bins, std::uint32_t seed, std::uint32_t count, int temporal_multiplier = 1) const->flame_kernel::saved_state;
+		auto warmup(roccu::gpu_stream& stream, std::span<double> samples, uint2 dims, std::uint32_t seed, std::uint32_t count, int temporal_multiplier = 1, int num_blocks = 0) const->flame_kernel::saved_state;
+		auto warmup(roccu::gpu_stream& stream, std::span<double> samples, roccu::gpu_image<float4>&& bins, std::uint32_t seed, std::uint32_t count, int temporal_multiplier = 1, int num_blocks = 0) const->flame_kernel::saved_state;
+
+		int max_blocks() const { return exec.first; }
+		int blocks_per_sm() const { return exec.first / roccu::context::current().device().mp_count(); }
 
 		flame_kernel(flame_kernel&& o) noexcept {
 			*this = std::move(o);

@@ -401,6 +401,7 @@ ROCCU_DEFINE_FUNC(MemcpyDtoH, CU_DRIVER, cuMemcpyDtoH_v2, hipMemcpyDtoH, CUresul
 ROCCU_DEFINE_FUNC(MemcpyDtoHAsync, CU_DRIVER, cuMemcpyDtoHAsync_v2, hipMemcpyDtoHAsync, CUresult, (void* dstHost, CUdeviceptr srcDevice, size_t ByteCount, CUstream hStream));
 ROCCU_DEFINE_FUNC(MemcpyHtoD, CU_DRIVER, cuMemcpyHtoD_v2, hipMemcpyHtoD, CUresult, (CUdeviceptr dstDevice, const void* srcHost, size_t ByteCount));
 ROCCU_DEFINE_FUNC(MemcpyHtoDAsync, CU_DRIVER, cuMemcpyHtoDAsync_v2, hipMemcpyHtoDAsync, CUresult, (CUdeviceptr dstDevice, const void* srcHost, size_t ByteCount, CUstream hStream));
+ROCCU_DEFINE_FUNC(MemcpyPeerAsync, CU_DRIVER, cuMemcpyPeerAsync, hipMemcpyPeerAsync, CUresult, (CUdeviceptr dstDevice, CUcontext dstContext, CUdeviceptr srcDevice, CUcontext srcContext, size_t ByteCount, CUstream hStream));
 
 ROCCU_DEFINE_FUNC(MemFree, CU_DRIVER, cuMemFree_v2, hipFree, CUresult, (CUdeviceptr dptr));
 ROCCU_DEFINE_FUNC(MemFreeAsync, CU_DRIVER, cuMemFreeAsync, hipFreeAsync, CUresult, (CUdeviceptr dptr, CUstream stream));

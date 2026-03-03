@@ -618,7 +618,7 @@ auto rfkt::flame_compiler::prepare_flame_kernel(const flamedb& fdb, precision pr
             SPDLOG_WARN("Kernel for {} uses {} local memory", opts.name(), func.local_bytes());
         }
     
-        auto saved_state_size = smem_per_sample(prec, size_reals, most_blocks.block) * most_blocks.grid;
+        auto saved_state_size = smem_per_sample(prec, size_reals, most_blocks.block);
         r.kernel = flame_kernel{ size_reals, std::move(compile_result.module.value()), std::pair<int, int>{most_blocks.grid, most_blocks.block}, srt, affine_indices, saved_state_size};
     
         return r;
@@ -901,7 +901,7 @@ auto rfkt::flame_kernel::bin(roccu::gpu_stream& stream, flame_kernel::saved_stat
     stream_state->qpx_host[2] = std::numeric_limits<std::size_t>::max();
 
     stream_state->total_bins = state.cold_bins.area();
-    stream_state->num_threads = exec.first * exec.second;
+    stream_state->num_threads = state.num_blocks * exec.second;
 
     stream_state->qpx_dev = srt->dra.reserve<std::size_t>(num_counters);
     stream_state->qpx_dev.from_host(stream_state->qpx_host, stream);
@@ -913,8 +913,8 @@ auto rfkt::flame_kernel::bin(roccu::gpu_stream& stream, flame_kernel::saved_stat
     const auto ullmax = std::numeric_limits<std::size_t>::max();
     //cuMemcpyHtoDAsync(stream_state->qpx_dev.ptr() + counter_size * 2, &ullmax, counter_size, stream);
 
-    auto klauncher = [&mod = this->mod, &stream, &exec = this->exec]<typename ...Ts>(Ts&&... args) {
-        return mod("bin").launch(exec.first, exec.second, stream, true)(std::forward<Ts>(args)...);
+    auto klauncher = [&mod = this->mod, &stream, block_size = this->exec.second, grid_size = state.num_blocks]<typename ...Ts>(Ts&&... args) {
+        return mod("bin").launch(grid_size, block_size, stream, true)(std::forward<Ts>(args)...);
     };
 
     state.stopper.clear(stream);
@@ -940,7 +940,7 @@ auto rfkt::flame_kernel::bin(roccu::gpu_stream& stream, flame_kernel::saved_stat
             state.warmup_hits.ptr(),
             stream_state->qpx_dev.ptr() + 2 * counter_size,
             stream_state->qpx_dev.ptr() + 3 * counter_size,
-            srt->sample_shuf_bufs[exec.first * state.temporal_multiplier].ptr(),
+            srt->sample_shuf_bufs[static_cast<std::size_t>(state.num_blocks) * state.temporal_multiplier].ptr(),
             stream_state->warp_collisions.ptr()
         ));
         cuStreamQuery(stream);
@@ -1072,8 +1072,12 @@ void fix_rotation(std::span<double> samples, std::size_t sample_size, std::size_
     }
 }
 
-auto rfkt::flame_kernel::warmup(roccu::gpu_stream& stream, std::span<double> samples, roccu::gpu_image<float4>&& bins, std::uint32_t seed, std::uint32_t count, int temporal_multiplier) const -> flame_kernel::saved_state
+auto rfkt::flame_kernel::warmup(roccu::gpu_stream& stream, std::span<double> samples, roccu::gpu_image<float4>&& bins, std::uint32_t seed, std::uint32_t count, int temporal_multiplier, int num_blocks) const -> flame_kernel::saved_state
 {
+    const int actual_blocks = num_blocks <= 0 ? static_cast<int>(exec.first) : num_blocks;
+    assert(actual_blocks <= static_cast<int>(exec.first));
+    assert(actual_blocks % blocks_per_sm() == 0);
+
     const auto sample_size = flame_size_reals + 256 * 3;
     const auto sample_count = samples.size() / sample_size;
 
@@ -1104,6 +1108,11 @@ auto rfkt::flame_kernel::warmup(roccu::gpu_stream& stream, std::span<double> sam
             segments_dev.ptr()
             ));
 
+    auto shuf_key = static_cast<std::size_t>(actual_blocks) * temporal_multiplier;
+    if (!srt->sample_shuf_bufs.contains(shuf_key)) {
+        srt->sample_shuf_bufs[shuf_key] = make_shuffle_buffers<unsigned int>(shuf_key, 1);
+    }
+
     struct stream_state_t {
         std::promise<double> warmup_promise;
         decltype(std::chrono::high_resolution_clock::now()) start;
@@ -1111,7 +1120,7 @@ auto rfkt::flame_kernel::warmup(roccu::gpu_stream& stream, std::span<double> sam
 
     auto stream_state = std::make_shared<stream_state_t>();
 
-    auto state = flame_kernel::saved_state{ std::move(bins), this->saved_state_size, temporal_multiplier, stream_state->warmup_promise.get_future(), stream};
+    auto state = flame_kernel::saved_state{ std::move(bins), this->saved_state_size, actual_blocks, temporal_multiplier, stream_state->warmup_promise.get_future(), stream};
     state.stopper = srt->dra.reserve<bool>(1);
 
     stream.host_func([stream_state]() {
@@ -1120,7 +1129,7 @@ auto rfkt::flame_kernel::warmup(roccu::gpu_stream& stream, std::span<double> sam
 
     ROCCU_SAFE_CALL(
         this->mod.kernel("warmup")
-        .launch(this->exec.first, this->exec.second, stream, true)
+        .launch(actual_blocks, this->exec.second, stream, true)
         (
             nseg,
             segments_dev.ptr(),
@@ -1138,9 +1147,9 @@ auto rfkt::flame_kernel::warmup(roccu::gpu_stream& stream, std::span<double> sam
     return state;
 }
 
-auto rfkt::flame_kernel::warmup(roccu::gpu_stream& stream, std::span<double> samples, uint2 dims, std::uint32_t seed, std::uint32_t count, int temporal_multiplier) const->flame_kernel::saved_state
+auto rfkt::flame_kernel::warmup(roccu::gpu_stream& stream, std::span<double> samples, uint2 dims, std::uint32_t seed, std::uint32_t count, int temporal_multiplier, int num_blocks) const->flame_kernel::saved_state
 {
     auto bins = roccu::gpu_image<float4>{ dims.x, dims.y, stream };
     bins.clear(stream);
-    return warmup(stream, samples, std::move(bins), seed, count, temporal_multiplier);
+    return warmup(stream, samples, std::move(bins), seed, count, temporal_multiplier, num_blocks);
 }

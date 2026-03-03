@@ -117,6 +117,8 @@ namespace roccu {
             cuCtxCreate(&ctx_, 0x01 | 0x08, dev_);
         }
 
+        bool operator==(const context& o) const noexcept { return ctx_ == o.ctx_; }
+
     private:
         CUcontext ctx_ = nullptr;
         CUdevice dev_ = 0;
