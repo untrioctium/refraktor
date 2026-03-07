@@ -18,8 +18,8 @@
 
 StreamSession::StreamSession(
     std::unique_ptr<QWebSocket> socket,
-    roccu::context ctx,
-    roccu::context ppCtx,
+    roccu::context_view ctx,
+    roccu::context_view ppCtx,
     QObject* parent)
     : QObject(parent)
     , m_socket(std::move(socket))
@@ -95,7 +95,7 @@ void StreamSession::onBegin(const QJsonObject& data)
 
     m_fps = static_cast<unsigned int>(data.value("fps").toInt(30));
     auto loopsPerFrame = 1.0 / (secondsPerLoop * m_fps);
-    auto maxBinTime = 1000.0 / m_fps - 6.0;
+    auto maxBinTime = 1000.0 / m_fps - 8.0;
 
     auto& fdb = VariationDatabase::instance()->db();
     auto& ft = AnimationDatabase::instance()->table();
@@ -366,8 +366,9 @@ void StreamRenderWorker::run()
     auto* km = KernelCompileQueue::kernelManagerInstance();
     m_tonemapper.emplace(*km);
     m_streamA = roccu::gpu_stream{};
-    m_tonemapped_a = roccu::gpu_image<rfkt::half3>(
-        m_config.binDims.x, m_config.binDims.y, m_streamA);
+    for (auto& buf : m_tonemapped)
+        buf = roccu::gpu_image<rfkt::half3>(
+            m_config.binDims.x, m_config.binDims.y, m_streamA);
     m_tonemapDone = roccu::gpu_event{};
 
     // GPU B resources
@@ -381,7 +382,7 @@ void StreamRenderWorker::run()
         : rfkt::denoiser_flag::none;
 
     m_denoiser = rfkt::denoiser::make(
-        "rfkt::optix_denoise", m_config.outputDims, dnFlags, m_streamB);
+        "rfkt::optix_denoise", m_config.outputDims, dnFlags, m_streamB, m_config.ppCtx);
 
     m_denoised_b = roccu::gpu_image<rfkt::half3>(
         m_config.outputDims.x, m_config.outputDims.y, m_streamB);
@@ -413,7 +414,7 @@ void StreamRenderWorker::run()
     SPDLOG_INFO("Render worker stopping");
 }
 
-void StreamRenderWorker::binningLoop()
+void StreamRenderWorker::binningLoop() try
 {
     m_config.ctx.make_current();
 
@@ -438,11 +439,11 @@ void StreamRenderWorker::binningLoop()
             static_cast<int>(m_config.binDims.y),
             m_mix);
 
-        auto mp_count = roccu::context::current().device().mp_count();
+        auto mp_count = roccu::context_view::current().device().mp_count();
         auto half_sm_blocks = m_activeKernel.blocks_per_sm() * (mp_count / 2);
 
         auto state = m_activeKernel.warmup(
-            m_streamA, samples, m_config.binDims, 0xdeadbeef, 64, 1, static_cast<int>(half_sm_blocks));
+            m_streamA, samples, m_config.binDims, 0xdeadbeef, 64, 1);
 
         auto frameQuality = 0.0;
         auto subpasses = 0;
@@ -490,7 +491,7 @@ void StreamRenderWorker::binningLoop()
         auto vibrancy = m_interpolator->interp_anima(&rfkt::flame::vibrancy, invoker, t, m_mix);
 
         m_tonemapper->run(
-            state.cold_bins, state.hot_bins, m_tonemapped_a,
+            state.cold_bins, state.hot_bins, m_tonemapped[m_writeIdx],
             {frameQuality, gamma, brightness, vibrancy},
             m_streamA);
 
@@ -510,9 +511,12 @@ void StreamRenderWorker::binningLoop()
                 .brightness = brightness,
                 .vibrancy = vibrancy,
                 .frameNumber = m_totalFrames,
+                .tonemapIdx = m_writeIdx,
             };
         }
         m_handoff_cv.notify_one();
+
+        m_writeIdx ^= 1;
 
         m_totalFrames++;
 
@@ -524,10 +528,17 @@ void StreamRenderWorker::binningLoop()
                         m_phase == Phase::Display ? "display" : "transition",
                         m_mix);
         }
+
+        state.release(m_streamA);
     }
 }
+catch(const std::exception& e) {
+    SPDLOG_ERROR("CUDA error: {}", e.what());
+    m_stopFlag.store(true, std::memory_order_release);
+    m_handoff_cv.notify_all();
+}
 
-void StreamRenderWorker::postProcessLoop()
+void StreamRenderWorker::postProcessLoop() try
 {
     m_config.ppCtx.make_current();
 
@@ -547,13 +558,14 @@ void StreamRenderWorker::postProcessLoop()
 
         m_streamB.wait_for(m_tonemapDone);
 
-        auto& denoiseInput = m_sameDevice ? m_tonemapped_a : m_tonemapped_b;
+        auto& tonemapped = m_tonemapped[frame.tonemapIdx];
+        auto& denoiseInput = m_sameDevice ? tonemapped : m_tonemapped_b;
 
         if (!m_sameDevice) {
             ROCCU_SAFE_CALL(cuMemcpyPeerAsync(
                 m_tonemapped_b.ptr(), m_config.ppCtx,
-                m_tonemapped_a.ptr(), m_config.ctx,
-                m_tonemapped_a.size_bytes(), m_streamB));
+                tonemapped.ptr(), m_config.ctx,
+                tonemapped.size_bytes(), m_streamB));
         }
 
         roccu::gpu_image_view<rfkt::uchar4> encoderView{
@@ -594,6 +606,11 @@ void StreamRenderWorker::postProcessLoop()
             }
         }
     }
+}
+catch(const std::exception& e) {
+    SPDLOG_ERROR("CUDA error: {}", e.what());
+    m_stopFlag.store(true, std::memory_order_release);
+    m_handoff_cv.notify_all();
 }
 
 double StreamRenderWorker::secsSinceStart() const

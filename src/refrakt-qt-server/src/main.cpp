@@ -169,11 +169,11 @@ int main(int argc, char* argv[])
             return QHttpServerWebSocketUpgradeResponse::passToNext();
         });
 
-    QObject::connect(&server, &QHttpServer::newWebSocketConnection, [&server, ctx]() {
+    QObject::connect(&server, &QHttpServer::newWebSocketConnection, [&server, ctx_view = ctx.view()]() {
         auto socket = server.nextPendingWebSocketConnection();
         if (!socket) return;
 
-        new StreamSession(std::move(socket), ctx, ctx, &server);
+        new StreamSession(std::move(socket), ctx_view, ctx_view, &server);
     });
 
     constexpr static auto port = 3000;

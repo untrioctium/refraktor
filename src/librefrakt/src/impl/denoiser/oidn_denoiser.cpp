@@ -16,7 +16,7 @@ namespace rfkt {
 			.upscale_supported = false
 		};
 
-		oidn_denoiser(uint2 dims, denoiser_flag::flags options, roccu::gpu_stream& stream): stream(stream) {
+		oidn_denoiser(uint2 dims, denoiser_flag::flags options, roccu::gpu_stream& stream, roccu::context_view ctx): stream(stream) {
 			device = [&stream]() -> oidn::DeviceRef {
 				if (roccuGetApi() == ROCCU_API_CUDA) {
 					return oidn::newCUDADevice({ 0 }, stream);

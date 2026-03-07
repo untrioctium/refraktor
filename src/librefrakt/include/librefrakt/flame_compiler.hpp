@@ -96,6 +96,14 @@ namespace rfkt {
 				stopper.from_host(std::span<const bool>{ &stop, 1 }, nullptr);
 			}
 
+			void release(roccu::gpu_stream& stream) {
+				cold_bins.free_async(stream);
+				hot_bins.free_async(stream);
+				shared.free_async(stream);
+				warmup_hits.free_async(stream);
+				density_histogram.free_async(stream);
+			}
+
 		};
 
 		struct bailout_args {
@@ -109,7 +117,7 @@ namespace rfkt {
 		auto warmup(roccu::gpu_stream& stream, std::span<double> samples, roccu::gpu_image<float4>&& bins, std::uint32_t seed, std::uint32_t count, int temporal_multiplier = 1, int num_blocks = 0) const->flame_kernel::saved_state;
 
 		int max_blocks() const { return exec.first; }
-		int blocks_per_sm() const { return exec.first / roccu::context::current().device().mp_count(); }
+		int blocks_per_sm() const { return exec.first / roccu::context_view::current().device().mp_count(); }
 
 		flame_kernel(flame_kernel&& o) noexcept {
 			*this = std::move(o);

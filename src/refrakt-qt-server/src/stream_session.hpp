@@ -7,6 +7,7 @@
 #include <QJsonObject>
 #include <QFuture>
 
+#include <array>
 #include <atomic>
 #include <optional>
 #include <memory>
@@ -35,8 +36,8 @@ public:
         rfkt::flame pendingFlame;
         std::optional<rfkt::interpolator> interpolator;
         rfkt::flame_kernel kernel;
-        roccu::context ctx;
-        roccu::context ppCtx;
+        roccu::context_view ctx;
+        roccu::context_view ppCtx;
         rfkt::uint2 outputDims;
         rfkt::uint2 binDims;
         unsigned int fps = 30;
@@ -97,7 +98,8 @@ private:
     // GPU A resources (binning + tonemap)
     roccu::gpu_stream m_streamA{};
     std::optional<rfkt::tonemapper> m_tonemapper;
-    roccu::gpu_image<rfkt::half3> m_tonemapped_a;
+    std::array<roccu::gpu_image<rfkt::half3>, 2> m_tonemapped;
+    int m_writeIdx = 0;
     roccu::gpu_event m_tonemapDone{};
 
     // GPU B resources (denoise + convert + encode)
@@ -116,6 +118,7 @@ private:
         double brightness;
         double vibrancy;
         std::int64_t frameNumber;
+        int tonemapIdx;
     };
     std::mutex m_handoff_mutex;
     std::condition_variable m_handoff_cv;
@@ -136,8 +139,8 @@ class StreamSession : public QObject {
 public:
     StreamSession(
         std::unique_ptr<QWebSocket> socket,
-        roccu::context ctx,
-        roccu::context ppCtx,
+        roccu::context_view ctx,
+        roccu::context_view ppCtx,
         QObject* parent = nullptr);
 
     ~StreamSession() override;
@@ -157,8 +160,8 @@ private:
     void stopRendering();
 
     std::unique_ptr<QWebSocket> m_socket;
-    roccu::context m_ctx;
-    roccu::context m_ppCtx;
+    roccu::context_view m_ctx;
+    roccu::context_view m_ppCtx;
 
     std::thread m_renderThread;
     std::unique_ptr<StreamRenderWorker> m_worker;

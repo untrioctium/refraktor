@@ -81,19 +81,19 @@ namespace roccu {
         }
     };
 
-    class context {
+    class context_view {
     public:
-        context(CUcontext ctx, CUdevice dev) : ctx_(ctx), dev_(dev) {}
-        context() = default;
+        context_view(CUcontext ctx, CUdevice dev) : ctx_(ctx), dev_(dev) {}
+        context_view() = default;
 
         explicit(false) operator CUcontext () const { return ctx_; }
-        CUcontext* ptr() { return &ctx_; }
+        explicit(false) operator bool() const { return ctx_ != nullptr; }
 
         device_t device() const {
             return device_t{ dev_ };
         }
 
-        static context current() {
+        static context_view current() {
             CUcontext ctx{};
             CUdevice dev{};
             cuCtxGetCurrent(&ctx);
@@ -112,16 +112,73 @@ namespace roccu {
             if (current != ctx_) make_current();
         }
 
-        void restart() {
-            cuCtxDestroy(ctx_);
-            cuCtxCreate(&ctx_, 0x01 | 0x08, dev_);
-        }
-
-        bool operator==(const context& o) const noexcept { return ctx_ == o.ctx_; }
+        bool operator==(const context_view& o) const noexcept { return ctx_ == o.ctx_; }
 
     private:
         CUcontext ctx_ = nullptr;
         CUdevice dev_ = 0;
+    };
+
+    class context {
+    public:
+        context(CUdevice dev) : dev_(dev) {
+            ROCCU_SAFE_CALL(cuCtxCreate(&ctx_, nullptr, 0x01 | 0x08, dev_));
+        }
+
+        context(const context&) = delete;
+        context& operator=(const context&) = delete;
+        context(context&& o) noexcept {
+            std::swap(ctx_, o.ctx_);
+            std::swap(dev_, o.dev_);
+        }
+        context& operator=(context&& o) noexcept {
+            std::swap(ctx_, o.ctx_);
+            std::swap(dev_, o.dev_);
+            return *this;
+        }
+
+        ~context() {
+            if (ctx_) cuCtxDestroy(ctx_);
+        }
+
+        context_view view() const {
+            return { ctx_, dev_ };
+        }
+
+        void make_current() const {
+            ROCCU_SAFE_CALL(cuCtxSetCurrent(ctx_));
+        }
+
+        void make_current_if_not() const {
+            CUcontext current{};
+            ROCCU_SAFE_CALL(cuCtxGetCurrent(&current));
+            if (current != ctx_) make_current();
+        }
+
+        bool operator==(const context& o) const { return ctx_ == o.ctx_; }
+
+        device_t device() const { return device_t{ dev_ }; }
+
+        
+    private:
+        CUcontext ctx_ = nullptr;
+        CUdevice dev_ = 0;
+    };
+
+    struct context_scope {
+        context_scope(context_view ctx) {
+            cuCtxPushCurrent(ctx);
+        }
+
+        ~context_scope() {
+            CUcontext current{};
+            cuCtxPopCurrent(&current);
+        }
+
+        context_scope(context_scope&&) = delete;
+        context_scope& operator=(context_scope&&) = delete;
+        context_scope(const context_scope&) = delete;
+        context_scope& operator=(const context_scope&) = delete;
     };
 
     class gpu_event {
@@ -172,11 +229,11 @@ namespace roccu {
             ptr_(ptr),
             stream_(stream) {
 
-            auto dev_max = static_cast<std::size_t>(context::current().device().max_access_policy_window_size());
+            auto dev_max = static_cast<std::size_t>(context_view::current().device().max_access_policy_window_size());
             size = (std::min)(size, dev_max);
             CUlaunchAttributeValue attr{};
-            attr.accessPolicyWindow.basePtr = ptr_;
-            attr.accessPolicyWindow.numBytes = size;
+            attr.accessPolicyWindow.base_ptr = reinterpret_cast<void*>(ptr_);
+            attr.accessPolicyWindow.num_bytes = size;
             attr.accessPolicyWindow.hitRatio = ratio;
             attr.accessPolicyWindow.hitProp = CU_ACCESS_PROPERTY_PERSISTING;
             attr.accessPolicyWindow.missProp = CU_ACCESS_PROPERTY_NORMAL;
@@ -186,8 +243,8 @@ namespace roccu {
 
         ~l2_persister() {
             CUlaunchAttributeValue attr{};
-            attr.accessPolicyWindow.basePtr = ptr_;
-            attr.accessPolicyWindow.numBytes = 0;
+            attr.accessPolicyWindow.base_ptr = reinterpret_cast<void*>(ptr_);
+            attr.accessPolicyWindow.num_bytes = 0;
             attr.accessPolicyWindow.hitRatio = 0.0f;
             attr.accessPolicyWindow.hitProp = CU_ACCESS_PROPERTY_NORMAL;
             attr.accessPolicyWindow.missProp = CU_ACCESS_PROPERTY_NORMAL;

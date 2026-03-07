@@ -11,7 +11,7 @@ namespace rfkt {
 			.upscale_supported = false
 		};
 
-		null_denoiser(uint2 dims, denoiser_flag::flags options, roccu::gpu_stream& stream): stream(stream) {}
+		null_denoiser(uint2 dims, denoiser_flag::flags options, roccu::gpu_stream& stream, roccu::context_view ctx): stream(stream) {}
 
 		template<typename PixelType>
 		std::future<double> denoise_impl(image_type<PixelType> in, image_type<PixelType> out, roccu::gpu_event& event) {

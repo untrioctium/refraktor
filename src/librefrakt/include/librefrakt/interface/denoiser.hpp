@@ -21,7 +21,7 @@ namespace rfkt {
 
 	}
 
-	struct denoiser : factory<denoiser, uint2, denoiser_flag::flags, roccu::gpu_stream&> {
+	struct denoiser : factory<denoiser, uint2, denoiser_flag::flags, roccu::gpu_stream&, roccu::context_view> {
 		struct meta_type {
 			std::string_view pretty_name;
 			std::size_t priority;

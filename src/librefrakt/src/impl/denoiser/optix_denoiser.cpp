@@ -32,18 +32,41 @@ namespace rfkt {
 		};
 
 		static void init_if_needed() {
-			if (optix_context) return;
-
-			CHECK_OPTIX(optixInit());
-			CHECK_OPTIX(optixDeviceContextCreate(roccu::context::current(), nullptr, &optix_context));
+			static std::once_flag once;
+			std::call_once(once, []() {
+				CHECK_OPTIX(optixInit());
+			});
 		}
 
-		optix_denoiser(uint2 dims, denoiser_flag::flags options, roccu::gpu_stream& stream) :
+		optix_denoiser(uint2 dims, denoiser_flag::flags options, roccu::gpu_stream& stream, roccu::context_view ctx) :
 			stream(stream),
 			upscale(options & denoiser_flag::upscale),
-			tiling(options & denoiser_flag::tiled) {
+			tiling(options & denoiser_flag::tiled),
+			context(ctx) {
 
 			init_if_needed();
+
+			roccu::context_scope scope(context);
+
+			auto& optix_context = optix_contexts[context];
+			if (optix_context.handle == nullptr) {
+				OptixDeviceContextOptions options = {};
+				options.logCallbackFunction = nullptr;
+				options.logCallbackFunction = [](unsigned int level, const char* tag, const char* message, void* cbdata) {
+					if(level == 1) // fatal
+						SPDLOG_CRITICAL("Optix: {} {}", tag, message);
+					else if(level == 2) // error
+						SPDLOG_ERROR("Optix: {} {}", tag, message);
+					else if(level == 3) // warning
+						SPDLOG_WARN("Optix: {} {}", tag, message);
+					else if(level == 4) // info
+						SPDLOG_INFO("Optix: {} {}", tag, message);
+				};
+				options.logCallbackLevel = 4;
+				options.validationMode = OPTIX_DEVICE_CONTEXT_VALIDATION_MODE_ALL;
+				CHECK_OPTIX(optixDeviceContextCreate(context, &options, &optix_context.handle));
+				optix_context.ref_count++;
+			}
 
 			if (tiling) {
 				tile_size = dims;
@@ -58,10 +81,10 @@ namespace rfkt {
 			auto denoiser_options = OptixDenoiserOptions{
 				.guideAlbedo = 0,
 				.guideNormal = 0,
-				.denoiseAlpha = OPTIX_DENOISER_ALPHA_MODE_DENOISE
+				.denoiseAlpha = OPTIX_DENOISER_ALPHA_MODE_COPY
 			};
 
-			CHECK_OPTIX(optixDenoiserCreate(optix_context, optix_model, &denoiser_options, &handle));
+			CHECK_OPTIX(optixDenoiserCreate(optix_context.handle, optix_model, &denoiser_options, &handle));
 
 			memset(&szs, 0, sizeof(szs));
 			CHECK_OPTIX(optixDenoiserComputeMemoryResources(handle, dims.x, dims.y, &szs));
@@ -71,12 +94,12 @@ namespace rfkt {
 				dims.y += 2 * szs.overlapWindowSizeInPixels;
 			}
 
-			state_buffer = roccu::gpu_buffer<>{szs.stateSizeInBytes};
+			state_buffer = roccu::gpu_buffer<>{szs.stateSizeInBytes, stream};
 			auto scratch_size = tiling ? szs.withOverlapScratchSizeInBytes : szs.withoutOverlapScratchSizeInBytes;
-			scratch_buffer = roccu::gpu_buffer<>{scratch_size};
+			scratch_buffer = roccu::gpu_buffer<>{scratch_size, stream};
 
 			CHECK_OPTIX(optixDenoiserSetup(
-				handle, 0,
+				handle, stream,
 				dims.x, dims.y,
 				state_buffer.ptr(), state_buffer.size_bytes(),
 				scratch_buffer.ptr(), scratch_buffer.size_bytes()));
@@ -86,8 +109,20 @@ namespace rfkt {
 			dp.hdrIntensity = 0;
 		}
 
+		~optix_denoiser() override {
+			roccu::context_scope scope(context);
+			optixDenoiserDestroy(handle);
+			auto& optix_context = optix_contexts[context];
+			if (optix_context.ref_count.fetch_sub(1) == 1) {
+				optixDeviceContextDestroy(optix_context.handle);
+				optix_contexts.erase(context);
+			}
+		}
+
 		template<typename PixelType>
 		std::future<double> denoise_impl(image_type<PixelType> in, image_type<PixelType> out, roccu::gpu_event& event) {
+			roccu::context_scope scope(context);
+
 			memset(&layer, 0, sizeof(layer));
 
 			layer.input.width = in.width();
@@ -181,13 +216,20 @@ namespace rfkt {
 		bool tiling;
 		uint2 tile_size;
 
-		inline static OptixDeviceContext optix_context = nullptr;
+		struct optix_context_entry {
+			OptixDeviceContext handle = nullptr;
+			std::atomic<std::size_t> ref_count = 0;
+		};
+
+		inline static std::unordered_map<CUcontext, optix_context_entry> optix_contexts = {};
 
 		OptixDenoiser handle = nullptr;
 		OptixDenoiserSizes szs;
 		OptixDenoiserParams dp;
 		OptixDenoiserLayer layer;
 		OptixDenoiserGuideLayer guide_layer = {};
+
+		roccu::context_view context;
 
 		roccu::gpu_buffer<> state_buffer;
 		roccu::gpu_buffer<> scratch_buffer;

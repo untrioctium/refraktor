@@ -20,11 +20,11 @@
 namespace py = pybind11;
 
 struct context {
+    std::unique_ptr<roccu::context> cuda_ctx;
     std::unique_ptr<rfkt::flamedb> flamedb;
     std::unique_ptr<rfkt::function_table> functions;
-    std::unique_ptr<roccu::context> cuda_ctx;
-    std::unique_ptr<rfkt::flame_compiler> flame_compiler;
     std::shared_ptr<ezrtc::compiler> kernel_manager;
+    std::unique_ptr<rfkt::flame_compiler> flame_compiler;
 
     std::unique_ptr<rfkt::denoiser> denoiser;
     std::unique_ptr<rfkt::denoiser> upscaling_denoiser;
@@ -62,20 +62,20 @@ static std::unique_ptr<context> ctx = nullptr;
         .def_readwrite("z", &T::z) \
         .def_readwrite("w", &T::w)
 
-rfkt::flame_kernel::bin_result render_image(const rfkt::flame& flame, std::string_view output_path, unsigned int width, unsigned int height, double t, double fps, double seconds_per_loop, double quality_bailout, unsigned int millis_bailout, bool denoise, std::set<std::string> flags, bool superscale, unsigned int min_warps_per_block) {
+std::tuple<rfkt::flame_kernel::bin_result, double> render_image(const rfkt::flame& flame, std::string_view output_path, unsigned int width, unsigned int height, double t, double fps, double seconds_per_loop, double quality_bailout, unsigned int millis_bailout, bool denoise, std::set<std::string> flags, bool superscale, unsigned int min_warps_per_block) {
 
     py::gil_scoped_release release;
     ctx->cuda_ctx->make_current();
 
 
-    auto dev_l2 = roccu::context::current().device().l2_cache_size();
+    auto dev_l2 = roccu::context_view::current().device().l2_cache_size();
     auto bins_width = width;
     auto bins_height = height;
 
     if(superscale) {
         // find the largest integer multiple that fits in the L2 cache
-        constexpr static auto normal_bytes_per_bin = 16;
-        constexpr static auto hot_cold_bytes_per_bin = 8;
+        constexpr static auto normal_bytes_per_bin = 16ull;
+        constexpr static auto hot_cold_bytes_per_bin = 8ull;
 
         auto bins_size_normal = bins_width * bins_height * normal_bytes_per_bin;
         auto bins_size_hot_cold = bins_width * bins_height * hot_cold_bytes_per_bin;
@@ -94,9 +94,12 @@ rfkt::flame_kernel::bin_result render_image(const rfkt::flame& flame, std::strin
             bins_width *= bins_hot_cold_multiple;
             bins_height *= bins_hot_cold_multiple;
             flags.insert("HOT_COLD");
+
         } else if(bins_normal_multiple > 0) {
             bins_width *= bins_normal_multiple;
             bins_height *= bins_normal_multiple;
+        } else if(bins_size_normal > dev_l2) {
+            flags.insert("HOT_COLD");
         }
     }
 
@@ -137,9 +140,11 @@ rfkt::flame_kernel::bin_result render_image(const rfkt::flame& flame, std::strin
         .hdr = false
     };
 
+    double dn_time = 0.0;
+    std::optional<std::future<double>> dn_future = std::nullopt;
     ctx->tonemapper->run(state.cold_bins, state.hot_bins, tonemapped, tm_args, *ctx->stream);
     if(denoise) {
-        ctx->denoiser->denoise(tonemapped, denoised, *ctx->event);
+        dn_future =ctx->denoiser->denoise(tonemapped, denoised, *ctx->event);
     } else {
         denoised = std::move(tonemapped);
     }
@@ -148,7 +153,11 @@ rfkt::flame_kernel::bin_result render_image(const rfkt::flame& flame, std::strin
     auto output = fut.get()();
     rfkt::fs::write(rfkt::fs::path(output_path), (const char*)output.data(), output.size());
 
-    return bin_result;
+    if (dn_future.has_value()) {
+        dn_time = dn_future->get();
+    }
+
+    return {bin_result, dn_time};
 }
 
 rfkt::flame_kernel::bin_result render_image_interpolated(const rfkt::interpolator& interpolator, double mix, std::string_view output_path, unsigned int width, unsigned int height, double t, double fps, double seconds_per_loop, double quality_bailout, unsigned int millis_bailout, bool denoise, bool upscale, std::set<std::string> flags, std::uint32_t iter_bailout, unsigned int min_warps_per_block) {
@@ -353,8 +362,8 @@ PYBIND11_MODULE(_pyrefrakt, m, py::mod_gil_not_used()) {
         ctx->tonemapper = std::make_unique<rfkt::tonemapper>(*ctx->kernel_manager);
         ctx->converter = std::make_unique<rfkt::converter>(*ctx->kernel_manager);
 
-        ctx->denoiser = rfkt::denoiser::make("rfkt::optix_denoise", uint2{1024, 1024}, rfkt::denoiser_flag::tiled, *ctx->stream);
-        ctx->upscaling_denoiser = rfkt::denoiser::make("rfkt::optix_denoise", uint2{1024, 1024}, rfkt::denoiser_flag::upscale | rfkt::denoiser_flag::tiled, *ctx->stream);
+        ctx->denoiser = rfkt::denoiser::make("rfkt::optix_denoise", uint2{1024, 1024}, rfkt::denoiser_flag::tiled, *ctx->stream, ctx->cuda_ctx->view());
+        ctx->upscaling_denoiser = rfkt::denoiser::make("rfkt::optix_denoise", uint2{1024, 1024}, rfkt::denoiser_flag::upscale | rfkt::denoiser_flag::tiled, *ctx->stream, ctx->cuda_ctx->view());
         ctx->jpeg_encoder = rfkt::jpeg_encoder::make("rfkt::nvjpeg_encode", *ctx->stream);
 
         if(!ctx->jpeg_encoder) {

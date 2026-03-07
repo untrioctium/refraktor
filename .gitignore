@@ -79,3 +79,4 @@ pyrefrakt.egg-info/
 dist.7z
 sheep.db
 *Identifier*
+*.log

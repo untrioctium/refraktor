@@ -16,7 +16,7 @@ KernelCompileQueue::KernelCompileQueue(QObject* parent)
     m_compilePool.setMaxThreadCount(1);
     m_compilePool.setExpiryTimeout(-1);
 
-    auto ctx = roccu::context::current();
+    auto ctx = roccu::context_view::current();
     m_compilePool.start([ctx]() {
         ctx.make_current();
     });

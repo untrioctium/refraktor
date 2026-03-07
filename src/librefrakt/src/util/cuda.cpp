@@ -31,7 +31,6 @@ auto rfkt::cuda::init() -> roccu::context
 auto rfkt::cuda::init(int device_ordinal) -> roccu::context
 {
     CUdevice dev{};
-    CUcontext ctx{};
 
     if(auto api = roccuInit(); api == ROCCU_API_NONE) {
         throw std::runtime_error("Failed to initialize CUDA");
@@ -39,9 +38,8 @@ auto rfkt::cuda::init(int device_ordinal) -> roccu::context
 
     ROCCU_SAFE_CALL(cuInit(0));
     ROCCU_SAFE_CALL(cuDeviceGet(&dev, device_ordinal));
-    ROCCU_SAFE_CALL(cuCtxCreate(&ctx, 0x01 | 0x08, dev));
 
     log_device_info(roccu::device_t{ dev });
 
-    return { ctx, dev };
+    return roccu::context{ dev };
 }

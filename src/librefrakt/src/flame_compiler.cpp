@@ -599,7 +599,7 @@ auto rfkt::flame_compiler::prepare_flame_kernel(const flamedb& fdb, precision pr
     
         auto func = compile_result.module->kernel("bin");
     
-        auto max_blocks = func.max_blocks_per_mp(most_blocks.block) * roccu::context::current().device().mp_count();
+        auto max_blocks = func.max_blocks_per_mp(most_blocks.block) * roccu::context_view::current().device().mp_count();
         auto expected_shared = smem_per_block(prec, size_reals, most_blocks.block);
         if (max_blocks < most_blocks.grid) {
     
@@ -660,7 +660,7 @@ roccu::gpu_buffer<Contained> make_shuffle_buffers(std::size_t ppts, std::size_t 
 
 rfkt::flame_compiler::flame_compiler(ezrtc::compiler* k_manager): km(k_manager)
 {
-    exec_configs = roccu::context::current().device().concurrent_block_configurations();
+    exec_configs = roccu::context_view::current().device().concurrent_block_configurations();
 
     std::string check_kernel_name = "get_sizes";
     auto base_src = rfkt::fs::read_string(rfkt::fs::assets_directory() / "kernels/size_info.cu");
@@ -795,7 +795,7 @@ auto rfkt::flame_compiler::make_opts(precision prec, const flame& f, flame_compi
     // per temporal sample. this is not necessary for chaos because the
     // threads within a warp are already divergent.
     if (!f.chaos_table.has_value()) {
-        const auto warp_size = roccu::context::current().device().warp_size();
+        const auto warp_size = roccu::context_view::current().device().warp_size();
         while (exec_configs[most_blocks_idx].block / warp_size < min_warps_per_block) most_blocks_idx--;
     }
     //most_blocks_idx = 0;
@@ -815,7 +815,7 @@ auto rfkt::flame_compiler::make_opts(precision prec, const flame& f, flame_compi
         .flag(ezrtc::compile_flag::default_device)
         .flag(ezrtc::compile_flag::generate_line_info)
         .define("THREADS_PER_BLOCK", most_blocks.block)
-        .define("BLOCKS_PER_MP", most_blocks.grid / roccu::context::current().device().mp_count())
+        .define("BLOCKS_PER_MP", most_blocks.grid / roccu::context_view::current().device().mp_count())
         .define("FLAME_SIZE_REALS", flame_real_count)
         .define("FLAME_SIZE_BYTES", flame_size_bytes)
         .define("TOTAL_THREADS", most_blocks.grid * most_blocks.block)

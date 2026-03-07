@@ -532,7 +532,7 @@
       return Promise.resolve();
     }
 
-    const fps = 48;
+    const fps = 30;
     const beats_per_minute = 120;
     const beats_per_measure = 4;
     const measures_per_loop = 4;
@@ -586,7 +586,7 @@
           width: w,
           height: h,
           loop_length: loop_length,
-          upscale: false,
+          upscale: true,
           embellish: false,
           bitrate_kbps: parseInt(bitrateSelect.value, 10)
         });

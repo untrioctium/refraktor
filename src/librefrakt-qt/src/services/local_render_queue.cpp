@@ -20,18 +20,20 @@ LocalRenderQueue::LocalRenderQueue(QObject* parent)
           "rfkt::optix_denoise",
           tile_dimensions,
           rfkt::denoiser_flag::tiled,
-          m_stream))
+          m_stream,
+          roccu::context_view::current()))
     , m_upscaleDenoiser(rfkt::denoiser::make(
           "rfkt::optix_denoise",
           tile_dimensions,
           rfkt::denoiser_flag::tiled | rfkt::denoiser_flag::upscale,
-          m_stream))
+          m_stream,
+          roccu::context_view::current()))
     , m_converter(*KernelCompileQueue::kernelManagerInstance())
 {
     m_renderPool.setMaxThreadCount(1);
     m_renderPool.setExpiryTimeout(-1);
 
-    auto ctx = roccu::context::current();
+    auto ctx = roccu::context_view::current();
     m_renderPool.start([ctx]() {
         ctx.make_current();
     });
