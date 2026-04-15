@@ -5,5 +5,5 @@ set_target_properties(refraktor PROPERTIES FIRST_PARTY true)
 
 target_link_libraries(refraktor 
 	PRIVATE 
-	librefrakt 
+	librefrakt librefrakt-impl
 )

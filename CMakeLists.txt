@@ -81,6 +81,7 @@ add_subdirectory(src/librefrakt-qt)
 #add_subdirectory(src/refrakt-qt)
 add_subdirectory(src/refrakt-qt-server)
 add_subdirectory(src/pyrefrakt)
+add_subdirectory(src/refraktor)
 #add_subdirectory(src/refrakt-gui)
 
 function(get_all_targets var)

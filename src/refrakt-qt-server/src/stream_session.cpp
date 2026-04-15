@@ -516,7 +516,7 @@ void StreamRenderWorker::binningLoop() try
         }
         m_handoff_cv.notify_one();
 
-        m_writeIdx ^= 1;
+        m_writeIdx = (m_writeIdx + 1) % m_tonemapped.size();
 
         m_totalFrames++;
 

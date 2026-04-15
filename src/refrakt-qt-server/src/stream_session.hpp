@@ -98,7 +98,7 @@ private:
     // GPU A resources (binning + tonemap)
     roccu::gpu_stream m_streamA{};
     std::optional<rfkt::tonemapper> m_tonemapper;
-    std::array<roccu::gpu_image<rfkt::half3>, 2> m_tonemapped;
+    std::array<roccu::gpu_image<rfkt::half3>, 3> m_tonemapped;
     int m_writeIdx = 0;
     roccu::gpu_event m_tonemapDone{};
 

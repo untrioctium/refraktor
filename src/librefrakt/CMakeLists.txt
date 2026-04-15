@@ -87,6 +87,7 @@ set(EZRTC_USE_FMTLIB ON CACHE BOOL "" FORCE)
 set(EZRTC_USE_ZLIB ON CACHE BOOL "" FORCE)
 set(EZRTC_USE_SQLITE ON CACHE BOOL "" FORCE)
 
+add_subdirectory(depend/cpujit)
 add_subdirectory(depend/ezrtc)
 add_subdirectory(depend/eznve)
 add_subdirectory(depend/optix_downloader)
@@ -97,6 +98,7 @@ target_link_libraries(librefrakt PUBLIC
 	roccu
  	ezrtc
 	eznve
+	cpujit
 	#Rpcrt4.lib
 )
 

@@ -121,7 +121,11 @@ namespace roccu {
 
     private:
 
-        static std::string make_error_string(CUresult result, const char* description = nullptr, const std::stacktrace& stacktrace = std::stacktrace::current()) {
+        static std::string make_error_string(CUresult result, const char* description = nullptr
+            #if ROCCU_HAS_STACKTRACE
+            , const std::stacktrace& stacktrace = std::stacktrace::current()
+            #endif
+        ) {
             std::string error_string;
 
             const char* cuda_name = nullptr;
